@@ -48,6 +48,13 @@ export interface ProjectState {
 
   /** Replace the whole document (open / new / demo). Clears history. */
   loadProject(project: MapProject, savedId?: string | null): void;
+  /**
+   * Bumped by every `loadProject`. The renderer watches it to know a whole
+   * document arrived rather than an edit to the one on screen — the two want
+   * opposite things from the view, which should follow the document that just
+   * opened but stay put for every other change.
+   */
+  loadCount: number;
   /** View changes are not undoable — they would swamp the history stack. */
   setView(view: Partial<SavedView>): void;
   markSaved(savedId: string): void;
@@ -62,6 +69,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   past: [],
   future: [],
   revision: 0,
+  loadCount: 0,
   dirty: false,
   savedId: null,
   lastSavedAt: null,
@@ -134,6 +142,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       past: [],
       future: [],
       revision: get().revision + 1,
+      loadCount: get().loadCount + 1,
       dirty: false,
       savedId,
       lastSavedAt: savedId ? Date.now() : null,

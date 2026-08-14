@@ -21,6 +21,7 @@
  */
 
 import { clipToLand, indexLand, type LandPolygon } from './coastline';
+import { indexRivers, snapToRivers, type RiverIndex } from './riverSnap';
 import type { MultiPolygon, Polygon, Position } from 'geojson';
 
 // Re-exported because it is part of this module's own signature: callers pass
@@ -73,6 +74,15 @@ export interface GrowthOptions {
   /** Rounds of corner-cutting applied to the traced outline. */
   smoothing: number;
   /**
+   * How far a frontier may be from a river and still be put onto it, in cells.
+   *
+   * Making a river expensive to cross settles a frontier *near* it; this is what
+   * puts the frontier *on* it. Without this the border comes out as a smooth arc
+   * wandering back and forth over the watercourse it is supposed to follow,
+   * which is the first thing a reader checks a border against. 0 turns it off.
+   */
+  riverSnap: number;
+  /**
    * Trim every realm to the coastline once it has been grown.
    *
    * On by default, and the only reason to turn it off is speed. A realm claims
@@ -96,6 +106,10 @@ export const DEFAULT_GROWTH: Omit<GrowthOptions, 'extent'> = {
   riverCost: 1.4,
   coastBonus: 0.45,
   smoothing: 4,
+  // Just under a cell. Wide enough to catch a frontier the lattice put one step
+  // off the river, narrow enough that a border merely passing within sight of a
+  // tributary is left alone.
+  riverSnap: 0.8,
   clipToCoast: true,
 };
 
@@ -211,13 +225,26 @@ interface Lattice {
   landCount: number;
 }
 
+/** Scanlines sampled per cell row. Odd, so one of them is still the centre. */
+const SUBSAMPLES = 3;
+
 /**
- * Mark every lattice cell whose centre falls on land.
+ * Mark every lattice cell that holds any land at all.
  *
  * Scanline fill rather than a point-in-polygon test per cell: the land file is
  * one feature holding thousands of rings, and testing a quarter of a million
  * cells against all of them is minutes of work for an answer a single pass over
  * the edges gives in milliseconds.
+ *
+ * *Any* land, not land at the centre, and that distinction is the difference
+ * between a realm that reaches the sea and one that stops short of it. A cell
+ * is twenty kilometres across; Cape Cod, Nantucket, the Outer Banks and most of
+ * Long Island are narrower than that, so a centre test cannot see them and no
+ * realm could ever claim them — they stayed unclaimed ground on every map this
+ * produced, with the frontier running inland of a coast it was supposed to
+ * follow. Sampling several lines per row and marking every cell a span touches
+ * puts the coastal fringe back on the lattice, where a realm can take it and
+ * the trim can cut it back to the shore.
  */
 function rasterize(rings: Position[][], extent: [number, number, number, number], cell: number): Lattice {
   const [west, south, east, north] = extent;
@@ -241,8 +268,8 @@ function rasterize(rings: Position[][], extent: [number, number, number, number]
       const lo = Math.min(ay, by);
       const hi = Math.max(ay, by);
       if (hi < south || lo > north) continue;
-      const r0 = Math.max(0, Math.ceil((lo - south) / cell - 0.5));
-      const r1 = Math.min(rows - 1, Math.floor((hi - south) / cell - 0.5));
+      const r0 = Math.max(0, Math.floor((lo - south) / cell));
+      const r1 = Math.min(rows - 1, Math.floor((hi - south) / cell));
       if (r1 < r0) continue;
       const index = x1.length;
       x1.push(ax);
@@ -256,23 +283,27 @@ function rasterize(rings: Position[][], extent: [number, number, number, number]
   let landCount = 0;
   const crossings: number[] = [];
   for (let r = 0; r < rows; r++) {
-    const y = south + (r + 0.5) * cell;
-    crossings.length = 0;
-    for (const e of rowEdges[r]) {
-      // Half-open comparison, so a vertex exactly on the scanline counts once.
-      if (y1[e] <= y === y2[e] <= y) continue;
-      crossings.push(x1[e] + ((y - y1[e]) * (x2[e] - x1[e])) / (y2[e] - y1[e]));
-    }
-    if (crossings.length < 2) continue;
-    crossings.sort((a, b) => a - b);
-    for (let i = 0; i + 1 < crossings.length; i += 2) {
-      const c0 = Math.max(0, Math.ceil((crossings[i] - west) / cell - 0.5));
-      const c1 = Math.min(cols - 1, Math.floor((crossings[i + 1] - west) / cell - 0.5));
-      for (let c = c0; c <= c1; c++) {
-        const k = r * cols + c;
-        if (!land[k]) {
-          land[k] = 1;
-          landCount++;
+    for (let sub = 0; sub < SUBSAMPLES; sub++) {
+      const y = south + (r + (sub + 0.5) / SUBSAMPLES) * cell;
+      crossings.length = 0;
+      for (const e of rowEdges[r]) {
+        // Half-open comparison, so a vertex exactly on the scanline counts once.
+        if (y1[e] <= y === y2[e] <= y) continue;
+        crossings.push(x1[e] + ((y - y1[e]) * (x2[e] - x1[e])) / (y2[e] - y1[e]));
+      }
+      if (crossings.length < 2) continue;
+      crossings.sort((a, b) => a - b);
+      for (let i = 0; i + 1 < crossings.length; i += 2) {
+        // Every cell the span touches, not every cell whose centre it covers:
+        // a strip of land narrower than a cell still makes that cell land.
+        const c0 = Math.max(0, Math.floor((crossings[i] - west) / cell));
+        const c1 = Math.min(cols - 1, Math.floor((crossings[i + 1] - west) / cell));
+        for (let c = c0; c <= c1; c++) {
+          const k = r * cols + c;
+          if (!land[k]) {
+            land[k] = 1;
+            landCount++;
+          }
         }
       }
     }
@@ -440,9 +471,16 @@ export function growRealms(
   const shapes = new Map<string, Polygon | MultiPolygon>();
   const claimed = new Map<string, number>();
   const coast = options.clipToCoast ? indexLand(land, options.extent) : null;
+  // Rivers are indexed at the snapping tolerance, so a frontier vertex only
+  // ever meets the handful of segments that could possibly be near it.
+  const tolerance = Math.max(0, options.riverSnap) * options.cellSize;
+  const riverBorders =
+    tolerance > 0 && riverLines.length
+      ? { index: indexRivers(riverLines, tolerance), tolerance }
+      : null;
   seeds.forEach((seed, index) => {
     claimed.set(seed.id, taken[index]);
-    const outline = traceRealm(grid, owner, index, options.smoothing);
+    const outline = traceRealm(grid, owner, index, options.smoothing, riverBorders);
     if (!outline) return;
     // A realm whose whole claim is trimmed away had nothing but the sea-side
     // overhang of a cell or two, and is better absent than drawn as a slick.
@@ -466,6 +504,7 @@ function traceRealm(
   owner: Int32Array,
   realm: number,
   smoothing: number,
+  rivers: { index: RiverIndex; tolerance: number } | null,
 ): Polygon | MultiPolygon | null {
   const { cols, rows, cell, west, south } = grid;
   // Edges keyed by their start corner, each carrying who is on the *other* side.
@@ -523,7 +562,7 @@ function traceRealm(
     // hairline across the map with no territory behind it.
     const closed = closeRing(ring);
     if (closed.length >= 4 && Math.abs(signedArea(closed)) > cell * cell * 0.25) {
-      rings.push(dressRing(closed, neighbours, cell, smoothing));
+      rings.push(dressRing(closed, neighbours, cell, smoothing, rivers));
     }
   }
   if (rings.length === 0) return null;
@@ -547,10 +586,20 @@ function traceRealm(
  * both simplification and corner-cutting give the same answer on a reversed
  * polyline, so the two results are identical and the border stays shared.
  */
-function dressRing(ring: Position[], neighbours: number[], cell: number, smoothing: number): Position[] {
+function dressRing(
+  ring: Position[],
+  neighbours: number[],
+  cell: number,
+  smoothing: number,
+  rivers: { index: RiverIndex; tolerance: number } | null,
+): Position[] {
+  const dress = (arc: Position[]): Position[] => {
+    const smoothed = smoothOpen(simplifyOpen(arc, cell * 1.3), smoothing);
+    return rivers ? snapToRivers(smoothed, rivers.index, rivers.tolerance) : smoothed;
+  };
   if (neighbours.length !== ring.length - 1) {
     // A ring that did not close cleanly; treat it as one arc rather than guess.
-    return smoothOpen(simplifyOpen(ring, cell * 1.3), smoothing);
+    return dress(ring);
   }
 
   // Cut points: where the neighbouring region changes between one edge and the
@@ -563,7 +612,14 @@ function dressRing(ring: Position[], neighbours: number[], cell: number, smoothi
 
   // A ring with a single neighbour all the way round — an island, or a realm
   // entirely surrounded by wilderness — has no junctions to pin.
-  if (cuts.length === 0) return smoothRing(simplifyRing(ring, cell * 1.3), smoothing);
+  // No junctions to pin — an island, or a realm entirely surrounded by
+  // wilderness. Its whole outline is its own, so it is smoothed as one closed
+  // loop; the first and last vertex are the same point, so pinning them keeps
+  // it closed while the rest is free to find a river.
+  if (cuts.length === 0) {
+    const smoothed = smoothRing(simplifyRing(ring, cell * 1.3), smoothing);
+    return rivers ? closeRing(snapToRivers(smoothed, rivers.index, rivers.tolerance)) : smoothed;
+  }
 
   const out: Position[] = [];
   for (let k = 0; k < cuts.length; k++) {
@@ -574,7 +630,7 @@ function dressRing(ring: Position[], neighbours: number[], cell: number, smoothi
       arc.push(ring[i]);
       if (i === to) break;
     }
-    const dressed = smoothOpen(simplifyOpen(arc, cell * 1.3), smoothing);
+    const dressed = dress(arc);
     // Drop the shared endpoint so arcs join without a duplicate vertex.
     out.push(...(k === 0 ? dressed : dressed.slice(1)));
   }

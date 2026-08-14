@@ -135,8 +135,8 @@ export class MapController {
   private lastOceanColor: string | null = null;
   private lastWaterLandKey: string | null = null;
   private lastProjectionId: string | null = null;
-  /** Which document is on screen, so a *load* can be told from an edit. */
-  private lastProjectId: string | null = null;
+  /** How many documents have been opened, so a *load* can be told from an edit. */
+  private lastLoadCount = -1;
   private lastWorkingExtent: string | null = null;
   private lastStyles: unknown = null;
   private lastLayers: unknown = null;
@@ -386,6 +386,14 @@ export class MapController {
     this.attachPointer();
   }
 
+  /** Put the view where the document says, without disturbing anything else. */
+  private applyDocumentView(project: MapProject): void {
+    const view = this.map.getView();
+    view.setCenter(transformCoord(project.view.center as Coordinate, 'EPSG:4326', view.getProjection().getCode()));
+    view.setZoom(project.view.zoom);
+    view.setRotation(project.view.rotation);
+  }
+
   private invalidateAll(): void {
     this.cache.territories.clear();
     this.cache.settlements.clear();
@@ -406,8 +414,9 @@ export class MapController {
   // -------------------------------------------------------------------------
 
   syncAll(project: MapProject, force: boolean): void {
-    const loaded = this.lastProjectId !== null && project.id !== this.lastProjectId;
-    this.lastProjectId = project.id;
+    const loadCount = useProjectStore.getState().loadCount;
+    const loaded = this.lastLoadCount >= 0 && loadCount !== this.lastLoadCount;
+    this.lastLoadCount = loadCount;
     if (project.projection.id !== this.lastProjectionId) {
       this.lastWorkingExtent = extentKey(project.workingExtent);
       this.setProjection(project.projection, loaded);
@@ -417,6 +426,12 @@ export class MapController {
       this.lastWorkingExtent = extentKey(project.workingExtent);
       this.applyWorkingExtent(project, loaded);
       // Falls through: everything below is independent of the extent.
+    } else if (loaded) {
+      // A document that happens to share the projection and the crop of the one
+      // it replaced still has its own view, and nothing above would have
+      // applied it — which is how opening a saved map could leave you looking
+      // at wherever the last one was.
+      this.applyDocumentView(project);
     }
     if (force || this.lastStyles !== project.styles) {
       clearStyleCaches();

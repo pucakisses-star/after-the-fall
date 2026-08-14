@@ -51,7 +51,8 @@ what the map looks like:
   distance, so a frontier perturbed by it still lands on the straight bisector between two seats, and
   the first version of this produced a field of hexagons. Noise correlated across tens of cells makes
   whole stretches of frontier bulge one way, which is what a real border does.
-* **rivers cost extra to cross**, so borders settle onto them as real ones do.
+* **rivers cost extra to cross**, so borders settle onto them as real ones do — and then are
+  *put* onto them, see below.
 * **coasts are cheap**, so a realm runs along a shoreline far faster than it pushes inland — the
   origin of every long thin coastal state on a real map.
 
@@ -69,6 +70,21 @@ tie-break, because a traced frontier is a staircase on which points tie constant
 the chord", and keeping whichever was found first is an answer that depends on which end you started
 from. Ties go to the lexicographically smaller point, which does not.
 
+**A frontier that runs beside a river is moved onto it.** Making a crossing expensive settles a
+frontier *near* a watercourse; it does not put it *on* one. The frontier is traced on a
+twenty-kilometre lattice and then rounded off, so what came out was a smooth arc wandering back and
+forth across the river it was meant to follow — the first thing a reader checks a border against, and
+it visibly missed. Each dressed stretch is now offered the rivers near it, and any run within about a
+cell of one is replaced by that river's own course, meander for meander: the Ohio from Evansville past
+Louisville, the Mississippi from Memphis to Natchez.
+
+A run has to earn it. Three or more consecutive vertices must be near the *same* river, or one vertex
+passing a tributary drags the border onto it and back. They must travel along it in one direction, or
+a frontier crossing a meander is snapped to a course that doubles back. And the river must cover a
+fair share of the ground the frontier covered, or a border crossing a river at right angles — several
+vertices near it, all projecting onto much the same point — is swung along the bank and back for
+nothing. All three are mistakes this made before the conditions were added.
+
 **A realm ends where the land does.** The lattice claims whole cells, so a coastal realm's outline
 runs up to half a cell — twenty kilometres — out to sea, and rounding it off pushes it further: a
 smooth blob lying across a coastline drawn at a thousand times its resolution. Each realm is
@@ -76,6 +92,13 @@ therefore trimmed to the coast once it has grown, and its sea-facing edge is the
 itself, at full 1:10m detail, bay for bay. Only the sea-facing edge changes; an inland frontier lies
 strictly inside the land, so the trim finds nothing to cut and neighbours still agree vertex for
 vertex.
+
+That trim can only give back land a realm actually claimed, which is why the lattice counts a cell as
+land if *any* of it is land rather than only its centre. A cell is twenty kilometres across; Cape Cod,
+Nantucket, Long Island and the Outer Banks are narrower than that, so a centre test cannot see them at
+all. They stayed unclaimed ground on every map this produced, with the frontier running inland of a
+coast it was supposed to follow — which is not a trimming failure but a rasterising one, and looks
+identical.
 
 Trimming two hundred realms against a continent is the one part of this that had to be made fast.
 Natural Earth's Americas are 1,448 parts and 164,000 vertices, but two thirds of that is a single
@@ -294,6 +317,7 @@ src/
     winkelTripel.ts   Winkel Tripel + Natural Earth (proj4 ships neither).
     palette.ts        Graph-colouring palette generator.
     coastline.ts      Trimming a shape to the shore, cheaply enough to do it often.
+    riverSnap.ts      Moving a frontier onto the river it runs beside.
     realmGrowth.ts    Growing realms from seats of power. See above.
     basemap.ts        Reference geography loading.
 
