@@ -69,7 +69,21 @@ const PRECISION = 4;
  * megabytes and removes the decision.
  */
 const DATASETS = [
-  { src: 'ne_10m_lakes', out: 'lakes-10m.json', object: 'lakes', quantization: 1e5 },
+  // Lakes, plus the two regional supplements.
+  //
+  // Natural Earth's main lakes file stops at scalerank 9, which is a bigger lake
+  // than it sounds: Atitlán, Tahoe and most of the Adirondacks are not in it. The
+  // supplements are ranks 10–12 and nothing else — 1,162 more in North America
+  // and 767 in Europe, with no `ne_id` shared with the main file and no lake
+  // appearing twice. They are separate downloads rather than separate layers,
+  // because "small lakes" is not a kind of geography anyone wants to toggle
+  // independently of lakes.
+  {
+    src: ['ne_10m_lakes', 'ne_10m_lakes_north_america', 'ne_10m_lakes_europe'],
+    out: 'lakes-10m.json',
+    object: 'lakes',
+    quantization: 1e5,
+  },
   { src: 'ne_10m_rivers_lake_centerlines', out: 'rivers-10m.json', object: 'rivers', quantization: 1e5 },
   { src: 'ne_10m_populated_places', out: 'places-10m.json', object: 'places', quantization: 1e6 },
   // The highway network, cut to the trunk system of the Americas.
@@ -135,27 +149,36 @@ function trim(feature, keep) {
 
 async function build({ src, out, object, quantization, countries, admin1, roads, continents, types }) {
   const keep = [...KEEP, ...(admin1 ? KEEP_ADMIN1 : []), ...(roads ? KEEP_ROADS : [])];
-  const url = `${SOURCE}/${src}.geojson`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${src}: HTTP ${res.status}`);
-  const raw = await res.json();
+  // One output file may be built from several Natural Earth ones — the lakes
+  // supplements are published apart but belong in the same layer.
+  const sources = Array.isArray(src) ? src : [src];
 
   const wanted = countries ? new Set(countries) : null;
   const onlyIn = continents ? new Set(continents) : null;
   const onlyKind = types ? new Set(types) : null;
-  const features = raw.features
-    .filter((f) => f.geometry?.coordinates?.length)
-    .filter((f) => !wanted || wanted.has(f.properties?.adm0_a3))
-    .filter((f) => !onlyIn || onlyIn.has(f.properties?.continent))
-    .filter((f) => !onlyKind || onlyKind.has(f.properties?.type))
-    .map((f) => trim(f, keep))
-    .filter(Boolean);
+
+  let before = 0;
+  const features = [];
+  for (const name of sources) {
+    const res = await fetch(`${SOURCE}/${name}.geojson`);
+    if (!res.ok) throw new Error(`${name}: HTTP ${res.status}`);
+    const raw = await res.json();
+    before += JSON.stringify(raw).length;
+    features.push(
+      ...raw.features
+        .filter((f) => f.geometry?.coordinates?.length)
+        .filter((f) => !wanted || wanted.has(f.properties?.adm0_a3))
+        .filter((f) => !onlyIn || onlyIn.has(f.properties?.continent))
+        .filter((f) => !onlyKind || onlyKind.has(f.properties?.type))
+        .map((f) => trim(f, keep))
+        .filter(Boolean),
+    );
+  }
   const topo = topology({ [object]: { type: 'FeatureCollection', features } }, quantization);
 
   const target = path.join(OUT_DIR, out);
   fs.writeFileSync(target, JSON.stringify(topo));
 
-  const before = JSON.stringify(raw).length;
   const after = fs.statSync(target).size;
   console.log(
     `${out.padEnd(18)} ${String(features.length).padStart(5)} features  ` +

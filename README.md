@@ -164,7 +164,7 @@ are ever loaded, and nothing is downloaded from the internet at runtime.
 |---|---|---|
 | World coastlines | Global | 2.9 MB |
 | Country boundaries | Global | 3.5 MB |
-| Lakes | Global | 1.2 MB |
+| Lakes | Global | 1.9 MB |
 | Rivers | Global | 2.0 MB |
 | Highways | The Americas | 2.6 MB |
 | Cities & towns | Global | 1.4 MB |
@@ -230,6 +230,19 @@ drawn on top of its colour or it disappears underneath, which is both how atlase
 only way the layer is usable for tracing. Lakes convert into water-styled territories and rivers
 into editable river features, so reference water can become part of the document in one step. Lakes
 are never trimmed to the land, for the obvious reason.
+
+**The lakes layer is three Natural Earth files, not one.** The main one stops at scalerank 9, which
+is a bigger lake than it sounds: Atitlán, Lake George, the Quabbin Reservoir and most of the
+Boundary Waters are simply not in it, so the Canadian Shield — which is more water than land —
+rendered nearly blank. The two regional supplements are ranks 10 to 12 and nothing else, 1,162 more
+lakes in North America and 767 in Europe, and they take the layer from 1,355 to 3,284. They share no
+`ne_id` with the main file and no lake appears in both, so merging them needs no deduplication.
+
+They are merged into the one **Lakes** toggle rather than offered as their own, because "small
+lakes" is not a kind of geography anyone wants to switch on separately. Nothing thins them by scale,
+which was worth checking rather than assuming: the additions are small enough that a hemisphere view
+changes by 0.36% of its pixels, so there is no stipple to suppress — and at regional zoom, which is
+where they are for, the Shield fills in with the lakes that are the whole character of the place.
 
 Rivers are weighted by Natural Earth's `scalerank` on screen and in the export, so trunk rivers
 carry the eye and tributaries stay quiet rather than every watercourse drawing as the same hairline.

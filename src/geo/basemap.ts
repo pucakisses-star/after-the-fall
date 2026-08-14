@@ -117,7 +117,7 @@ export const BUILTIN_BASEMAPS: BasemapSource[] = [
 export const BASEMAP_SIZES: Record<string, string> = {
   'world-land-10m': '2.9 MB',
   'world-countries-10m': '3.5 MB',
-  'world-lakes-10m': '1.2 MB',
+  'world-lakes-10m': '1.9 MB',
   'world-rivers-10m': '2.0 MB',
   'world-roads-10m': '2.6 MB',
   'world-places-10m': '1.4 MB',
