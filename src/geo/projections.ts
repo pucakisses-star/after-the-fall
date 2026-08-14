@@ -126,6 +126,18 @@ export const PROJECTION_PRESETS: ProjectionPreset[] = [
     validArea: NORTHERN_CONIC,
   },
   {
+    id: 'ATF:AMERICAS',
+    name: 'Americas (Lambert Azimuthal)',
+    proj4: `+proj=laea +lat_0=20 +lon_0=-95 +x_0=0 +y_0=0 +a=${R} +b=${R} +units=m +no_defs`,
+    extent: null,
+    units: 'm',
+    description: 'Equal-area, centred on the New World. Both continents on one sheet, areas true.',
+    global: false,
+    // Everything within about 90° of the centre. Beyond that an azimuthal
+    // projection folds the far hemisphere back over the near one.
+    validArea: [-180, -60, -20, 85],
+  },
+  {
     id: 'ATF:ORTHOGRAPHIC',
     name: 'Orthographic (Globe)',
     proj4: `+proj=ortho +lat_0=30 +lon_0=-40 +x_0=0 +y_0=0 +a=${R} +b=${R} +units=m +no_defs`,

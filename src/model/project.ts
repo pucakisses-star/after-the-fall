@@ -4,8 +4,8 @@
 
 import { newId } from './ids';
 import { createDefaultStyleSheet } from './defaults';
-import { defaultProjection } from '@/geo/projections';
-import type { LayerKind, MapLayer, MapProject, StyleSheet, UUID } from './types';
+import { defaultProjection, findPreset } from '@/geo/projections';
+import type { LayerKind, MapLayer, MapProject, ProjectionSettings, StyleSheet, UUID } from './types';
 
 export const SCHEMA_VERSION = 1;
 
@@ -125,7 +125,12 @@ export interface NewProjectOptions {
 export function createProject(opts: NewProjectOptions = {}): MapProject {
   const { layers } = createDefaultLayers();
   const now = new Date().toISOString();
-  const projection = defaultProjection();
+  // `projectionId` was accepted and then quietly ignored, so every caller that
+  // asked for one silently got the default instead.
+  const preset = opts.projectionId ? findPreset(opts.projectionId) : undefined;
+  const projection: ProjectionSettings = preset
+    ? { id: preset.id, name: preset.name, proj4: preset.proj4, extent: preset.extent, units: preset.units }
+    : defaultProjection();
 
   return {
     schemaVersion: SCHEMA_VERSION,

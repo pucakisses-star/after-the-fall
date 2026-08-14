@@ -2,523 +2,518 @@
  * A political map of the post-apocalyptic Americas, after the *After the End*
  * setting for Crusader Kings (spec §65 — a worked example, not a special case).
  *
- * Every realm here is built by the same public API the UI uses: real Natural
- * Earth admin-1 subdivisions are dissolved into territories, arranged into the
- * empire → kingdom hierarchy of §7, given the border tiers of §8, and labelled
- * by the same label engine as anything you draw yourself. Nothing in the
- * application knows this file exists.
+ * Every realm here is built by the same public API the UI uses: shapes grown
+ * from a seat of power by `geo/realmGrowth`, arranged into the empire → vassal
+ * hierarchy of §7, given the border tiers of §8, and labelled by the same label
+ * engine as anything you draw yourself. Nothing in the application knows this
+ * file exists.
  *
- * On accuracy. The realm names and the empire each belongs to are taken from the
- * mod's own realm list. The *shapes* are not: the mod has a hand-drawn province
- * map that is not published as geodata, so each realm is approximated here by
- * the modern states, provinces and departments it most nearly covers. Read it as
- * a plausible atlas of that world rather than a tracing of the mod's map — and
- * every border is editable, which is the point of the application.
+ * On the shapes. They are deliberately not modern state, provincial or
+ * departmental boundaries. A collapsed world that still divides at the state
+ * line is not a collapsed world, and the maps this is modelled on — realms
+ * spreading from a city until they meet a rival, with real wilderness between
+ * them — cannot be drawn by dissolving units somebody else defined. So each
+ * realm claims outward from its seat at a rate set by its strength, and the
+ * frontier falls where two claims meet.
+ *
+ * On the names. Realm names, their tier and the empire each belongs to are
+ * taken from the setting's own realm list. Where a realm sits is an informed
+ * placement, not a tracing of the mod's province map, which is not published as
+ * geodata. Read it as a plausible atlas of that world — and every border is an
+ * ordinary editable territory, which is the point of the application.
  */
 
-import { basemapFeatureName, loadBasemap, polygonsOf } from '@/geo/basemap';
+import { loadBasemap, polygonsOf } from '@/geo/basemap';
 import { dissolve, interiorPoint } from '@/geo/operations';
+import { DEFAULT_GROWTH, growRealms, type RealmSeed } from '@/geo/realmGrowth';
 import { PALETTES, STYLE_IDS } from '@/model/defaults';
 import { createProject, findLayerByKind } from '@/model/project';
 import { newId } from '@/model/ids';
 import type { MapLabel, MapProject, PoliticalType, Settlement, TextStyle } from '@/model/types';
-import type { MultiPolygon, Polygon } from 'geojson';
+import type { MultiPolygon, Polygon, Position } from 'geojson';
 
-/**
- * A realm. `units` are admin-1 subdivisions written `ISO3:Name`, qualified by
- * country because the names collide freely — Colón is in both Honduras and
- * Panama, Durango is a Mexican state and a Colorado town, and there is a
- * Portland in Jamaica.
- */
-interface RealmDef {
+/** A vassal realm: a name, a seat, and how far its writ runs. */
+interface Realm {
   name: string;
-  /** Name without its title, for the compact label. */
   short: string;
   type: PoliticalType;
-  units: string[];
-  /** Vassal realms. Their units count towards this realm's extent too. */
-  realms?: RealmDef[];
-  capital?: { name: string; lon: number; lat: number };
-  color?: string;
-  /**
-   * Where to set the realm's name, when the centre of its area is the wrong
-   * place for it. An atlas places these by hand for exactly this reason: the
-   * centroid of the Great Lakes realms is a lake, and three neighbouring names
-   * set in wide-tracked capitals will collide however good the automatic
-   * placement is. §11 never drops a label, so the answer is to put it somewhere
-   * it fits rather than hope.
-   */
-  label?: { lon: number; lat: number };
+  /** Seat of power, and where its growth starts. */
+  seat: [number, number];
+  /** Relative reach. 1 is an ordinary kingdom; a city-state is well under it. */
+  weight: number;
+  /** Extra growth origins, for a realm that straddles water or a range. */
+  also?: [number, number][];
+  /** This realm's seat is the empire's capital. */
+  capital?: boolean;
 }
 
-const ATLAS = PALETTES['historical-atlas'];
-const MUTED = PALETTES.muted;
+interface Empire {
+  name: string;
+  short: string;
+  type: PoliticalType;
+  color: string;
+  /** Where to set the empire's name, when the centre of its area will not do. */
+  label?: [number, number];
+  realms: Realm[];
+}
 
-/** Every US state and DC, as `USA:` units — the base of several large realms. */
-const usa = (...names: string[]) => names.map((n) => `USA:${n}`);
-const can = (...names: string[]) => names.map((n) => `CAN:${n}`);
-const mex = (...names: string[]) => names.map((n) => `MEX:${n}`);
+const A = PALETTES['historical-atlas'];
+const M = PALETTES.muted;
+const P = PALETTES.pastel;
 
-const EMPIRES: RealmDef[] = [
-  {
-    name: 'The Arctic',
-    label: { lon: -96, lat: 66.5 },
-    short: 'ARCTIC',
-    type: 'confederation',
-    units: [],
-    color: ATLAS[9],
-    capital: { name: 'Iqaluit', lon: -68.517, lat: 63.746 },
-    realms: [
-      {
-        name: 'Kingdom of Nunavik',
-        short: 'Nunavik',
-        type: 'kingdom',
-        units: can('Nunavut', 'Northwest Territories'),
-      },
-      {
-        name: 'Petty Kingdom of Avalon',
-        short: 'Avalon',
-        type: 'kingdom',
-        units: can('Newfoundland and Labrador'),
-      },
-      // Greenland is deliberately left unclaimed: the setting is the Americas,
-      // and inventing a realm for it would be putting words in the mod's mouth.
-    ],
-  },
-  {
-    name: 'Empire of Canada',
-    label: { lon: -79.0, lat: 51.5 },
-    short: 'CANADA',
-    type: 'empire',
-    units: [],
-    color: ATLAS[0],
-    capital: { name: 'Montréal', lon: -73.568, lat: 45.502 },
-    realms: [
-      { name: 'Kingdom of Ontario', short: 'Ontario', type: 'kingdom', units: can('Ontario') },
-      { name: 'Ursuline See', short: 'Ursuline See', type: 'theocracy', units: can('Québec') },
-      {
-        name: 'Kingdom of the Maritimes',
-        short: 'Maritimes',
-        type: 'kingdom',
-        units: can('New Brunswick', 'Nova Scotia', 'Prince Edward Island'),
-      },
-    ],
-  },
-  {
-    name: 'Empire of Atlantica',
-    label: { lon: -71.0, lat: 44.6 },
-    short: 'ATLANTICA',
-    type: 'empire',
-    units: [],
-    color: ATLAS[3],
-    capital: { name: 'New York', lon: -74.006, lat: 40.713 },
-    realms: [
-      { name: 'Kingdom of Hudsonia', short: 'Hudsonia', type: 'kingdom', units: usa('New York') },
-      { name: 'Kingdom of Deitschrei', short: 'Deitschrei', type: 'kingdom', units: usa('Pennsylvania') },
-      { name: 'District of South Jersey', short: 'South Jersey', type: 'district', units: usa('New Jersey') },
-      {
-        name: 'District of Delmarva',
-        short: 'Delmarva',
-        type: 'district',
-        units: usa('Delaware', 'Maryland'),
-      },
-      {
-        name: 'District Court of Columbia',
-        short: 'Columbia',
-        type: 'district',
-        units: usa('District of Columbia'),
-      },
-      {
-        name: 'District of Connecticut',
-        short: 'Connecticut',
-        type: 'district',
-        units: usa('Connecticut', 'Rhode Island'),
-      },
-      { name: 'Chiefdom of Plymouth', short: 'Plymouth', type: 'tribal-confederacy', units: usa('Massachusetts') },
-      {
-        name: 'Duchy of the Green Mountains',
-        short: 'Green Mountains',
-        type: 'duchy',
-        units: usa('Vermont', 'New Hampshire'),
-      },
-      { name: 'High Chiefdom of Penobscot', short: 'Penobscot', type: 'tribal-confederacy', units: usa('Maine') },
-    ],
-  },
-  {
-    name: 'Grand Virginia',
-    label: { lon: -81.5, lat: 35.4 },
-    short: 'GRAND VIRGINIA',
-    type: 'confederation',
-    units: [],
-    color: ATLAS[4],
-    capital: { name: 'Richmond', lon: -77.436, lat: 37.541 },
-    realms: [
-      { name: 'Republic of Chesapeake', short: 'Chesapeake', type: 'republic', units: usa('Virginia') },
-      { name: 'High Chiefdom of Vandalia', short: 'Vandalia', type: 'tribal-confederacy', units: usa('West Virginia') },
-      { name: 'Grand Division of Bluegrass', short: 'Bluegrass', type: 'province', units: usa('Kentucky') },
-      { name: 'Grand Division of East Tennessee', short: 'East Tennessee', type: 'province', units: usa('Tennessee') },
-      { name: 'High Chiefdom of Blue Ridge', short: 'Blue Ridge', type: 'tribal-confederacy', units: usa('North Carolina') },
-    ],
-  },
-  {
-    name: 'Holy Columbian Confederacy',
-    label: { lon: -83.0, lat: 31.2 },
-    short: 'HOLY COLUMBIA',
-    type: 'confederation',
-    units: usa('South Carolina'),
-    color: ATLAS[2],
-    capital: { name: 'Atlanta', lon: -84.388, lat: 33.749 },
-    realms: [
-      { name: 'Metropolis of Choctaw', short: 'Choctaw', type: 'city-state', units: usa('Georgia') },
-      { name: 'District of Natchez', short: 'Natchez', type: 'district', units: usa('Alabama') },
-      { name: 'Duchy of Yazoo', short: 'Yazoo', type: 'duchy', units: usa('Florida') },
-    ],
-  },
-  {
-    name: 'The Gulfcoast',
-    label: { lon: -93.6, lat: 34.9 },
-    short: 'GULFCOAST',
-    type: 'confederation',
-    units: [],
-    color: ATLAS[8],
-    capital: { name: 'New Orleans', lon: -90.071, lat: 29.951 },
-    realms: [
-      { name: 'Kingdom of Louisiane', short: 'Louisiane', type: 'kingdom', units: usa('Louisiana') },
-      { name: 'Duchy of Ouachita', short: 'Ouachita', type: 'duchy', units: usa('Arkansas') },
-      { name: 'Duchy of Mobile', short: 'Mobile', type: 'duchy', units: usa('Mississippi') },
-    ],
-  },
-  {
-    name: 'The Lone Star',
-    label: { lon: -100.0, lat: 32.6 },
-    short: 'LONE STAR',
-    type: 'kingdom',
-    units: [],
-    color: ATLAS[6],
-    capital: { name: 'San Antonio', lon: -98.494, lat: 29.424 },
-    realms: [
-      { name: 'Kingdom of Rio Grande', short: 'Rio Grande', type: 'kingdom', units: usa('Texas') },
-      { name: 'Kingdom of Comancheria', short: 'Comancheria', type: 'kingdom', units: usa('Oklahoma') },
-    ],
-  },
-  {
-    name: 'The Heartland',
-    label: { lon: -98.6, lat: 40.2 },
-    short: 'HEARTLAND',
-    type: 'confederation',
-    units: usa('Kansas'),
-    color: ATLAS[1],
-    capital: { name: 'St. Louis', lon: -90.199, lat: 38.627 },
-    realms: [
-      { name: 'Kingdom of Iowa', short: 'Iowa', type: 'kingdom', units: usa('Iowa') },
-      { name: 'Kingdom of Platte', short: 'Platte', type: 'kingdom', units: usa('Nebraska') },
-      { name: 'Republic of Boonslick', short: 'Boonslick', type: 'republic', units: usa('Missouri') },
-    ],
-  },
-  {
-    name: 'The Great Lakes',
-    label: { lon: -87.8, lat: 46.2 },
-    short: 'GREAT LAKES',
-    type: 'confederation',
-    units: usa('Indiana', 'Ohio'),
-    color: ATLAS[5],
-    capital: { name: 'Chicago', lon: -87.632, lat: 41.884 },
-    realms: [
-      { name: 'Petty Kingdom of Illinois', short: 'Illinois', type: 'kingdom', units: usa('Illinois') },
-      { name: 'Jarldom of the Northwoods', short: 'Northwoods', type: 'duchy', units: usa('Michigan') },
-      { name: 'Republic of Superior', short: 'Superior', type: 'republic', units: usa('Wisconsin') },
-    ],
-  },
-  {
-    name: 'The Thunderlands',
-    label: { lon: -104.5, lat: 51.5 },
-    short: 'THUNDERLANDS',
-    type: 'confederation',
-    units: [],
-    color: ATLAS[7],
-    capital: { name: 'Winnipeg', lon: -97.138, lat: 49.895 },
-    realms: [
-      { name: 'Jarldom of Minnesota', short: 'Minnesota', type: 'duchy', units: usa('Minnesota') },
-      { name: 'Jarldom of Sheyenne', short: 'Sheyenne', type: 'duchy', units: usa('North Dakota') },
-      { name: 'Kingdom of Lakotah', short: 'Lakotah', type: 'kingdom', units: usa('South Dakota') },
-      { name: 'High Chiefdom of Winnipeg', short: 'Winnipeg', type: 'tribal-confederacy', units: can('Manitoba') },
-      { name: 'High Chiefdom of Ahtahkakoop', short: 'Ahtahkakoop', type: 'tribal-confederacy', units: can('Saskatchewan') },
-      { name: 'Petty Kingdom of Alberta', short: 'Alberta', type: 'kingdom', units: can('Alberta') },
-    ],
-  },
-  {
-    name: 'The Rockies',
-    label: { lon: -111.5, lat: 43.6 },
-    short: 'ROCKIES',
-    type: 'confederation',
-    units: [],
-    color: MUTED[2],
-    capital: { name: 'Deseret', lon: -111.891, lat: 40.761 },
-    realms: [
-      { name: 'Kingdom of Deseret', short: 'Deseret', type: 'kingdom', units: usa('Utah') },
-      { name: 'High Chiefdom of Denver', short: 'Denver', type: 'tribal-confederacy', units: usa('Colorado') },
-      { name: 'High Chiefdom of Beartooth', short: 'Beartooth', type: 'tribal-confederacy', units: usa('Montana') },
-      { name: 'High Chiefdom of West Snake', short: 'West Snake', type: 'tribal-confederacy', units: usa('Idaho') },
-      { name: 'High Chiefdom of Highland Springs', short: 'Highland Springs', type: 'tribal-confederacy', units: usa('Wyoming') },
-    ],
-  },
+const EMPIRES: Empire[] = [
   {
     name: 'Empire of Cascadia',
-    label: { lon: -126.0, lat: 51.0 },
     short: 'CASCADIA',
     type: 'empire',
-    units: [...can('Yukon'), ...usa('Alaska')],
-    color: MUTED[1],
-    capital: { name: 'Seattle', lon: -122.335, lat: 47.608 },
+    color: M[1],
+    label: [-131, 55],
     realms: [
-      { name: 'Petty Kingdom of Olympus', short: 'Olympus', type: 'kingdom', units: usa('Washington') },
-      { name: 'Kingdom of Lincoln', short: 'Lincoln', type: 'kingdom', units: usa('Oregon') },
-      { name: 'Kingdom of Haida Tlagaang', short: 'Haida Tlagaang', type: 'kingdom', units: can('British Columbia') },
+      { name: 'Petty Kingdom of Olympus', short: 'Olympus', type: 'kingdom', seat: [-122.9, 47.0], weight: 0.9, capital: true },
+      { name: 'Republic of Seattle', short: 'Seattle', type: 'republic', seat: [-122.33, 47.61], weight: 0.35 },
+      { name: 'Duchy of Portlandia', short: 'Portlandia', type: 'duchy', seat: [-122.68, 45.52], weight: 0.5 },
+      { name: 'Kingdom of Lincoln', short: 'Lincoln', type: 'kingdom', seat: [-123.09, 44.05], weight: 0.9 },
+      { name: 'Petty Kingdom of the Okanagan', short: 'Okanagan', type: 'kingdom', seat: [-119.5, 49.9], weight: 0.9 },
+      { name: 'Kingdom of Haida Tlagaang', short: 'Haida Tlagaang', type: 'kingdom', seat: [-130.3, 54.3], weight: 1.3 },
+      { name: 'Duchy of Juneau', short: 'Juneau', type: 'duchy', seat: [-134.42, 58.30], weight: 1.0 },
+      { name: 'Chiefdom of Aknuqtluk', short: 'Aknuqtluk', type: 'tribal-confederacy', seat: [-149.9, 61.2], weight: 1.4 },
+      { name: 'High Chiefdom of Clearwater', short: 'Clearwater', type: 'tribal-confederacy', seat: [-116.0, 46.4], weight: 0.8 },
     ],
   },
   {
     name: 'Celestial Empire of California',
-    label: { lon: -119.0, lat: 37.6 },
     short: 'CALIFORNIA',
     type: 'empire',
-    units: usa('California'),
-    color: MUTED[3],
-    capital: { name: 'Sacramento', lon: -121.494, lat: 38.582 },
+    color: M[3],
+    label: [-120.6, 36.2],
     realms: [
-      {
-        name: 'Kingdom of Baja',
-        short: 'Baja',
-        type: 'kingdom',
-        units: mex('Baja California', 'Baja California Sur'),
-      },
-      { name: 'High Chiefdom of Death Valley', short: 'Death Valley', type: 'tribal-confederacy', units: usa('Nevada') },
+      { name: 'Kingdom of Jefferson', short: 'Jefferson', type: 'kingdom', seat: [-122.39, 40.59], weight: 0.8 },
+      { name: 'Kingdom of Gran Francisco', short: 'Gran Francisco', type: 'kingdom', seat: [-122.42, 37.77], weight: 0.5, capital: true },
+      { name: 'Kingdom of the Valley', short: 'The Valley', type: 'kingdom', seat: [-119.79, 36.75], weight: 0.7 },
+      { name: 'Kingdom of Socal', short: 'Socal', type: 'kingdom', seat: [-118.24, 34.05], weight: 0.8 },
+      { name: 'High Chiefdom of Death Valley', short: 'Death Valley', type: 'tribal-confederacy', seat: [-115.14, 36.17], weight: 0.9 },
+      { name: 'Kingdom of Baja', short: 'Baja', type: 'kingdom', seat: [-110.31, 24.14], weight: 0.9, also: [[-115.5, 30.5]] },
+    ],
+  },
+  {
+    name: 'The Rockies',
+    short: 'ROCKIES',
+    type: 'confederation',
+    color: M[2],
+    label: [-110.5, 43.8],
+    realms: [
+      { name: 'Kingdom of Deseret', short: 'Deseret', type: 'kingdom', seat: [-111.89, 40.76], weight: 1.2, capital: true },
+      { name: 'High Chiefdom of Northern Basin', short: 'Northern Basin', type: 'tribal-confederacy', seat: [-115.76, 40.83], weight: 0.9 },
+      { name: 'High Chiefdom of West Snake', short: 'West Snake', type: 'tribal-confederacy', seat: [-116.20, 43.62], weight: 1.0 },
+      { name: 'High Chiefdom of Silver Bow', short: 'Silver Bow', type: 'tribal-confederacy', seat: [-112.53, 46.00], weight: 0.9 },
+      { name: 'High Chiefdom of Beartooth', short: 'Beartooth', type: 'tribal-confederacy', seat: [-108.50, 45.78], weight: 1.0 },
+      { name: 'High Chiefdom of Highland Springs', short: 'Highland Springs', type: 'tribal-confederacy', seat: [-106.31, 42.85], weight: 1.0 },
+      { name: 'High Chiefdom of Denver', short: 'Denver', type: 'tribal-confederacy', seat: [-104.99, 39.74], weight: 0.8 },
+      { name: 'High Chiefdom of Pueblo', short: 'Pueblo', type: 'tribal-confederacy', seat: [-104.61, 38.25], weight: 0.7 },
+    ],
+  },
+  {
+    name: 'The Thunderlands',
+    short: 'THUNDERLANDS',
+    type: 'confederation',
+    color: A[7],
+    label: [-105, 53.5],
+    realms: [
+      { name: 'Kingdom of Lakotah', short: 'Lakotah', type: 'kingdom', seat: [-103.23, 44.08], weight: 1.4, capital: true },
+      { name: 'High Chiefdom of Chouteau', short: 'Chouteau', type: 'tribal-confederacy', seat: [-111.30, 47.50], weight: 1.0 },
+      { name: 'Petty Kingdom of Alberta', short: 'Alberta', type: 'kingdom', seat: [-114.07, 51.05], weight: 1.4 },
+      { name: 'High Chiefdom of Ahtahkakoop', short: 'Ahtahkakoop', type: 'tribal-confederacy', seat: [-106.67, 52.13], weight: 1.4 },
+      { name: 'High Chiefdom of Winnipeg', short: 'Winnipeg', type: 'tribal-confederacy', seat: [-97.14, 49.90], weight: 1.2 },
+      { name: 'Jarldom of Sheyenne', short: 'Sheyenne', type: 'duchy', seat: [-96.79, 46.88], weight: 0.9 },
+      { name: 'Jarldom of Pembina', short: 'Pembina', type: 'duchy', seat: [-97.03, 48.20], weight: 0.7 },
+      { name: 'High Chiefdom of Keewatin', short: 'Keewatin', type: 'tribal-confederacy', seat: [-89.25, 48.38], weight: 1.2 },
+      { name: 'High Chiefdom of Golden Valley', short: 'Golden Valley', type: 'tribal-confederacy', seat: [-102.79, 47.28], weight: 0.8 },
+    ],
+  },
+  {
+    name: 'The Great Lakes',
+    short: 'GREAT LAKES',
+    type: 'confederation',
+    color: A[5],
+    label: [-88.5, 46.9],
+    realms: [
+      { name: 'Duchy of Cook', short: 'Cook', type: 'duchy', seat: [-87.63, 41.88], weight: 0.45, capital: true },
+      { name: 'Petty Kingdom of Illinois', short: 'Illinois', type: 'kingdom', seat: [-89.65, 39.80], weight: 0.8 },
+      { name: 'Jarldom of the Northwoods', short: 'Northwoods', type: 'duchy', seat: [-92.10, 46.79], weight: 0.9 },
+      { name: 'Republic of Superior', short: 'Superior', type: 'republic', seat: [-90.19, 46.60], weight: 0.6 },
+      { name: 'Jarldom of Copperland', short: 'Copperland', type: 'duchy', seat: [-87.40, 46.55], weight: 0.7 },
+      { name: 'Jarldom of Green Bay', short: 'Green Bay', type: 'duchy', seat: [-88.02, 44.51], weight: 0.7 },
+      { name: 'Jarldom of Chippewa', short: 'Chippewa', type: 'duchy', seat: [-91.50, 44.81], weight: 0.7 },
+      { name: 'Factory of Detroit', short: 'Detroit', type: 'city-state', seat: [-83.05, 42.33], weight: 0.5 },
+      { name: 'Duchy of the Wilds', short: 'The Wilds', type: 'duchy', seat: [-85.62, 44.76], weight: 0.7 },
+      { name: 'Petty Tycoonship of Indianapolis', short: 'Indianapolis', type: 'city-state', seat: [-86.16, 39.77], weight: 0.6 },
+      { name: 'Petty Commonwealth of Zinzinnati', short: 'Zinzinnati', type: 'republic', seat: [-84.51, 39.10], weight: 0.6 },
+      { name: 'Tribe of Burning River', short: 'Burning River', type: 'tribal-confederacy', seat: [-81.69, 41.50], weight: 0.7 },
+      { name: 'Oligarchy of Niagara', short: 'Niagara', type: 'republic', seat: [-78.88, 42.89], weight: 0.5 },
+    ],
+  },
+  {
+    name: 'The Heartland',
+    short: 'HEARTLAND',
+    type: 'confederation',
+    color: A[1],
+    label: [-97.8, 40.2],
+    realms: [
+      { name: 'Republic of Boonslick', short: 'Boonslick', type: 'republic', seat: [-92.33, 38.95], weight: 0.9 },
+      { name: 'The Papacy', short: 'The Papacy', type: 'theocracy', seat: [-90.20, 38.63], weight: 0.5, capital: true },
+      { name: 'Kingdom of Iowa', short: 'Iowa', type: 'kingdom', seat: [-93.62, 41.59], weight: 1.0 },
+      { name: 'Kingdom of Platte', short: 'Platte', type: 'kingdom', seat: [-96.50, 41.10], weight: 1.2 },
+      { name: 'Duchy of Chisholm', short: 'Chisholm', type: 'duchy', seat: [-97.34, 37.69], weight: 1.1 },
+      { name: 'Grand Division of Lead Belt', short: 'Lead Belt', type: 'province', seat: [-90.60, 37.30], weight: 0.6 },
+    ],
+  },
+  {
+    name: 'The Lone Star',
+    short: 'LONE STAR',
+    type: 'kingdom',
+    color: A[6],
+    label: [-101.5, 31.4],
+    realms: [
+      { name: 'Kingdom of Comancheria', short: 'Comancheria', type: 'kingdom', seat: [-101.86, 33.58], weight: 1.3, capital: true },
+      { name: 'Duchy of Amarillo', short: 'Amarillo', type: 'duchy', seat: [-101.83, 35.22], weight: 0.9 },
+      { name: 'Duchy of Metroplex', short: 'Metroplex', type: 'city-state', seat: [-97.05, 32.75], weight: 0.5 },
+      { name: 'Longhorn Realm', short: 'Longhorn', type: 'duchy', seat: [-98.30, 30.30], weight: 0.8 },
+      { name: 'Tribe of Airmen', short: 'Airmen', type: 'tribal-confederacy', seat: [-98.49, 29.42], weight: 0.6 },
+      { name: 'Duchy of Aggies', short: 'Aggies', type: 'duchy', seat: [-96.33, 30.63], weight: 0.6 },
+      { name: 'Duchy of Transpecos', short: 'Transpecos', type: 'duchy', seat: [-103.06, 30.90], weight: 1.0 },
+      { name: 'Kingdom of Rio Grande', short: 'Rio Grande', type: 'kingdom', seat: [-99.51, 27.51], weight: 0.9 },
+      { name: 'Duchy of Sequoyah', short: 'Sequoyah', type: 'duchy', seat: [-95.99, 36.15], weight: 0.9 },
+    ],
+  },
+  {
+    name: 'The Gulfcoast',
+    short: 'GULFCOAST',
+    type: 'confederation',
+    color: A[8],
+    label: [-92.6, 35.6],
+    realms: [
+      { name: 'Kingdom of Louisiane', short: 'Louisiane', type: 'kingdom', seat: [-91.19, 30.46], weight: 1.0, capital: true },
+      { name: 'Republic of Orleans', short: 'Orleans', type: 'republic', seat: [-90.07, 29.95], weight: 0.4 },
+      { name: 'Duchy of Ouachita', short: 'Ouachita', type: 'duchy', seat: [-93.75, 32.52], weight: 0.9 },
+      { name: 'Duchy of Arkansas', short: 'Arkansas', type: 'duchy', seat: [-92.29, 34.75], weight: 1.0 },
+      { name: 'Duchy of Mobile', short: 'Mobile', type: 'duchy', seat: [-88.04, 30.69], weight: 0.7 },
+    ],
+  },
+  {
+    name: 'Holy Columbian Confederacy',
+    short: 'HOLY COLUMBIA',
+    type: 'confederation',
+    color: A[2],
+    label: [-83.4, 32.2],
+    realms: [
+      { name: 'Metropolis of Choctaw', short: 'Choctaw', type: 'city-state', seat: [-84.39, 33.75], weight: 0.9, capital: true },
+      { name: 'Duchy of Yazoo', short: 'Yazoo', type: 'duchy', seat: [-90.18, 32.30], weight: 0.9 },
+      { name: 'District of Natchez', short: 'Natchez', type: 'district', seat: [-86.80, 33.52], weight: 0.8 },
+      { name: 'Kingdom of Carolina', short: 'Carolina', type: 'kingdom', seat: [-79.94, 32.78], weight: 0.9 },
+      { name: 'Duchy of Suwannee', short: 'Suwannee', type: 'duchy', seat: [-84.28, 30.44], weight: 0.7 },
+      { name: 'Principality of Orlando', short: 'Orlando', type: 'principality', seat: [-81.38, 28.54], weight: 0.6 },
+      { name: 'Republic of Millami', short: 'Millami', type: 'republic', seat: [-80.19, 25.77], weight: 0.5 },
+    ],
+  },
+  {
+    name: 'Grand Virginia',
+    short: 'GRAND VIRGINIA',
+    type: 'confederation',
+    color: A[4],
+    label: [-81.8, 36.9],
+    realms: [
+      { name: 'Republic of Chesapeake', short: 'Chesapeake', type: 'republic', seat: [-77.44, 37.54], weight: 0.8, capital: true },
+      { name: 'High Chiefdom of Vandalia', short: 'Vandalia', type: 'tribal-confederacy', seat: [-81.63, 38.35], weight: 0.8 },
+      { name: 'High Chiefdom of Blue Ridge', short: 'Blue Ridge', type: 'tribal-confederacy', seat: [-82.55, 35.60], weight: 0.7 },
+      { name: 'Grand Division of Bluegrass', short: 'Bluegrass', type: 'province', seat: [-84.50, 38.05], weight: 0.8 },
+      { name: 'Grand Division of East Tennessee', short: 'East Tennessee', type: 'province', seat: [-83.92, 35.96], weight: 0.7 },
+      { name: 'High Chiefdom of Cumberland', short: 'Cumberland', type: 'tribal-confederacy', seat: [-86.78, 36.16], weight: 0.8 },
+    ],
+  },
+  {
+    name: 'Empire of Atlantica',
+    short: 'ATLANTICA',
+    type: 'empire',
+    color: A[3],
+    label: [-67.5, 46.6],
+    realms: [
+      { name: 'Republic of New York', short: 'New York', type: 'republic', seat: [-74.01, 40.71], weight: 0.35, capital: true },
+      { name: 'Kingdom of Hudsonia', short: 'Hudsonia', type: 'kingdom', seat: [-73.76, 42.65], weight: 0.9 },
+      { name: 'Kingdom of Deitschrei', short: 'Deitschrei', type: 'kingdom', seat: [-76.31, 40.04], weight: 0.9 },
+      { name: 'District of Philadelphia', short: 'Philadelphia', type: 'district', seat: [-75.17, 39.95], weight: 0.35 },
+      { name: 'District of South Jersey', short: 'South Jersey', type: 'district', seat: [-74.75, 39.45], weight: 0.4 },
+      { name: 'District Court of Columbia', short: 'Columbia', type: 'district', seat: [-77.04, 38.91], weight: 0.4 },
+      { name: 'District of Delmarva', short: 'Delmarva', type: 'district', seat: [-75.60, 38.35], weight: 0.4 },
+      { name: 'District of Connecticut', short: 'Connecticut', type: 'district', seat: [-72.69, 41.76], weight: 0.5 },
+      { name: 'Chiefdom of Plymouth', short: 'Plymouth', type: 'tribal-confederacy', seat: [-70.66, 41.96], weight: 0.5 },
+      { name: 'Duchy of the Green Mountains', short: 'Green Mountains', type: 'duchy', seat: [-72.58, 44.26], weight: 0.7 },
+      { name: 'High Chiefdom of Penobscot', short: 'Penobscot', type: 'tribal-confederacy', seat: [-68.78, 44.80], weight: 0.9 },
+      { name: 'County of the Triple Cities', short: 'Triple Cities', type: 'county', seat: [-75.91, 42.10], weight: 0.4 },
+    ],
+  },
+  {
+    name: 'Empire of Canada',
+    short: 'CANADA',
+    type: 'empire',
+    color: A[0],
+    label: [-79.0, 51.5],
+    realms: [
+      { name: 'Ursuline See', short: 'Ursuline See', type: 'theocracy', seat: [-71.21, 46.81], weight: 1.1, capital: true },
+      { name: 'Duchy of Montréal', short: 'Montréal', type: 'duchy', seat: [-73.57, 45.50], weight: 0.5 },
+      { name: 'Kingdom of Ontario', short: 'Ontario', type: 'kingdom', seat: [-79.38, 43.65], weight: 1.0 },
+      { name: 'Archbishopric of Canterbury', short: 'Canterbury', type: 'bishopric', seat: [-81.25, 42.98], weight: 0.5 },
+      { name: 'Duchy of Nipissing', short: 'Nipissing', type: 'duchy', seat: [-79.46, 46.31], weight: 0.9 },
+      { name: 'Duchy of Algoma', short: 'Algoma', type: 'duchy', seat: [-84.33, 46.52], weight: 0.9 },
+      { name: 'Duchy of Saguenay', short: 'Saguenay', type: 'duchy', seat: [-71.07, 48.43], weight: 0.9 },
+      { name: 'Kingdom of the Maritimes', short: 'Maritimes', type: 'kingdom', seat: [-63.57, 44.65], weight: 1.0 },
+      { name: 'County of Gaspé', short: 'Gaspé', type: 'county', seat: [-64.48, 48.83], weight: 0.5 },
+    ],
+  },
+  {
+    name: 'The Arctic',
+    short: 'ARCTIC',
+    type: 'confederation',
+    color: A[9],
+    label: [-88, 60],
+    realms: [
+      { name: 'High Chiefdom of Eeyou Istchee', short: 'Eeyou Istchee', type: 'tribal-confederacy', seat: [-78.80, 53.79], weight: 1.6, capital: true },
+      { name: 'High Chiefdom of Mushkegowuk', short: 'Mushkegowuk', type: 'tribal-confederacy', seat: [-82.43, 51.28], weight: 1.2 },
+      { name: 'Chiefdom of Kuujjuaq', short: 'Kuujjuaq', type: 'tribal-confederacy', seat: [-68.42, 58.10], weight: 1.4 },
+      { name: 'High Chiefdom of Nunatsiavut', short: 'Nunatsiavut', type: 'tribal-confederacy', seat: [-61.69, 56.54], weight: 1.2 },
+      { name: 'Petty Kingdom of Avalon', short: 'Avalon', type: 'kingdom', seat: [-52.71, 47.56], weight: 0.9 },
     ],
   },
   {
     name: 'Aztlán',
-    label: { lon: -108.5, lat: 26.8 },
     short: 'AZTLÁN',
     type: 'confederation',
-    units: [],
-    color: MUTED[0],
-    capital: { name: 'Chihuahua', lon: -106.089, lat: 28.632 },
+    color: M[0],
+    label: [-108.8, 27.0],
     realms: [
-      { name: 'Kingdom of Diné Bikéyah', short: 'Diné Bikéyah', type: 'kingdom', units: usa('Arizona') },
-      { name: 'High Chiefdom of Nuevo México', short: 'Nuevo México', type: 'tribal-confederacy', units: usa('New Mexico') },
-      { name: 'Kingdom of Rio Bravo', short: 'Rio Bravo', type: 'kingdom', units: mex('Chihuahua', 'Coahuila') },
-      { name: 'Kingdom of Sierra Madre', short: 'Sierra Madre', type: 'kingdom', units: mex('Durango', 'Sinaloa') },
-      { name: 'Duchy of Sonora', short: 'Sonora', type: 'duchy', units: mex('Sonora') },
+      { name: 'Kingdom of Diné Bikéyah', short: 'Diné Bikéyah', type: 'kingdom', seat: [-109.05, 35.68], weight: 1.1, capital: true },
+      { name: 'Chiefdom of Phoenix', short: 'Phoenix', type: 'tribal-confederacy', seat: [-112.07, 33.45], weight: 0.7 },
+      { name: 'High Chiefdom of Gadsden', short: 'Gadsden', type: 'tribal-confederacy', seat: [-110.93, 32.22], weight: 0.8 },
+      { name: 'High Chiefdom of the Colorado', short: 'The Colorado', type: 'tribal-confederacy', seat: [-114.62, 32.73], weight: 0.7 },
+      { name: 'High Chiefdom of Nuevo México', short: 'Nuevo México', type: 'tribal-confederacy', seat: [-105.94, 35.69], weight: 1.0 },
+      { name: 'Duchy of Sonora', short: 'Sonora', type: 'duchy', seat: [-110.97, 29.07], weight: 1.1 },
+      { name: 'Kingdom of Rio Bravo', short: 'Rio Bravo', type: 'kingdom', seat: [-106.09, 28.63], weight: 1.2 },
+      { name: 'Duchy of Coahuila', short: 'Coahuila', type: 'duchy', seat: [-101.00, 26.90], weight: 1.0 },
+      { name: 'Kingdom of Sierra Madre', short: 'Sierra Madre', type: 'kingdom', seat: [-104.67, 24.02], weight: 1.0 },
+      { name: 'Duchy of Sinaloa', short: 'Sinaloa', type: 'duchy', seat: [-107.39, 24.80], weight: 0.8 },
     ],
   },
   {
     name: 'Empire of Mexico',
-    label: { lon: -103.2, lat: 22.4 },
     short: 'MEXICO',
     type: 'empire',
-    units: mex(
-      'Nuevo León', 'Tamaulipas', 'San Luis Potosí', 'Zacatecas',
-      'Aguascalientes', 'Guanajuato', 'Querétaro', 'Nayarit',
-    ),
-    color: MUTED[4],
-    capital: { name: 'México', lon: -99.133, lat: 19.433 },
+    color: M[4],
+    label: [-103.6, 21.0],
     realms: [
-      {
-        name: 'Kingdom of Mexico',
-        short: 'Mexico',
-        type: 'kingdom',
-        units: mex('México', 'Distrito Federal', 'Morelos', 'Hidalgo', 'Tlaxcala', 'Puebla'),
-      },
-      {
-        name: 'Kingdom of Michoacán',
-        short: 'Michoacán',
-        type: 'kingdom',
-        units: mex('Michoacán', 'Colima', 'Jalisco'),
-      },
-      { name: 'Kingdom of Mixteca', short: 'Mixteca', type: 'kingdom', units: mex('Oaxaca', 'Guerrero') },
-      { name: 'Republic of Veracruz', short: 'Veracruz', type: 'republic', units: mex('Veracruz', 'Tabasco') },
+      { name: 'Kingdom of Mexico', short: 'Mexico', type: 'kingdom', seat: [-99.13, 19.43], weight: 0.8, capital: true },
+      { name: 'Duchy of Salado', short: 'Salado', type: 'duchy', seat: [-100.31, 25.67], weight: 1.0 },
+      { name: 'Duchy of San Luis Potosí', short: 'San Luis Potosí', type: 'duchy', seat: [-100.98, 22.15], weight: 0.8 },
+      { name: 'Duchy of Zacatecas', short: 'Zacatecas', type: 'duchy', seat: [-102.58, 22.77], weight: 0.7 },
+      { name: 'Duchy of Jalisco', short: 'Jalisco', type: 'duchy', seat: [-103.35, 20.66], weight: 0.8 },
+      { name: 'Duchy of Nayarit', short: 'Nayarit', type: 'duchy', seat: [-104.89, 21.51], weight: 0.6 },
+      { name: 'Kingdom of Michoacán', short: 'Michoacán', type: 'kingdom', seat: [-101.19, 19.70], weight: 0.7 },
+      { name: 'Kingdom of Mixteca', short: 'Mixteca', type: 'kingdom', seat: [-96.73, 17.07], weight: 0.8 },
+      { name: 'Republic of Veracruz', short: 'Veracruz', type: 'republic', seat: [-96.13, 19.17], weight: 0.7 },
+      { name: 'Duchy of Olmeca', short: 'Olmeca', type: 'duchy', seat: [-92.93, 17.99], weight: 0.6 },
     ],
   },
   {
     name: 'Yucatán',
-    label: { lon: -88.0, lat: 19.2 },
     short: 'YUCATÁN',
     type: 'kingdom',
-    units: [],
-    color: MUTED[5],
-    capital: { name: 'Mérida', lon: -89.622, lat: 20.967 },
+    color: M[5],
+    label: [-88.6, 19.0],
     realms: [
-      {
-        name: 'Kingdom of Yucatán',
-        short: 'Yucatán',
-        type: 'kingdom',
-        units: mex('Yucatán', 'Quintana Roo', 'Campeche'),
-      },
-      { name: 'Ajawil of Chiapas', short: 'Chiapas', type: 'principality', units: mex('Chiapas') },
-      { name: 'Kingdom of Péten', short: 'Péten', type: 'kingdom', units: ['GTM:Petén'] },
+      { name: 'Kingdom of Yucatán', short: 'Yucatán', type: 'kingdom', seat: [-89.62, 20.97], weight: 0.8, capital: true },
+      { name: 'Captaincy of Cozumel', short: 'Cozumel', type: 'march', seat: [-86.92, 20.51], weight: 0.4 },
+      { name: 'Ajawil of Chiapas', short: 'Chiapas', type: 'principality', seat: [-93.12, 16.75], weight: 0.6 },
+      { name: 'Kingdom of Péten', short: 'Péten', type: 'kingdom', seat: [-89.89, 16.92], weight: 0.7 },
     ],
   },
   {
     name: 'Centroamérica',
-    label: { lon: -86.0, lat: 13.2 },
     short: 'CENTROAMÉRICA',
     type: 'confederation',
-    units: [
-      'BLZ:Belize', 'BLZ:Cayo', 'BLZ:Corozal', 'BLZ:Orange Walk', 'BLZ:Stann Creek', 'BLZ:Toledo',
-      'CRI:Alajuela', 'CRI:Cartago', 'CRI:Guanacaste', 'CRI:Heredia', 'CRI:Limón', 'CRI:Puntarenas', 'CRI:San José',
-      'PAN:Bocas del Toro', 'PAN:Chiriquí', 'PAN:Coclé', 'PAN:Colón', 'PAN:Darién', 'PAN:Emberá',
-      'PAN:Herrera', 'PAN:Kuna Yala', 'PAN:Los Santos', 'PAN:Ngöbe Buglé', 'PAN:Panama', 'PAN:Veraguas',
-    ],
-    color: MUTED[6],
-    capital: { name: 'Guatemala', lon: -90.513, lat: 14.634 },
+    color: M[6],
+    label: [-85.0, 11.6],
     realms: [
-      {
-        name: 'Duchy of Guatemala',
-        short: 'Guatemala',
-        type: 'duchy',
-        units: [
-          'GTM:Alta Verapaz', 'GTM:Baja Verapaz', 'GTM:Chimaltenango', 'GTM:Chiquimula',
-          'GTM:El Progreso', 'GTM:Escuintla', 'GTM:Guatemala', 'GTM:Huehuetenango', 'GTM:Izabal',
-          'GTM:Jalapa', 'GTM:Jutiapa', 'GTM:Quezaltenango', 'GTM:Quiché', 'GTM:Retalhuleu',
-          'GTM:Sacatepéquez', 'GTM:San Marcos', 'GTM:Santa Rosa', 'GTM:Sololá',
-          'GTM:Suchitepéquez', 'GTM:Totonicapán', 'GTM:Zacapa',
-        ],
-      },
-      {
-        name: 'Duchy of Salvador',
-        short: 'Salvador',
-        type: 'duchy',
-        units: [
-          'SLV:Ahuachapán', 'SLV:Cabañas', 'SLV:Chalatenango', 'SLV:Cuscatlán', 'SLV:La Libertad',
-          'SLV:La Paz', 'SLV:La Unión', 'SLV:Morazán', 'SLV:San Miguel', 'SLV:San Salvador',
-          'SLV:San Vicente', 'SLV:Santa Ana', 'SLV:Sonsonate', 'SLV:Usulután',
-        ],
-      },
-      {
-        name: 'Marquisate of Atlántida',
-        short: 'Atlántida',
-        type: 'march',
-        units: [
-          'HND:Atlántida', 'HND:Choluteca', 'HND:Colón', 'HND:Comayagua', 'HND:Copán', 'HND:Cortés',
-          'HND:El Paraíso', 'HND:Francisco Morazán', 'HND:Intibucá', 'HND:Islas de la Bahía',
-          'HND:La Paz', 'HND:Lempira', 'HND:Ocotepeque', 'HND:Olancho', 'HND:Santa Bárbara',
-          'HND:Valle', 'HND:Yoro',
-        ],
-      },
-      {
-        name: 'Duchy of Nicaragua',
-        short: 'Nicaragua',
-        type: 'duchy',
-        units: [
-          'NIC:Boaco', 'NIC:Carazo', 'NIC:Chinandega', 'NIC:Chontales', 'NIC:Estelí', 'NIC:Granada',
-          'NIC:Jinotega', 'NIC:León', 'NIC:Madriz', 'NIC:Managua', 'NIC:Masaya', 'NIC:Matagalpa',
-          'NIC:Nueva Segovia', 'NIC:Rio San Juan', 'NIC:Rivas',
-        ],
-      },
-      {
-        name: 'Kingdom of Moskitia',
-        short: 'Moskitia',
-        type: 'kingdom',
-        units: ['HND:Gracias a Dios', 'NIC:Atlántico Norte', 'NIC:Atlántico Sur'],
-      },
+      { name: 'Duchy of Guatemala', short: 'Guatemala', type: 'duchy', seat: [-90.51, 14.63], weight: 0.7, capital: true },
+      { name: 'Ajawil of Verapazes', short: 'Verapazes', type: 'principality', seat: [-90.37, 15.47], weight: 0.4 },
+      { name: 'Duchy of Salvador', short: 'Salvador', type: 'duchy', seat: [-89.19, 13.69], weight: 0.5 },
+      { name: 'Marquisate of Atlántida', short: 'Atlántida', type: 'march', seat: [-87.99, 15.50], weight: 0.6 },
+      { name: 'County of Comayagua', short: 'Comayagua', type: 'county', seat: [-87.21, 14.08], weight: 0.4 },
+      { name: 'Kingdom of Moskitia', short: 'Moskitia', type: 'kingdom', seat: [-83.77, 12.01], weight: 0.7 },
+      { name: 'Duchy of Nicaragua', short: 'Nicaragua', type: 'duchy', seat: [-86.25, 12.14], weight: 0.6 },
+      { name: 'Duchy of Las Brumas', short: 'Las Brumas', type: 'duchy', seat: [-84.09, 9.93], weight: 0.6 },
+      { name: 'Captaincy of San Andrés', short: 'San Andrés', type: 'march', seat: [-79.55, 9.00], weight: 0.6 },
     ],
   },
   {
     name: 'Caribbean Empire',
-    label: { lon: -72.0, lat: 21.6 },
     short: 'CARIBBEAN',
     type: 'empire',
-    units: ['PRI:Puerto Rico'],
-    color: MUTED[7],
-    capital: { name: 'Habana', lon: -82.366, lat: 23.114 },
+    color: M[7],
+    label: [-74.0, 23.4],
     realms: [
-      {
-        name: 'Kingdom of Cuba',
-        short: 'Cuba',
-        type: 'kingdom',
-        units: [
-          'CUB:Artemisa', 'CUB:Camagüey', 'CUB:Ciego de Ávila', 'CUB:Cienfuegos',
-          'CUB:Ciudad de la Habana', 'CUB:Granma', 'CUB:Guantánamo', 'CUB:Holguín',
-          'CUB:Isla de la Juventud', 'CUB:Las Tunas', 'CUB:Matanzas', 'CUB:Mayabeque',
-          'CUB:Pinar del Río', 'CUB:Sancti Spíritus', 'CUB:Santiago de Cuba', 'CUB:Villa Clara',
-        ],
-      },
-      {
-        name: 'Captaincy of Tortuga',
-        short: 'Tortuga',
-        type: 'march',
-        units: [
-          "HTI:Centre", "HTI:Grand'Anse", "HTI:L'Artibonite", 'HTI:Nippes', 'HTI:Nord',
-          'HTI:Nord-Est', 'HTI:Nord-Ouest', 'HTI:Ouest', 'HTI:Sud', 'HTI:Sud-Est',
-        ],
-      },
-      {
-        name: 'Kingdom of Santo Domingo',
-        short: 'Santo Domingo',
-        type: 'kingdom',
-        units: [
-          'DOM:Azua', 'DOM:Bahoruco', 'DOM:Barahona', 'DOM:Dajabón', 'DOM:Distrito Nacional',
-          'DOM:Duarte', 'DOM:El Seybo', 'DOM:Espaillat', 'DOM:Hato Mayor', 'DOM:Hermanas',
-          'DOM:Independencia', 'DOM:La Altagracia', 'DOM:La Estrelleta', 'DOM:La Romana',
-          'DOM:La Vega', 'DOM:María Trinidad Sánchez', 'DOM:Monseñor Nouel', 'DOM:Monte Cristi',
-          'DOM:Monte Plata', 'DOM:Pedernales', 'DOM:Peravia', 'DOM:Puerto Plata', 'DOM:Samaná',
-          'DOM:San Cristóbal', 'DOM:San José de Ocoa', 'DOM:San Juan', 'DOM:San Pedro de Macorís',
-          'DOM:Santiago', 'DOM:Santiago Rodríguez', 'DOM:Santo Domingo', 'DOM:Sánchez Ramírez',
-          'DOM:Valverde',
-        ],
-      },
-      {
-        name: 'Kingdom of Jamaica',
-        short: 'Jamaica',
-        type: 'kingdom',
-        units: [
-          'JAM:Clarendon', 'JAM:Hanover', 'JAM:Kingston', 'JAM:Manchester', 'JAM:Portland',
-          'JAM:Saint Andrew', 'JAM:Saint Ann', 'JAM:Saint Catherine', 'JAM:Saint Elizabeth',
-          'JAM:Saint James', 'JAM:Saint Mary', 'JAM:Saint Thomas', 'JAM:Trelawny', 'JAM:Westmoreland',
-        ],
-      },
-      {
-        name: 'Flotilla of the Leeward Isles',
-        short: 'Leeward Isles',
-        type: 'march',
-        units: [
-          'BHS:Acklins', 'BHS:Berry Islands', 'BHS:Bimini', 'BHS:Black Point', 'BHS:Cat Island',
-          'BHS:Central Abaco', 'BHS:Central Andros', 'BHS:Central Eleuthera', 'BHS:City of Freeport',
-          'BHS:Crooked Island and Long Cay', 'BHS:East Grand Bahama', 'BHS:Exuma',
-          'BHS:Harbour Island', 'BHS:Inagua', 'BHS:Long Island', 'BHS:Mangrove Cay',
-          'BHS:Mayaguana', "BHS:Moore's Island", 'BHS:New Providence', 'BHS:North Abaco',
-          'BHS:North Andros', 'BHS:North Eleuthera', 'BHS:Ragged Island', 'BHS:Rum Cay',
-          'BHS:San Salvador', 'BHS:South Abaco', 'BHS:South Andros', 'BHS:South Eleuthera',
-          'BHS:Spanish Wells', 'BHS:West Grand Bahama',
-        ],
-      },
-      {
-        name: 'Kingdom of Gran Trinidad',
-        short: 'Gran Trinidad',
-        type: 'kingdom',
-        units: [
-          'TTO:Arima', 'TTO:Chaguanas', 'TTO:Couva-Tabaquite-Talparo', 'TTO:Diego Martin',
-          'TTO:Eastern Tobago', 'TTO:Penal-Debe', 'TTO:Point Fortin', 'TTO:Port of Spain',
-          'TTO:Princes Town', 'TTO:Rio Claro-Mayaro', 'TTO:San Fernando',
-          'TTO:San Juan-Laventille', 'TTO:Sangre Grande', 'TTO:Siparia', 'TTO:Tunapuna/Piarco',
-          'TTO:Western Tobago',
-        ],
-      },
+      { name: 'Kingdom of Cuba', short: 'Cuba', type: 'kingdom', seat: [-82.37, 23.11], weight: 0.9, capital: true },
+      { name: 'Captaincy of Tortuga', short: 'Tortuga', type: 'march', seat: [-72.33, 18.54], weight: 0.5 },
+      { name: 'Kingdom of Santo Domingo', short: 'Santo Domingo', type: 'kingdom', seat: [-69.93, 18.49], weight: 0.5 },
+      { name: 'Kingdom of Jamaica', short: 'Jamaica', type: 'kingdom', seat: [-76.79, 17.99], weight: 0.4 },
+      { name: 'Flotilla of the Leeward Isles', short: 'Leeward Isles', type: 'march', seat: [-77.35, 25.06], weight: 0.5 },
+      { name: 'Kingdom of Gran Trinidad', short: 'Gran Trinidad', type: 'kingdom', seat: [-61.51, 10.65], weight: 0.5 },
+    ],
+  },
+  {
+    name: 'Gran Colombia',
+    short: 'GRAN COLOMBIA',
+    type: 'confederation',
+    color: P[0],
+    label: [-73.5, 5.4],
+    realms: [
+      { name: 'High Chiefdom of Cundinamarca', short: 'Cundinamarca', type: 'tribal-confederacy', seat: [-74.07, 4.71], weight: 0.9, capital: true },
+      { name: 'High Chiefdom of Vallecafé', short: 'Vallecafé', type: 'tribal-confederacy', seat: [-75.57, 6.24], weight: 0.8 },
+      { name: 'High Chiefdom of Cauca', short: 'Cauca', type: 'tribal-confederacy', seat: [-76.53, 3.44], weight: 0.8 },
+      { name: 'Republic of Cartagena', short: 'Cartagena', type: 'republic', seat: [-75.51, 10.39], weight: 0.7 },
+      { name: 'Kingdom of Zulia', short: 'Zulia', type: 'kingdom', seat: [-71.61, 10.65], weight: 0.8 },
+      { name: 'Kingdom of Venezuela', short: 'Venezuela', type: 'kingdom', seat: [-66.90, 10.49], weight: 1.1 },
+      { name: 'Kingdom of Puente Grande', short: 'Puente Grande', type: 'kingdom', seat: [-70.20, 8.60], weight: 0.7 },
+    ],
+  },
+  {
+    name: 'The Guyanas',
+    short: 'GUYANAS',
+    type: 'confederation',
+    color: P[3],
+    label: [-58.5, 4.0],
+    realms: [
+      { name: 'Kingdom of Guyana', short: 'Guyana', type: 'kingdom', seat: [-58.16, 6.80], weight: 0.9, capital: true },
+      { name: 'Kingdom of Bolívar', short: 'Bolívar', type: 'kingdom', seat: [-63.55, 8.12], weight: 1.1 },
+      { name: 'High Chiefdom of Gran Sabana', short: 'Gran Sabana', type: 'tribal-confederacy', seat: [-61.40, 5.60], weight: 0.8 },
+      { name: 'High Chiefdom of Roraima', short: 'Roraima', type: 'tribal-confederacy', seat: [-60.67, 2.82], weight: 0.9 },
+    ],
+  },
+  {
+    name: 'Amazonia',
+    short: 'AMAZONIA',
+    type: 'confederation',
+    color: P[2],
+    label: [-64.0, -5.0],
+    realms: [
+      { name: 'Chiefdom of Manaus', short: 'Manaus', type: 'tribal-confederacy', seat: [-60.02, -3.10], weight: 1.6, capital: true },
+      { name: 'Chiefdom of Solimões', short: 'Solimões', type: 'tribal-confederacy', seat: [-69.94, -4.22], weight: 1.4 },
+      { name: 'Chiefdom of Belém', short: 'Belém', type: 'tribal-confederacy', seat: [-48.50, -1.46], weight: 1.3 },
+      { name: 'Chiefdom of Rondônia', short: 'Rondônia', type: 'tribal-confederacy', seat: [-63.90, -8.76], weight: 1.2 },
+    ],
+  },
+  {
+    name: 'Empire of Brasil',
+    short: 'BRASIL',
+    type: 'empire',
+    color: P[4],
+    label: [-43.0, -20.5],
+    realms: [
+      { name: 'Kingdom of Rio', short: 'Rio', type: 'kingdom', seat: [-43.20, -22.91], weight: 0.8, capital: true },
+      { name: 'Kingdom of São Paulo', short: 'São Paulo', type: 'kingdom', seat: [-46.63, -23.55], weight: 0.9 },
+      { name: 'Kingdom of Bahia', short: 'Bahia', type: 'kingdom', seat: [-38.51, -12.97], weight: 1.1 },
+      { name: 'Duchy of Pernambuco', short: 'Pernambuco', type: 'duchy', seat: [-34.88, -8.05], weight: 0.9 },
+      { name: 'Duchy of Minas', short: 'Minas', type: 'duchy', seat: [-43.94, -19.92], weight: 0.9 },
+    ],
+  },
+  {
+    name: 'The Cerrado',
+    short: 'CERRADO',
+    type: 'confederation',
+    color: P[6],
+    label: [-51.0, -12.0],
+    realms: [
+      { name: 'Chiefdom of Goiás', short: 'Goiás', type: 'tribal-confederacy', seat: [-49.25, -16.68], weight: 1.2, capital: true },
+      { name: 'Chiefdom of Mato Grosso', short: 'Mato Grosso', type: 'tribal-confederacy', seat: [-56.10, -15.60], weight: 1.3 },
+      { name: 'Chiefdom of Tocantins', short: 'Tocantins', type: 'tribal-confederacy', seat: [-48.33, -10.18], weight: 1.1 },
+      { name: 'Chiefdom of Piauí', short: 'Piauí', type: 'tribal-confederacy', seat: [-42.80, -5.09], weight: 1.1 },
+    ],
+  },
+  {
+    name: 'Perulivia',
+    short: 'PERULIVIA',
+    type: 'confederation',
+    color: P[8],
+    label: [-72.5, -13.0],
+    realms: [
+      { name: 'Kingdom of Lima', short: 'Lima', type: 'kingdom', seat: [-77.03, -12.05], weight: 0.9, capital: true },
+      { name: 'High Chiefdom of Cusco', short: 'Cusco', type: 'tribal-confederacy', seat: [-71.97, -13.53], weight: 1.0 },
+      { name: 'High Chiefdom of Titicaca', short: 'Titicaca', type: 'tribal-confederacy', seat: [-68.15, -16.50], weight: 1.0 },
+      { name: 'Kingdom of Quito', short: 'Quito', type: 'kingdom', seat: [-78.47, -0.18], weight: 0.9 },
+      { name: 'Duchy of Guayaquil', short: 'Guayaquil', type: 'duchy', seat: [-79.90, -2.17], weight: 0.6 },
+      { name: 'Chiefdom of Sucre', short: 'Sucre', type: 'tribal-confederacy', seat: [-65.26, -19.03], weight: 0.9 },
+    ],
+  },
+  {
+    name: 'Kingdom of Chile',
+    short: 'CHILE',
+    type: 'kingdom',
+    color: P[10],
+    label: [-71.6, -29.0],
+    realms: [
+      { name: 'Kingdom of Santiago', short: 'Santiago', type: 'kingdom', seat: [-70.65, -33.46], weight: 0.7, capital: true },
+      { name: 'Duchy of Atacama', short: 'Atacama', type: 'duchy', seat: [-70.40, -23.65], weight: 1.0 },
+      { name: 'Duchy of Valdivia', short: 'Valdivia', type: 'duchy', seat: [-73.25, -39.81], weight: 0.7 },
+    ],
+  },
+  {
+    name: 'La Plata',
+    short: 'LA PLATA',
+    type: 'confederation',
+    color: P[1],
+    label: [-63.5, -32.5],
+    realms: [
+      { name: 'Republic of Buenos Aires', short: 'Buenos Aires', type: 'republic', seat: [-58.38, -34.60], weight: 1.0, capital: true },
+      { name: 'Duchy of Córdoba', short: 'Córdoba', type: 'duchy', seat: [-64.18, -31.42], weight: 1.0 },
+      { name: 'Duchy of Cuyo', short: 'Cuyo', type: 'duchy', seat: [-68.84, -32.89], weight: 0.9 },
+      { name: 'Kingdom of the Banda Oriental', short: 'Banda Oriental', type: 'kingdom', seat: [-56.16, -34.90], weight: 0.7 },
+      { name: 'Duchy of Litoral', short: 'Litoral', type: 'duchy', seat: [-60.70, -32.95], weight: 0.7 },
+    ],
+  },
+  {
+    name: 'Gran Chaco',
+    short: 'GRAN CHACO',
+    type: 'confederation',
+    color: P[5],
+    label: [-59.5, -22.5],
+    realms: [
+      { name: 'Chiefdom of Asunción', short: 'Asunción', type: 'tribal-confederacy', seat: [-57.58, -25.28], weight: 1.0, capital: true },
+      { name: 'Chiefdom of Chaco Boreal', short: 'Chaco Boreal', type: 'tribal-confederacy', seat: [-60.50, -22.00], weight: 1.1 },
+      { name: 'Chiefdom of Tucumán', short: 'Tucumán', type: 'tribal-confederacy', seat: [-65.22, -26.82], weight: 0.9 },
+    ],
+  },
+  {
+    name: 'Patagonia',
+    short: 'PATAGONIA',
+    type: 'confederation',
+    color: P[7],
+    label: [-68.0, -46.0],
+    realms: [
+      { name: 'Chiefdom of Nahuel Huapi', short: 'Nahuel Huapi', type: 'tribal-confederacy', seat: [-71.31, -41.13], weight: 1.1, capital: true },
+      { name: 'Chiefdom of Chubut', short: 'Chubut', type: 'tribal-confederacy', seat: [-65.10, -43.30], weight: 1.1 },
+      { name: 'Chiefdom of Magallanes', short: 'Magallanes', type: 'tribal-confederacy', seat: [-70.92, -53.16], weight: 1.0 },
     ],
   },
 ];
 
 /** Seas and gulfs, so the water is not anonymous (§12). */
 const WATER_LABELS: { text: string; lon: number; lat: number; kind: MapLabel['kind'] }[] = [
-  { text: 'Atlantic Ocean', lon: -50, lat: 32, kind: 'ocean' },
-  { text: 'Pacific Ocean', lon: -140, lat: 28, kind: 'ocean' },
+  { text: 'Atlantic Ocean', lon: -40, lat: 22, kind: 'ocean' },
+  { text: 'Pacific Ocean', lon: -132, lat: 5, kind: 'ocean' },
   { text: 'Gulf of Mexico', lon: -90.5, lat: 25.2, kind: 'water' },
   { text: 'Caribbean Sea', lon: -75.5, lat: 14.5, kind: 'water' },
   { text: 'Hudson Bay', lon: -85.5, lat: 59.5, kind: 'water' },
   { text: 'Gulf of Alaska', lon: -146, lat: 56.5, kind: 'water' },
   { text: 'Labrador Sea', lon: -55.5, lat: 59.5, kind: 'water' },
-  { text: 'Bering Sea', lon: -177, lat: 58, kind: 'water' },
   { text: 'Gulf of California', lon: -111.5, lat: 27.5, kind: 'water' },
-  { text: 'Baffin Bay', lon: -68, lat: 73.5, kind: 'water' },
+  { text: 'Drake Passage', lon: -66, lat: -58.5, kind: 'water' },
 ];
 
 export interface AfterTheEndResult {
@@ -527,36 +522,39 @@ export interface AfterTheEndResult {
   zoom: number;
 }
 
-const CENTER: [number, number] = [-98, 40];
-const ZOOM = 3.4;
+const CENTER: [number, number] = [-80, 10];
+const ZOOM = 2.5;
+/** The New World, with sea room. Nothing outside it is loaded or drawable. */
+const AMERICAS: [number, number, number, number] = [-172, -58, -30, 76];
 
 /**
- * Build the map. Async because it fetches the real subdivision boundaries;
+ * Build the map. Async because it fetches the real coastline to grow on;
  * returns an empty project if that fetch fails, rather than a half-built one.
  */
 export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
   const project = createProject({
     title: 'After the End',
-    projectionId: 'ATF:LCC',
+    projectionId: 'ATF:AMERICAS',
     center: CENTER,
     zoom: ZOOM,
-    // North and Central America and the Caribbean, which is what this map is
-    // about; the reference data is cropped to it and the view cannot leave it.
-    workingExtent: [-172, 5, -52, 74],
+    workingExtent: AMERICAS,
   });
-  project.meta.subtitle = 'The realms of the Americas';
+  project.meta.subtitle = 'The realms of the New World';
   project.meta.dateLine = 'In the Year 2666';
   project.meta.author = 'After the Fall — a map of the After the End setting';
   project.meta.notes =
-    'Realm names and their empires follow the After the End realm list. The shapes are ' +
-    'approximations onto modern administrative units — the mod\'s own province map is not ' +
-    'published as geodata — so treat every border here as a starting point to redraw.';
+    'Realm names, their tier and the empire each belongs to follow the After the End realm list. ' +
+    'The shapes are grown outward from each realm\'s seat of power rather than traced from modern ' +
+    'administrative boundaries, and the land nobody claimed is left as wilderness. Every border ' +
+    'is an ordinary editable territory.';
   project.oceanColor = '#c6dae6';
-  project.landColor = '#e9e1d0';
+  project.landColor = '#eae3d3';
+  // The Americas at Natural Earth's finest published scale — coastline, inland
+  // water, rivers and cities — all cropped to the working extent above.
   project.basemap = [
     { sourceId: 'world-land-10m', visible: true, opacity: 1 },
     { sourceId: 'world-lakes-10m', visible: true, opacity: 1 },
-    { sourceId: 'world-rivers-10m', visible: false, opacity: 1 },
+    { sourceId: 'world-rivers-10m', visible: true, opacity: 1 },
     { sourceId: 'world-places-10m', visible: false, opacity: 1 },
     { sourceId: 'na-admin1-10m', visible: false, opacity: 1 },
   ];
@@ -568,40 +566,42 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
   const cityLabels = Object.values(project.layers).find((l) => l.name === 'City Labels')!;
   const waterLabels = Object.values(project.layers).find((l) => l.name === 'Water Labels')!;
 
-  // Fifty vassal names on top of eighteen empire names is a mat, not a map, and
-  // §11 deliberately never drops a label on its own. So the map opens the way an
-  // atlas plate would — sovereign realms named, their vassals drawn but silent —
-  // and the Region Labels layer turns the rest on in one click.
+  // Vassal and capital names start off. A hundred and fifty realm names and
+  // thirty capitals under thirty empire names is a mat rather than a map, and
+  // §11 never drops a label on its own. The map opens the way an atlas index
+  // plate does — sovereign names only, every realm drawn and coloured — and
+  // either layer is one click away.
   project.layers[regionLabels.id] = { ...project.layers[regionLabels.id], visible: false };
+  project.layers[cityLabels.id] = { ...project.layers[cityLabels.id], visible: false };
 
-  let units: Map<string, Polygon | MultiPolygon>;
+  let rings: Position[][];
   try {
-    units = indexUnits(await loadBasemap('na-admin1-10m'));
+    rings = coastlineRings(await loadBasemap('world-land-10m'));
   } catch {
     return { project, center: CENTER, zoom: ZOOM };
   }
 
-  const missing: string[] = [];
-  const geometryOf = (realm: RealmDef): Polygon | MultiPolygon | null => {
-    const parts: (Polygon | MultiPolygon)[] = [];
-    const collect = (r: RealmDef) => {
-      for (const key of r.units) {
-        const g = units.get(key.toLowerCase());
-        if (g) parts.push(g);
-        else missing.push(key);
-      }
-      for (const child of r.realms ?? []) collect(child);
-    };
-    collect(realm);
-    return parts.length ? dissolve(parts) : null;
-  };
+  const seeds: RealmSeed[] = [];
+  for (const empire of EMPIRES) {
+    for (const realm of empire.realms) {
+      seeds.push({ id: realm.name, seeds: [realm.seat, ...(realm.also ?? [])], weight: realm.weight });
+    }
+  }
+  const grown = growRealms(rings, seeds, { extent: AMERICAS, ...DEFAULT_GROWTH, coverage: 0.72 });
 
   for (const empire of EMPIRES) {
-    const geometry = geometryOf(empire);
-    if (!geometry) continue;
+    const parts: (Polygon | MultiPolygon)[] = [];
+    for (const realm of empire.realms) {
+      const shape = grown.shapes.get(realm.name);
+      if (shape) parts.push(shape);
+    }
+    if (parts.length === 0) continue;
+    const whole = parts.length === 1 ? parts[0] : dissolve(parts);
+    if (!whole) continue;
 
     const empireId = newId();
-    const capitalId = empire.capital ? newId() : null;
+    const seat = empire.realms.find((r) => r.capital) ?? empire.realms[0];
+    const capitalId = newId();
 
     project.territories[empireId] = {
       id: empireId,
@@ -616,87 +616,78 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
       locked: false,
       hidden: false,
       timeline: { start: null, end: null },
-      geometry,
+      geometry: whole,
       styleClassId: STYLE_IDS.territoryDefault,
-      styleOverrides: { fillColor: empire.color ?? ATLAS[0] },
+      styleOverrides: { fillColor: empire.color },
       inheritParentColor: false,
       borderKind: 'international',
       labelId: null,
     };
-    attachLabel(project, empireId, {
+    attachLabel(project, empireId, 'territories', {
       layerId: countryLabels.id,
       kind: 'country',
       text: empire.short,
-      coords: empire.label ? [empire.label.lon, empire.label.lat] : interiorPoint(geometry),
+      coords: empire.label ?? interiorPoint(whole),
       styleClassId: STYLE_IDS.textCountry,
-      // A hand-placed name must survive the automatic placement pass (§11).
       manualPosition: !!empire.label,
-      // Smaller and more tightly tracked than the default country style. That
-      // default is set for a plate showing one realm; here eighteen of them
-      // share a continent, and at full tracking a single name is wider than the
-      // realm it belongs to. Every one is still an ordinary override you can
-      // change in the Styles panel.
-      style: { fontSize: 11, tracking: 2.2 },
+      // Smaller and tighter than the default country style: that default is set
+      // for a plate showing one realm, and here thirty share two continents.
+      style: { fontSize: 10.5, tracking: 2 },
     });
 
-    // Vassal realms: same colour family as their liege, thin subordinate borders.
-    for (const realm of empire.realms ?? []) {
-      const childGeometry = geometryOf(realm);
-      if (!childGeometry) continue;
-      const childId = newId();
-      project.territories[childId] = {
+    empire.realms.forEach((realm, index) => {
+      const shape = grown.shapes.get(realm.name);
+      if (!shape) return;
+      const realmId = newId();
+      project.territories[realmId] = {
         ...project.territories[empireId],
-        id: childId,
+        id: realmId,
         name: realm.name,
         shortName: realm.short,
         politicalType: realm.type,
         parentId: empireId,
         liegeId: empireId,
         capitalId: null,
-        geometry: childGeometry,
-        styleOverrides: {},
-        // §7: a vassal takes its liege's colour unless it is given its own.
-        inheritParentColor: true,
+        geometry: shape,
+        styleOverrides: { fillColor: vassalColor(empire.color, index, empire.realms.length) },
+        inheritParentColor: false,
         borderKind: 'subordinate',
         labelId: null,
       };
-      attachLabel(project, childId, {
+      attachLabel(project, realmId, 'territories', {
         layerId: regionLabels.id,
         kind: 'region',
         text: realm.short,
-        coords: interiorPoint(childGeometry),
+        coords: interiorPoint(shape),
         styleClassId: STYLE_IDS.textRegion,
       });
-    }
+    });
 
-    if (empire.capital && capitalId) {
-      const seat: Settlement = {
-        id: capitalId,
-        layerId: settlementLayer.id,
-        name: empire.capital.name,
-        notes: '',
-        locked: false,
-        hidden: false,
-        timeline: { start: null, end: null },
-        type: 'national-capital',
-        geometry: { type: 'Point', coordinates: [empire.capital.lon, empire.capital.lat] },
-        population: null,
-        ownerId: empireId,
-        styleClassId: STYLE_IDS.symbolCapitalNational,
-        styleOverrides: {},
-        labelId: null,
-      };
-      project.settlements[capitalId] = seat;
-      attachLabel(project, capitalId, {
-        layerId: cityLabels.id,
-        kind: 'city',
-        text: seat.name,
-        coords: [empire.capital.lon, empire.capital.lat],
-        styleClassId: STYLE_IDS.textCapital,
-        offset: [11, 0],
-        target: 'settlements',
-      });
-    }
+    const settlement: Settlement = {
+      id: capitalId,
+      layerId: settlementLayer.id,
+      name: seat.short,
+      notes: '',
+      locked: false,
+      hidden: false,
+      timeline: { start: null, end: null },
+      type: 'national-capital',
+      geometry: { type: 'Point', coordinates: seat.seat },
+      population: null,
+      ownerId: empireId,
+      styleClassId: STYLE_IDS.symbolCapitalNational,
+      styleOverrides: {},
+      labelId: null,
+    };
+    project.settlements[capitalId] = settlement;
+    attachLabel(project, capitalId, 'settlements', {
+      layerId: cityLabels.id,
+      kind: 'city',
+      text: settlement.name,
+      coords: seat.seat,
+      styleClassId: STYLE_IDS.textCapital,
+      offset: [10, 0],
+    });
   }
 
   for (const w of WATER_LABELS) {
@@ -711,36 +702,80 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
     project.labels[label.id] = label;
   }
 
-  if (missing.length) {
-    // Loud in development, invisible to the user: a renamed subdivision would
-    // otherwise silently shrink a realm.
-    console.warn(`After the End: ${missing.length} unmatched subdivisions`, missing);
-  }
-
   return { project, center: CENTER, zoom: ZOOM };
 }
 
-/** `ISO3:name` → geometry, lowercased so the realm table can be written naturally. */
-function indexUnits(features: Awaited<ReturnType<typeof loadBasemap>>) {
-  const index = new Map<string, Polygon | MultiPolygon>();
-  for (const f of polygonsOf(features)) {
-    const props = (f.properties ?? {}) as Record<string, unknown>;
-    const country = typeof props.adm0_a3 === 'string' ? props.adm0_a3 : '';
-    const name = basemapFeatureName(f);
-    if (!country || !name) continue;
-    index.set(`${country}:${name}`.toLowerCase(), f.geometry as Polygon | MultiPolygon);
+/**
+ * A realm's own colour: its liege's, shifted.
+ *
+ * Vassals could simply inherit, and §7 supports that — but then an empire is one
+ * flat wash and its vassals are only visible as hairlines, which is not how a
+ * political map of many small realms reads. Varying lightness and saturation
+ * around the liege's colour keeps the family legible while giving each realm its
+ * own tint, exactly as a hand-coloured atlas plate does.
+ */
+function vassalColor(base: string, index: number, count: number): string {
+  const hex = base.replace('#', '');
+  const r = parseInt(hex.slice(0, 2), 16) / 255;
+  const g = parseInt(hex.slice(2, 4), 16) / 255;
+  const b = parseInt(hex.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
   }
-  return index;
+
+  // Spread the vassals over a band around the liege rather than in one
+  // direction, so no empire ends up uniformly darker than its neighbours.
+  const t = count <= 1 ? 0 : index / (count - 1) - 0.5;
+  const hue = (h + t * 26 + 360) % 360;
+  const sat = Math.max(0.06, Math.min(0.62, s + t * 0.16));
+  const lum = Math.max(0.52, Math.min(0.87, l - t * 0.17));
+
+  const c = (1 - Math.abs(2 * lum - 1)) * sat;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = lum - c / 2;
+  const seg = Math.floor(hue / 60) % 6;
+  const rgb = [
+    [c, x, 0],
+    [x, c, 0],
+    [0, c, x],
+    [0, x, c],
+    [x, 0, c],
+    [c, 0, x],
+  ][seg];
+  const to255 = (v: number) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+  return `#${to255(rgb[0])}${to255(rgb[1])}${to255(rgb[2])}`;
+}
+
+/** Every ring of every land polygon, which is all the growth needs. */
+function coastlineRings(features: Awaited<ReturnType<typeof loadBasemap>>): Position[][] {
+  const rings: Position[][] = [];
+  for (const f of polygonsOf(features)) {
+    const g = f.geometry as Polygon | MultiPolygon;
+    const polys = g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates];
+    for (const poly of polys) for (const ring of poly) rings.push(ring);
+  }
+  return rings;
 }
 
 function attachLabel(
   project: MapProject,
   ownerId: string,
-  init: Parameters<typeof makeLabel>[0] & { target?: 'territories' | 'settlements' },
+  target: 'territories' | 'settlements',
+  init: Parameters<typeof makeLabel>[0],
 ): void {
   const label = makeLabel({ ...init, attachedToId: ownerId });
   project.labels[label.id] = label;
-  const collection = init.target === 'settlements' ? project.settlements : project.territories;
+  const collection = target === 'settlements' ? project.settlements : project.territories;
   const owner = collection[ownerId];
   if (owner) collection[ownerId] = { ...owner, labelId: label.id } as never;
 }
@@ -779,5 +814,5 @@ function makeLabel(init: {
   };
 }
 
-/** Exposed for tests: the realm table, so its shape can be checked without a fetch. */
-export const AFTER_THE_END_EMPIRES: readonly RealmDef[] = EMPIRES;
+/** Exposed for tests: the realm table, checkable without fetching anything. */
+export const AFTER_THE_END_EMPIRES: readonly Empire[] = EMPIRES;

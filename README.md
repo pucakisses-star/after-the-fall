@@ -36,14 +36,25 @@ Americas of the Crusader Kings total conversion — so the feature set is visibl
 real subject. **New** starts a blank map, one seeded with real geography, or the smaller
 north-eastern demonstration map.
 
-Eighteen sovereign realms and about fifty vassals are built from real Natural Earth subdivisions by
-the same public API the UI uses: dissolved into territories, arranged into the empire → kingdom
-hierarchy, given the border tiers, and labelled by the ordinary label engine. Realm names and the
-empire each belongs to come from the mod's own realm list; the *shapes* do not — the mod's province
-map is not published as geodata, so each realm is approximated by the modern states, provinces and
-departments it most nearly covers. Treat every border as a starting point to redraw, which is the
-whole point of the application. Vassal names start hidden, because fifty of them under eighteen
-empire names is a mat rather than a map; the Region Labels layer turns them on.
+Thirty sovereign realms and about a hundred and fifty vassals span both continents, built by the
+same public API the UI uses: territories arranged into the empire → vassal hierarchy, given the
+border tiers, and labelled by the ordinary label engine.
+
+**The shapes are grown, not traced.** A collapsed world that still divides at the state line is not a
+collapsed world, and no amount of dissolving modern subdivisions can produce the look of a realm
+spreading from a city until it meets a rival. So `geo/realmGrowth.ts` rasterises the coastline to a
+20 km lattice, lets every realm claim outward from its seat at a rate set by its strength, and puts
+the frontier where two claims meet — wandered by a deterministic noise field, so no border is a
+straight line between two capitals. A realm stops once it has taken the ground its strength allows,
+which is what leaves genuine wilderness between them. The lattice is then traced into rings and
+rounded off, so none of the grid survives into the outline. The whole New World grows in under a
+second, and the same inputs always give the same map.
+
+Realm names, their tier and the empire each belongs to come from the setting's own realm list; where
+each sits is an informed placement, not a tracing of the mod's province map, which is not published
+as geodata. Treat every border as a starting point to redraw, which is the whole point of the
+application. Vassal and capital names start hidden — a hundred and fifty of them under thirty empire
+names is a mat rather than a map — and the Region and City Labels layers turn them on.
 
 Reference geography ships in `public/data/` and is fetched lazily — only the datasets you switch on
 are ever loaded, and nothing is downloaded from the internet at runtime.
@@ -159,7 +170,7 @@ handled:
 | Disputed-territory hatching | `render/patterns.ts`, one definition → `CanvasPattern` *and* `<pattern>` |
 | Latitude/longitude grid, frame, title, scale bar | `export/svgExport.ts` and the OpenLayers graticule layer |
 | A map that is about a region, not the globe | `workingExtent` crops the reference data and bounds the view |
-| A whole political world, built from real units | `demo/afterTheEnd.ts` — realm table in, dissolved territories out |
+| A whole political world that is not a modern one | `geo/realmGrowth.ts` grows realms from seats; `demo/afterTheEnd.ts` names them |
 | Large maps suitable for print | Export up to 12000 × 8000 raster, unbounded vector |
 
 ---
