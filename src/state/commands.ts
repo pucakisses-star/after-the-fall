@@ -26,6 +26,7 @@ import {
 } from '@/geo/operations';
 import type { Poly } from '@/geo/operations';
 import { propagateVertexEdit, repairTopology, type RepairOptions } from '@/geo/topology';
+import { boundaryFollows, reshapeBoundary } from '@/geo/reshape';
 import { recolor, type RecolorOptions } from '@/geo/palette';
 import type { MapLabel, MapLayer, MapProject, Settlement, Territory, UUID } from '@/model/types';
 import {
@@ -935,3 +936,51 @@ export function deleteStyleClass(bucket: StyleBucket, id: UUID): void {
 
 export const undo = () => useProjectStore.getState().undo();
 export const redo = () => useProjectStore.getState().redo();
+
+/**
+ * Redraw a stretch of a territory's boundary by hand (spec §5, §6, §21).
+ *
+ * The stroke replaces the run of border it was drawn along. The territory on
+ * the other side of that run follows the same edit, because a border belongs to
+ * both of them and moving one side alone is how a map grows a seam — which is
+ * the whole point of §6 and the reason this is a command rather than a nudge to
+ * one polygon.
+ *
+ * Neighbours are found by asking which other territory's boundary lies along
+ * the run that was replaced, so this is exact where a border really is shared
+ * and does nothing where it merely passes nearby.
+ */
+export function reshapeTerritoryBoundary(territoryId: UUID, stroke: LineString, tolerance: number): boolean {
+  const project = getProject();
+  const target = project.territories[territoryId];
+  if (!target || target.locked) return false;
+
+  const result = reshapeBoundary(target.geometry, stroke, tolerance);
+  if (!result) {
+    toast('Draw over a border, starting and finishing on the same outline.', 'warn');
+    return false;
+  }
+
+  // Whoever shares the stretch that was replaced has to move with it.
+  const followers: { id: UUID; geometry: Poly }[] = [];
+  for (const other of Object.values(project.territories)) {
+    if (other.id === territoryId || other.locked || other.hidden) continue;
+    if (!boundaryFollows(other.geometry, result.replaced, tolerance)) continue;
+    const moved = reshapeBoundary(other.geometry, { type: 'LineString', coordinates: result.drawn }, tolerance);
+    if (moved) followers.push({ id: other.id, geometry: moved.geometry });
+  }
+
+  commit('Redraw border', (r) => {
+    r.update<Territory>('territories', territoryId, { geometry: result.geometry });
+    syncAttachedLabel(r, territoryId, result.geometry);
+    for (const f of followers) {
+      r.update<Territory>('territories', f.id, { geometry: f.geometry });
+      syncAttachedLabel(r, f.id, f.geometry);
+    }
+  });
+
+  if (followers.length) {
+    toast(`Border redrawn; ${followers.length} neighbour${followers.length === 1 ? '' : 's'} followed.`, 'success');
+  }
+  return true;
+}

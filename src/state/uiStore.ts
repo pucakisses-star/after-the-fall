@@ -13,6 +13,7 @@ export type ToolId =
   | 'pan'
   | 'territory'
   | 'vertex'
+  | 'reshape'
   | 'paint'
   | 'cut'
   | 'settlement'

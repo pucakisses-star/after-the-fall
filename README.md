@@ -287,6 +287,7 @@ handled:
 
 | Element | Implementation |
 |---|---|
+| Redrawing a stretch of border by hand | `geo/reshape.ts` — a freehand stroke replaces the run it was drawn along |
 | Pastel political fills | `TerritoryStyle.fillColor` + the palette generator (`geo/palette.ts`) |
 | Thin internal boundaries, heavy sovereign ones | Borders are **derived**, not drawn — `render/borders.ts` |
 | Detailed coastline geometry | Natural Earth 1:10m and US Census data, convertible to editable territories |

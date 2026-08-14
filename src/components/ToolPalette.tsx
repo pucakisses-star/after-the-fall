@@ -28,6 +28,7 @@ export const TOOLS: ToolDef[] = [
   { id: 'pan', label: 'Pan', key: 'H', icon: <IconHand />, hint: 'Drag to pan the map.' },
   { id: 'territory', label: 'Territory', key: 'R', icon: <IconTerritory />, hint: 'Click to place vertices, double-click to close the polygon.' },
   { id: 'vertex', label: 'Edit vertices', key: 'A', icon: <IconVertex />, hint: 'Drag vertices. Click an edge to add one. Alt-click to remove. Neighbours that share a vertex move with it.' },
+  { id: 'reshape', label: 'Redraw border', key: 'N', icon: <IconVertex />, hint: 'Hold and draw over a border to redraw that stretch by hand. Neighbours sharing it follow.' },
   { id: 'paint', label: 'Paint territory', key: 'B', icon: <IconPaint />, hint: 'Choose a state in the Inspector, then drag across subdivisions to assign them.' },
   { id: 'cut', label: 'Split', key: 'C', icon: <IconCut />, hint: 'Draw a line across a territory to cut it in two.' },
   { id: 'settlement', label: 'Settlement', key: 'S', icon: <IconSettlement />, hint: 'Click to place a city, capital or fortress.' },

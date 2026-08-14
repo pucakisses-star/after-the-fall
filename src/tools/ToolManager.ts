@@ -21,7 +21,8 @@ import * as turf from '@turf/turf';
 import type { LineString, MultiPolygon, Polygon } from 'geojson';
 
 import type { MapController } from '@/render/MapController';
-import { drawingStyle, snapIndicatorStyle, vertexStyle } from '@/render/olStyles';
+import { drawingStyle, metersPerUnit, snapIndicatorStyle, vertexStyle } from '@/render/olStyles';
+import { distanceToBoundary } from '@/geo/reshape';
 import { useUIStore, type ToolId } from '@/state/uiStore';
 import { getProject, makeLinear, commit } from '@/state/projectStore';
 import {
@@ -31,6 +32,7 @@ import {
   moveLabel,
   moveSettlement,
   paintTerritory,
+  reshapeTerritoryBoundary,
   splitTerritoryWithLine,
   updateTerritoryGeometry,
 } from '@/state/commands';
@@ -111,6 +113,9 @@ export class ToolManager {
         break;
       case 'vertex':
         this.setupVertexEdit();
+        break;
+      case 'reshape':
+        this.setupReshape();
         break;
       case 'cut':
         this.setupCut();
@@ -416,6 +421,77 @@ export class ToolManager {
     });
 
     this.add(modify);
+    this.addSnap();
+  }
+
+  // -------------------------------------------------------------------------
+  // Redrawing a border by hand (spec §5, §6, §21)
+  // -------------------------------------------------------------------------
+
+  /**
+   * A pencil for borders: hold the button down and draw over the stretch you
+   * want changed, starting and finishing on the outline.
+   *
+   * Freehand, because that is the point — a click-per-vertex tool for this
+   * already exists and is the vertex editor. `freehand: true` also takes the
+   * drag away from panning for as long as the tool is active, which is what
+   * makes it feel like a pencil rather than a map.
+   */
+  private setupReshape(): void {
+    const draw = new Draw({
+      source: this.controller.overlaySource,
+      type: 'LineString',
+      freehand: true,
+      style: drawingStyle(),
+    });
+    draw.on('drawend', (evt) => {
+      const geom = evt.feature.getGeometry() as OlLineString;
+      const wgs = geojson.writeGeometryObject(geom, {
+        featureProjection: this.map().getView().getProjection(),
+        dataProjection: 'EPSG:4326',
+      }) as LineString;
+
+      setTimeout(() => {
+        this.controller.overlaySource.clear(true);
+        const project = getProject();
+        const start = wgs.coordinates[0];
+        if (!start) return;
+
+        // How near an end has to land to count as "on the border", in degrees:
+        // a pencil's worth of aim at the current zoom, so it follows the zoom
+        // rather than being a fixed distance on the ground that is generous at
+        // one scale and unusable at the other. Generous on purpose — this is a
+        // freehand tool, and a stroke that begins a few pixels off the line is
+        // plainly meant for it.
+        const view = this.map().getView();
+        const metres = (view.getResolution() ?? 1) * metersPerUnit(view.getProjection().getUnits());
+        const tolerance = Math.max(0.0005, (metres * 28) / 111_320);
+
+        // The territory whose border it is: the selected one, or whichever
+        // outline the stroke started nearest.
+        const selection = useUIStore.getState().selection;
+        let targetId = selection.find((id) => project.territories[id]);
+        if (!targetId) {
+          let best = Infinity;
+          for (const t of Object.values(project.territories)) {
+            if (t.locked || t.hidden) continue;
+            const d = distanceToBoundary(t.geometry, start);
+            if (d < best) {
+              best = d;
+              targetId = t.id;
+            }
+          }
+          // A stroke that began nowhere near a border is not a reshape.
+          if (best > tolerance * 4) targetId = undefined;
+        }
+        if (!targetId) {
+          useUIStore.getState().toast('Start the stroke on the border you want to redraw.', 'warn');
+          return;
+        }
+        reshapeTerritoryBoundary(targetId, wgs, tolerance);
+      }, 0);
+    });
+    this.add(draw);
     this.addSnap();
   }
 
