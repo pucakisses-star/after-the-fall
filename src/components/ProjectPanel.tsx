@@ -494,7 +494,7 @@ function BasemapSection() {
       <p className="hint">
         Reference geography is a tracing aid and is not part of the document. Convert it to make it
         editable — {BUILTIN_BASEMAPS.length} datasets ship with the app, fetched only when switched on.
-        Pick the scale that matches your zoom: 1:110m for a world map, 1:10m for a region.
+        Everything here is Natural Earth's finest published scale.
       </p>
     </Section>
   );

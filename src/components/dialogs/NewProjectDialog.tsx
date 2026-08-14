@@ -39,7 +39,7 @@ const STARTING_POINTS: StartingPoint[] = [
     id: 'world',
     label: 'World coastlines',
     description: 'Natural Earth land outlines, lakes and cities as a tracing reference.',
-    basemaps: ['world-land-50m', 'world-lakes-50m', 'world-places-50m'],
+    basemaps: ['world-land-10m', 'world-lakes-10m', 'world-places-10m'],
     center: [0, 20],
     zoom: 2.4,
   },
@@ -47,15 +47,15 @@ const STARTING_POINTS: StartingPoint[] = [
     id: 'countries',
     label: 'World countries',
     description: 'Land, lakes, cities and modern country boundaries, ready to convert.',
-    basemaps: ['world-land-50m', 'world-lakes-50m', 'world-countries-50m', 'world-places-50m'],
+    basemaps: ['world-land-10m', 'world-lakes-10m', 'world-countries-10m', 'world-places-10m'],
     center: [0, 20],
     zoom: 2.4,
   },
   {
     id: 'americas-detailed',
-    label: 'The Americas — detailed (1:10m)',
+    label: 'The Americas',
     description:
-      'Natural Earth at its finest published scale — coastlines, lakes, rivers, boundaries and cities, ~7× the detail of 1:50m — cropped to the western hemisphere so nothing off-continent is drawn and the view stays on the subject.',
+      'Coastlines, lakes, rivers, boundaries and cities, cropped to the western hemisphere so nothing off-continent is drawn and the view stays on the subject.',
     basemaps: [
       'world-land-10m',
       'world-lakes-10m',

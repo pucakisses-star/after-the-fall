@@ -25,146 +25,59 @@ import { intersection } from './operations';
 import type { BasemapSource } from '@/model/types';
 
 /**
- * Bundled reference geography, ordered coarse → detailed within each family.
+ * Bundled reference geography, all at Natural Earth's finest published scale.
  *
- * The scale is part of the name because it is the thing that actually matters
- * when choosing: 1:110m is a world-at-a-glance outline, 1:50m holds up to about
- * country level, and 1:10m is the finest Natural Earth publishes — roughly seven
- * times the vertex density of 1:50m in a region-sized view. Beyond that you want
- * a national dataset (the US files below) or your own import.
+ * The coarser 1:110m and 1:50m editions used to ship alongside these. They are
+ * gone: a coastline that is visibly wrong the moment you zoom in is not worth
+ * the megabyte it saves, and offering three versions of the same layer made
+ * every choice in the panel a question about file size rather than about the
+ * map. One scale, the good one. Beyond it you want a national dataset (the US
+ * files below) or your own import.
  */
 export const BUILTIN_BASEMAPS: BasemapSource[] = [
   {
-    id: 'world-land-110m',
-    name: 'World coastlines — 1:110m (coarse)',
-    url: 'data/world/land-110m.json',
-    format: 'topojson',
-    objectName: 'land',
-    role: 'land',
-  },
-  {
-    id: 'world-land-50m',
-    name: 'World coastlines — 1:50m (medium)',
-    url: 'data/world/land-50m.json',
-    format: 'topojson',
-    objectName: 'land',
-    role: 'land',
-  },
-  {
     id: 'world-land-10m',
-    name: 'World coastlines — 1:10m (detailed)',
+    name: 'World coastlines',
     url: 'data/world/land-10m.json',
     format: 'topojson',
     objectName: 'land',
     role: 'land',
   },
   {
-    id: 'world-countries-110m',
-    name: 'Country boundaries — 1:110m (coarse)',
-    url: 'data/world/countries-110m.json',
-    format: 'topojson',
-    objectName: 'countries',
-    role: 'countries',
-  },
-  {
-    id: 'world-countries-50m',
-    name: 'Country boundaries — 1:50m (medium)',
-    url: 'data/world/countries-50m.json',
-    format: 'topojson',
-    objectName: 'countries',
-    role: 'countries',
-  },
-  {
     id: 'world-countries-10m',
-    name: 'Country boundaries — 1:10m (detailed)',
+    name: 'Country boundaries',
     url: 'data/world/countries-10m.json',
     format: 'topojson',
     objectName: 'countries',
     role: 'countries',
   },
   {
-    id: 'world-lakes-110m',
-    name: 'Lakes — 1:110m (coarse)',
-    url: 'data/world/lakes-110m.json',
-    format: 'topojson',
-    objectName: 'lakes',
-    role: 'lakes',
-  },
-  {
-    id: 'world-lakes-50m',
-    name: 'Lakes — 1:50m (medium)',
-    url: 'data/world/lakes-50m.json',
-    format: 'topojson',
-    objectName: 'lakes',
-    role: 'lakes',
-  },
-  {
     id: 'world-lakes-10m',
-    name: 'Lakes — 1:10m (detailed)',
+    name: 'Lakes',
     url: 'data/world/lakes-10m.json',
     format: 'topojson',
     objectName: 'lakes',
     role: 'lakes',
   },
   {
-    id: 'world-rivers-110m',
-    name: 'Rivers — 1:110m (coarse)',
-    url: 'data/world/rivers-110m.json',
-    format: 'topojson',
-    objectName: 'rivers',
-    role: 'rivers',
-  },
-  {
-    id: 'world-rivers-50m',
-    name: 'Rivers — 1:50m (medium)',
-    url: 'data/world/rivers-50m.json',
-    format: 'topojson',
-    objectName: 'rivers',
-    role: 'rivers',
-  },
-  {
     id: 'world-rivers-10m',
-    name: 'Rivers — 1:10m (detailed)',
+    name: 'Rivers',
     url: 'data/world/rivers-10m.json',
     format: 'topojson',
     objectName: 'rivers',
     role: 'rivers',
   },
   {
-    id: 'world-places-110m',
-    name: 'Cities & towns — 1:110m (major only)',
-    url: 'data/world/places-110m.json',
-    format: 'topojson',
-    objectName: 'places',
-    role: 'places',
-  },
-  {
-    id: 'world-places-50m',
-    name: 'Cities & towns — 1:50m (medium)',
-    url: 'data/world/places-50m.json',
-    format: 'topojson',
-    objectName: 'places',
-    role: 'places',
-  },
-  {
     id: 'world-places-10m',
-    name: 'Cities & towns — 1:10m (detailed)',
+    name: 'Cities & towns',
     url: 'data/world/places-10m.json',
     format: 'topojson',
     objectName: 'places',
     role: 'places',
   },
   {
-    id: 'world-admin1-50m',
-    name: 'Provinces & states — world (coarse)',
-    url: 'data/world/admin1-50m.json',
-    format: 'topojson',
-    objectName: 'admin1',
-    role: 'states',
-  },
-  {
     id: 'na-admin1-10m',
-    name: 'Provinces & states — N. America (detailed)',
+    name: 'Provinces & states (N. America)',
     url: 'data/world/admin1-na-10m.json',
     format: 'topojson',
     objectName: 'admin1',
@@ -194,22 +107,11 @@ export const BUILTIN_BASEMAPS: BasemapSource[] = [
  * the shipped TopoJSON.
  */
 export const BASEMAP_SIZES: Record<string, string> = {
-  'world-land-110m': '55 KB',
-  'world-land-50m': '530 KB',
   'world-land-10m': '2.9 MB',
-  'world-countries-110m': '105 KB',
-  'world-countries-50m': '740 KB',
   'world-countries-10m': '3.5 MB',
-  'world-lakes-110m': '7 KB',
-  'world-lakes-50m': '200 KB',
   'world-lakes-10m': '1.2 MB',
-  'world-rivers-110m': '11 KB',
-  'world-rivers-50m': '285 KB',
   'world-rivers-10m': '2.0 MB',
-  'world-places-110m': '47 KB',
-  'world-places-50m': '235 KB',
   'world-places-10m': '1.4 MB',
-  'world-admin1-50m': '440 KB',
   'na-admin1-10m': '1.4 MB',
   'us-states': '110 KB',
   'us-counties': '820 KB',

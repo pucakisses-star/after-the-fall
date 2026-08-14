@@ -76,23 +76,26 @@ names is a mat rather than a map — and the Region and City Labels layers turn 
 Reference geography ships in `public/data/` and is fetched lazily — only the datasets you switch on
 are ever loaded, and nothing is downloaded from the internet at runtime.
 
-| Dataset | 1:110m | 1:50m | 1:10m |
-|---|---|---|---|
-| World coastlines | 55 KB | 530 KB | 2.9 MB |
-| Country boundaries | 105 KB | 740 KB | 3.5 MB |
-| Lakes | 7 KB | 200 KB | 1.2 MB |
-| Rivers | 11 KB | 285 KB | 2.0 MB |
-| Cities & towns | 47 KB | 235 KB | 1.4 MB |
-| Provinces & states | — | 440 KB (world) | 1.4 MB (N. America) |
-| US states / counties (Census) | — | — | 110 / 820 KB |
+| Dataset | Coverage | Size |
+|---|---|---|
+| World coastlines | Global | 2.9 MB |
+| Country boundaries | Global | 3.5 MB |
+| Lakes | Global | 1.2 MB |
+| Rivers | Global | 2.0 MB |
+| Cities & towns | Global | 1.4 MB |
+| Provinces & states | The Americas | 1.4 MB |
+| US states / counties (Census) | United States | 110 / 820 KB |
 
-The subdivision files are the two-file compromise the same table implies: the world's provinces at
-1:10m is 4,596 features and close to 5 MB, too much to bundle for a map of one continent, so the
-world ships coarse and North America ships detailed. They are what makes a realm buildable out of
-real administrative units outside the United States, which is the only place the Census files cover.
+**One scale, and it is the good one.** Each of these used to ship in three editions — 1:110m,
+1:50m and 1:10m — which put three entries in the layer list for every kind of geography and asked a
+question nobody wanted to answer. Only Natural Earth's finest published scale remains: roughly
+seven times the vertex density of 1:50m, a few megabytes more, and no choice to make. Projects saved
+against a coarser edition are repointed at the detailed one when they load.
 
-Pick the scale that matches your zoom: 1:110m for a world map, 1:10m for a region. 1:10m carries
-roughly seven times the vertex density of 1:50m and is the finest scale Natural Earth publishes.
+The subdivisions are cropped rather than coarsened, on the same logic: the world's provinces at
+1:10m is 4,596 features and close to 5 MB, too much to bundle for a map of one hemisphere, so the
+file covers the Americas. It is what makes a realm buildable out of real administrative units
+outside the United States, which is the only place the Census files cover.
 
 **Most maps are about somewhere, not everywhere.** Project → Map area crops the map to a region:
 reference geography outside it is never projected or drawn, and the view cannot pan or zoom past it,
@@ -191,9 +194,9 @@ handled:
 |---|---|
 | Pastel political fills | `TerritoryStyle.fillColor` + the palette generator (`geo/palette.ts`) |
 | Thin internal boundaries, heavy sovereign ones | Borders are **derived**, not drawn — `render/borders.ts` |
-| Detailed coastline geometry | Natural Earth 1:110m/1:50m/1:10m and US Census data, convertible to editable territories |
-| Lakes and rivers | Natural Earth water at three scales, drawn over the political fills |
-| Real city locations | Natural Earth populated places at three scales, convertible to settlements |
+| Detailed coastline geometry | Natural Earth 1:10m and US Census data, convertible to editable territories |
+| Lakes and rivers | Natural Earth water at 1:10m, drawn over the political fills |
+| Real city locations | Natural Earth populated places at 1:10m, convertible to settlements |
 | Widely-spaced country names | Per-glyph text rendering with real tracking — `render/textRenderer.ts` |
 | Sea labels on broad curves, river labels along rivers | Text-on-path, same module |
 | City circles, larger capital symbols | `render/symbols.ts`, one definition drawn to canvas *and* SVG |

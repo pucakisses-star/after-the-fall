@@ -191,7 +191,7 @@ describe('exportSvg', () => {
     // Lakes drawn beneath a territory fill would be invisible; the group order is
     // what guarantees they read as water on a coloured map.
     const project = sampleProject();
-    project.basemap = [{ sourceId: 'world-lakes-110m', visible: true, opacity: 1 }];
+    project.basemap = [{ sourceId: 'world-lakes-10m', visible: true, opacity: 1 }];
     const svg = await exportSvg(project, { ...OPTIONS, includeBasemap: true });
 
     const territories = svg.indexOf('<g id="territories"');

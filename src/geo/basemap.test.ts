@@ -52,14 +52,24 @@ describe('feature kind detection', () => {
 });
 
 describe('bundled datasets', () => {
-  it('ships lakes and rivers at every scale (§3)', () => {
-    for (const role of ['land', 'countries', 'lakes', 'rivers'] as const) {
-      const scales = BUILTIN_BASEMAPS.filter((b) => b.role === role);
-      expect(scales.length, `${role} has no datasets`).toBe(3);
-      for (const s of scales) {
-        expect(s.url).toMatch(/^data\//);
-        expect(s.objectName, `${s.id} has no TopoJSON object name`).toBeTruthy();
-      }
+  // One dataset per role, at Natural Earth's finest published scale. The coarse
+  // and medium editions were dropped: three entries per kind of geography made
+  // the layer list a scale menu rather than a list of what the map contains.
+  it('ships exactly one bundled dataset per world role, and it is the detailed one (§3)', () => {
+    for (const role of ['land', 'countries', 'lakes', 'rivers', 'places'] as const) {
+      const world = BUILTIN_BASEMAPS.filter((b) => b.role === role && b.url.startsWith('data/world/'));
+      expect(world.length, `${role} should have one bundled world dataset`).toBe(1);
+      const only = world[0];
+      expect(only.id, `${only.id} is not the 1:10m edition`).toMatch(/-10m$/);
+      expect(only.url, `${only.id} is not the 1:10m file`).toMatch(/-10m\.json$/);
+      expect(only.objectName, `${only.id} has no TopoJSON object name`).toBeTruthy();
+    }
+  });
+
+  it('offers no coarse or medium editions at all', () => {
+    for (const b of BUILTIN_BASEMAPS) {
+      expect(b.id, 'a coarser edition survived').not.toMatch(/-(110|50)m$/);
+      expect(b.url, 'a coarser file is still referenced').not.toMatch(/-(110|50)m\./);
     }
   });
 

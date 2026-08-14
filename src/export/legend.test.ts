@@ -226,8 +226,8 @@ describe('reference geography in the key', () => {
   it('explains the water it draws from the reference layers', () => {
     const project = sample();
     project.basemap = [
-      { sourceId: 'world-rivers-50m', visible: true, opacity: 1 },
-      { sourceId: 'world-lakes-50m', visible: true, opacity: 1 },
+      { sourceId: 'world-rivers-10m', visible: true, opacity: 1 },
+      { sourceId: 'world-lakes-10m', visible: true, opacity: 1 },
     ];
     const rows = deriveLegendEntries(project).map((r) => r.text);
     expect(rows).toContain('River');
@@ -236,7 +236,7 @@ describe('reference geography in the key', () => {
 
   it('says nothing about layers that are switched off', () => {
     const project = sample();
-    project.basemap = [{ sourceId: 'world-rivers-50m', visible: false, opacity: 1 }];
+    project.basemap = [{ sourceId: 'world-rivers-10m', visible: false, opacity: 1 }];
     expect(deriveLegendEntries(project).map((r) => r.text)).not.toContain('River');
   });
 });

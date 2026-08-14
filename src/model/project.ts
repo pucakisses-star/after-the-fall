@@ -159,19 +159,12 @@ export function createProject(opts: NewProjectOptions = {}): MapProject {
     styles: createDefaultStyleSheet(),
     timeline: { enabled: false, currentYear: 1453, minYear: 800, maxYear: 1900, step: 1 },
     basemap: [
-      { sourceId: 'world-land-50m', visible: true, opacity: 1 },
-      { sourceId: 'world-land-10m', visible: false, opacity: 1 },
-      { sourceId: 'world-countries-50m', visible: false, opacity: 1 },
+      { sourceId: 'world-land-10m', visible: true, opacity: 1 },
+      { sourceId: 'world-lakes-10m', visible: true, opacity: 1 },
       { sourceId: 'world-countries-10m', visible: false, opacity: 1 },
-      { sourceId: 'world-lakes-50m', visible: true, opacity: 1 },
-      { sourceId: 'world-lakes-10m', visible: false, opacity: 1 },
-      { sourceId: 'world-rivers-50m', visible: false, opacity: 1 },
       { sourceId: 'world-rivers-10m', visible: false, opacity: 1 },
-      // Cities on by default at the middle scale: enough to orient yourself
-      // anywhere in the world without burying a new map under seven thousand
-      // dots. The 1:10m set is one checkbox away when you zoom into a region.
-      { sourceId: 'world-places-50m', visible: true, opacity: 1 },
-      { sourceId: 'world-places-10m', visible: false, opacity: 1 },
+      { sourceId: 'world-places-10m', visible: true, opacity: 1 },
+      { sourceId: 'na-admin1-10m', visible: false, opacity: 1 },
       { sourceId: 'us-states', visible: false, opacity: 1 },
       { sourceId: 'us-counties', visible: false, opacity: 1 },
     ],
@@ -182,6 +175,23 @@ export function createProject(opts: NewProjectOptions = {}): MapProject {
     legend: { enabled: false, title: 'Legend', position: 'bottom-left', auto: true, entries: [] },
     compass: { enabled: false, style: 'star', position: 'top-right', size: 46 },
   };
+}
+
+/**
+ * Point a project saved against the old 1:110m and 1:50m editions at the single
+ * scale that remains, rather than leaving it referring to files that no longer
+ * exist — which would surface as an error toast and a missing layer.
+ */
+function migrateBasemap(basemap: MapProject['basemap']): MapProject['basemap'] {
+  const seen = new Set<string>();
+  const out: MapProject['basemap'] = [];
+  for (const entry of basemap) {
+    const sourceId = entry.sourceId.replace(/-(110|50)m$/, '-10m');
+    if (seen.has(sourceId)) continue;
+    seen.add(sourceId);
+    out.push({ ...entry, sourceId });
+  }
+  return out;
 }
 
 /** Resolve the default layer for a given kind, creating nothing. */
@@ -226,7 +236,7 @@ export function migrate(raw: unknown): MapProject {
     settlements: p.settlements ?? {},
     linearFeatures: p.linearFeatures ?? {},
     labels: p.labels ?? {},
-    basemap: p.basemap ?? [],
+    basemap: migrateBasemap(p.basemap ?? []),
     legend: p.legend ?? createProject().legend,
     compass: p.compass ?? createProject().compass,
   };

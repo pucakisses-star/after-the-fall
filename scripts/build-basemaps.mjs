@@ -46,27 +46,23 @@ const KEEP_ADMIN1 = ['iso_3166_2', 'adm0_a3', 'admin', 'type_en'];
 /** Coordinate precision. 4 dp is ~11 m — far finer than any of this data. */
 const PRECISION = 4;
 
+/**
+ * One scale only: 1:10m, the finest Natural Earth publishes. The 1:110m and
+ * 1:50m editions used to be built here too and offered as separate overlays,
+ * which meant three entries in the layer list for every kind of geography and
+ * a choice nobody wanted to make. Bundling only the detailed files costs a few
+ * megabytes and removes the decision.
+ */
 const DATASETS = [
-  { src: 'ne_110m_lakes', out: 'lakes-110m.json', object: 'lakes', quantization: 1e4 },
-  { src: 'ne_50m_lakes', out: 'lakes-50m.json', object: 'lakes', quantization: 1e5 },
   { src: 'ne_10m_lakes', out: 'lakes-10m.json', object: 'lakes', quantization: 1e5 },
-  { src: 'ne_110m_rivers_lake_centerlines', out: 'rivers-110m.json', object: 'rivers', quantization: 1e4 },
-  { src: 'ne_50m_rivers_lake_centerlines', out: 'rivers-50m.json', object: 'rivers', quantization: 1e5 },
   { src: 'ne_10m_rivers_lake_centerlines', out: 'rivers-10m.json', object: 'rivers', quantization: 1e5 },
-  { src: 'ne_110m_populated_places', out: 'places-110m.json', object: 'places', quantization: 1e5 },
-  { src: 'ne_50m_populated_places', out: 'places-50m.json', object: 'places', quantization: 1e5 },
   { src: 'ne_10m_populated_places', out: 'places-10m.json', object: 'places', quantization: 1e6 },
   // Provinces, states and territories — the only way to build a realm out of
   // real administrative units anywhere but the United States, which is the one
-  // place the Census files already cover.
-  //
-  // Two files rather than one. The world at 1:10m is 4,596 subdivisions and
-  // close to 5 MB, which is too much to bundle for a map of one continent; the
-  // world at 1:50m is 294 subdivisions and almost nothing. So: coarse
-  // everywhere, detailed where a post-apocalyptic Americas map actually needs
-  // it. Anyone mapping provinces of somewhere else in detail can import the
-  // Natural Earth file directly.
-  { src: 'ne_50m_admin_1_states_provinces', out: 'admin1-50m.json', object: 'admin1', quantization: 1e4, admin1: true },
+  // place the Census files already cover. Filtered to the Americas: the whole
+  // world at 1:10m is 4,596 subdivisions and close to 5 MB, which is too much
+  // to bundle for a map of one hemisphere. Anyone mapping provinces of
+  // somewhere else can import the Natural Earth file directly.
   {
     src: 'ne_10m_admin_1_states_provinces',
     out: 'admin1-na-10m.json',
