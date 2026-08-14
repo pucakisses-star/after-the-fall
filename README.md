@@ -137,10 +137,27 @@ centred on 39°N, Antarctica projects to a ring 66,000 km across — filling the
 land colour and hiding the ocean completely. Testing the feature's own bounding box cannot catch
 that, because the feature spans the world.
 
+**Converted divisions are trimmed to the coastline**, because an administrative boundary is drawn to
+its own tolerance and not to the shoreline's. The US Census cartographic file describes the whole of
+Massachusetts, Cape Cod included, in 155 vertices, and covers 420 km² of open sea doing it; Maryland
+covers 1,526 km², a twentieth of its own area. Laid over a coastline with a thousand times the
+detail, that reads as a fill cutting across every bay and clipping every headland, with the real
+shore visible outside it. Trimming puts each seaward edge on the shore itself — Maryland goes from
+279 vertices to 1,017 and from 1,526 km² of sea to none — and leaves inland divisions exactly as
+they came. `geo/coastline.ts` does it for the grown realms, the demonstration map and the **Trim to
+the coastline** option in the conversion dialog alike.
+
+The expensive part is knowing when *not* to bother. Most divisions never meet the sea, and the
+cheapest boolean is the one not run: if no coastline segment passes through a shape's bounding box
+then the whole box lies on one side of the shore, and a single point decides which — the shape comes
+back untouched, or is dropped as open water. Converting three thousand US counties, that is the
+difference between clipping every one of them and clipping the few hundred with a coast.
+
 **Lakes render over the political fills, rivers over those** — a lake inside a country has to be
 drawn on top of its colour or it disappears underneath, which is both how atlases set water and the
 only way the layer is usable for tracing. Lakes convert into water-styled territories and rivers
-into editable river features, so reference water can become part of the document in one step.
+into editable river features, so reference water can become part of the document in one step. Lakes
+are never trimmed to the land, for the obvious reason.
 
 Rivers are weighted by Natural Earth's `scalerank` on screen and in the export, so trunk rivers
 carry the eye and tributaries stay quiet rather than every watercourse drawing as the same hairline.
@@ -268,6 +285,8 @@ src/
     projections.ts    Projection catalogue and registration.
     winkelTripel.ts   Winkel Tripel + Natural Earth (proj4 ships neither).
     palette.ts        Graph-colouring palette generator.
+    coastline.ts      Trimming a shape to the shore, cheaply enough to do it often.
+    realmGrowth.ts    Growing realms from seats of power. See above.
     basemap.ts        Reference geography loading.
 
   state/            Zustand stores and the command layer.

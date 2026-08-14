@@ -47,6 +47,7 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
   const [divisionType, setDivisionType] = useState<PoliticalType>('province');
   const [borderKind, setBorderKind] = useState<BorderStyleKind>('provincial');
   const [keepSubdivisions, setKeepSubdivisions] = useState(true);
+  const [snapToCoast, setSnapToCoast] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const isCounties = sourceId === 'us-counties';
@@ -54,6 +55,12 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
   const isRivers = role === 'rivers';
   const isLakes = role === 'lakes';
   const isPlaces = role === 'places';
+  /**
+   * Trimming to the coast is only meaningful for land divisions. A lake is
+   * water by definition and would be trimmed out of existence; rivers and
+   * cities are not areas at all.
+   */
+  const snapsToCoast = !isRivers && !isLakes && !isPlaces;
   /** Only areal datasets can be merged into a realm. */
   const dissolvable = !isRivers && !isPlaces;
   const noun = isRivers
@@ -148,6 +155,7 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
           names,
           { name, politicalType, borderKind: 'international' },
           keepSubdivisions,
+          snapsToCoast && snapToCoast,
         );
         if (!id) {
           toast('None of those features could be dissolved.', 'error');
@@ -165,6 +173,7 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
           includeStateFips: isCounties && stateFilter ? new Set([stateFilter]) : undefined,
           politicalType: divisionType,
           borderKind,
+          snapToCoast: snapsToCoast && snapToCoast,
         });
         if (count === 0) toast('Nothing matched that filter.', 'warn');
         else {
@@ -319,6 +328,27 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
                 <br />
                 <span style={{ color: 'var(--text-faint)' }}>
                   Merge the selected features into a single realm, erasing their internal borders.
+                </span>
+              </span>
+            </label>
+          )}
+
+          {snapsToCoast && (
+            <label className="checkbox" style={{ alignItems: 'flex-start', marginTop: 8 }}>
+              <input
+                type="checkbox"
+                checked={snapToCoast}
+                onChange={(e) => setSnapToCoast(e.target.checked)}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                <strong style={{ color: 'var(--text)' }}>Trim to the coastline</strong>
+                <br />
+                <span style={{ color: 'var(--text-faint)' }}>
+                  Administrative boundaries are drawn to their own tolerance, not the coastline's —
+                  the Census file describes all of Massachusetts in 155 points and covers 420 km² of
+                  open sea doing it. Trimming puts each seaward edge on the shore itself. Inland
+                  divisions are left exactly as they came.
                 </span>
               </span>
             </label>

@@ -9,7 +9,8 @@
  * is pure test data, driven by the same public APIs the UI uses.
  */
 
-import { basemapFeatureName, loadBasemap } from '@/geo/basemap';
+import { basemapFeatureName, loadBasemap, polygonsOf } from '@/geo/basemap';
+import { boundsOf, clipToLand, indexLand, landPolygonsOf, type LandIndex } from '@/geo/coastline';
 import { dissolve, interiorPoint } from '@/geo/operations';
 import { PALETTES, STYLE_IDS } from '@/model/defaults';
 import { createProject } from '@/model/project';
@@ -203,13 +204,42 @@ export async function buildDemoProject(): Promise<DemoBuildResult> {
 
   const byName = new Map(states.map((f) => [basemapFeatureName(f).toLowerCase(), f]));
 
+  /**
+   * The coastline these realms are trimmed to.
+   *
+   * The Census cartographic file draws the whole of Massachusetts, Cape Cod
+   * included, in 155 vertices. Under a coastline with a thousand times the
+   * detail that reads as a fill cutting across every bay and clipping every
+   * headland — a state map, drawn to state-map tolerances, sitting on a
+   * shoreline drawn to none. Trimming puts the sea-facing edge of each realm on
+   * the shore itself.
+   *
+   * Land only; the Great Lakes are a separate dataset and are not holes in it,
+   * so a lakeside realm still covers its own share of the water. That is right:
+   * inland water draws over the political fills (§17), so the lake reads as a
+   * lake and the realm still owns the shore.
+   */
+  let coast: LandIndex | null = null;
+  try {
+    const land = landPolygonsOf(
+      polygonsOf(await loadBasemap('world-land-10m')).map((f) => f.geometry as Polygon | MultiPolygon),
+    );
+    const stateShapes = states.map((f) => f.geometry as Polygon | MultiPolygon);
+    coast = indexLand(land, boundsOf(stateShapes));
+  } catch {
+    // No coastline to hand: the realms are still perfectly usable, just drawn
+    // at the resolution the state file came at.
+  }
+  const onCoast = (g: Polygon | MultiPolygon): Polygon | MultiPolygon =>
+    (coast ? clipToLand(g, coast) : null) ?? g;
+
   for (const realm of REALMS) {
     const members = realm.members
       .map((m) => byName.get(m.toLowerCase()))
       .filter((f): f is NonNullable<typeof f> => !!f);
     if (members.length === 0) continue;
 
-    const merged = dissolve(members.map((f) => f.geometry as Polygon | MultiPolygon));
+    const merged = dissolve(members.map((f) => onCoast(f.geometry as Polygon | MultiPolygon)));
     if (!merged) continue;
 
     const parentId = newId();
@@ -261,7 +291,7 @@ export async function buildDemoProject(): Promise<DemoBuildResult> {
           politicalType: 'duchy',
           parentId,
           capitalId: null,
-          geometry: f.geometry as Polygon | MultiPolygon,
+          geometry: onCoast(f.geometry as Polygon | MultiPolygon),
           styleOverrides: {},
           inheritParentColor: true,
           borderKind: 'subordinate',
@@ -354,7 +384,7 @@ export async function buildDemoProject(): Promise<DemoBuildResult> {
       locked: false,
       hidden: false,
       timeline: { start: 1420, end: null },
-      geometry: disputed.geometry as Polygon | MultiPolygon,
+      geometry: onCoast(disputed.geometry as Polygon | MultiPolygon),
       styleClassId: STYLE_IDS.territoryDisputed,
       styleOverrides: {},
       inheritParentColor: false,

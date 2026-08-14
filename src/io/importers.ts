@@ -21,6 +21,7 @@ import type {
 import { newId } from '@/model/ids';
 import { STYLE_IDS } from '@/model/defaults';
 import { dissolve, interiorPoint } from '@/geo/operations';
+import { boundsOf, clipToLand, indexLand, landPolygonsOf, type LandIndex } from '@/geo/coastline';
 import {
   basemapFeatureName,
   findBasemapSource,
@@ -380,6 +381,38 @@ export interface ConvertOptions {
   borderKind?: BorderStyleKind;
   parentId?: UUID | null;
   createLabels?: boolean;
+  /**
+   * Trim each converted shape to the coastline.
+   *
+   * Administrative boundaries are drawn to their own tolerance, not the
+   * coastline's: the Census cartographic file describes the whole of
+   * Massachusetts, Cape Cod included, in 155 vertices, and covers 420 km² of
+   * open sea doing it. Under a shoreline with a thousand times the detail that
+   * reads as a fill cutting across every bay, with the real coast outside it.
+   */
+  snapToCoast?: boolean;
+}
+
+/**
+ * The dataset a conversion trims against — the finest coastline the app ships.
+ *
+ * Deliberately not "whatever land layer happens to be switched on": the trim
+ * should give the same answer whatever the user is looking at.
+ */
+const COASTLINE_SOURCE = 'world-land-10m';
+
+/** The land the conversion trims against, indexed around what is being converted. */
+async function coastlineFor(shapes: (Polygon | MultiPolygon)[]): Promise<LandIndex | null> {
+  try {
+    const land = landPolygonsOf(
+      polygonsOf(await loadBasemap(COASTLINE_SOURCE)).map((f) => f.geometry as Polygon | MultiPolygon),
+    );
+    return indexLand(land, boundsOf(shapes));
+  } catch {
+    // No coastline available: convert at the source's own resolution rather
+    // than refuse, and say so at the call site.
+    return null;
+  }
 }
 
 /**
@@ -416,10 +449,15 @@ export async function convertBasemapToTerritories(opts: ConvertOptions): Promise
   const createLabels = opts.createLabels ?? true;
   const isWater = role === 'lakes';
 
+  // A lake is water by definition, so trimming it to the land would delete it.
+  const shapes = filtered.map((f) => f.geometry as Polygon | MultiPolygon);
+  const coast = opts.snapToCoast && !isWater ? await coastlineFor(shapes) : null;
+  const geometryOf = (g: Polygon | MultiPolygon) => (coast ? clipToLand(g, coast) : null) ?? g;
+
   commit('Import reference geography', (r) => {
     for (const f of filtered) {
       const name = basemapFeatureName(f);
-      const t = makeTerritory(project, f.geometry as Polygon | MultiPolygon, {
+      const t = makeTerritory(project, geometryOf(f.geometry as Polygon | MultiPolygon), {
         name,
         // A lake is a water body, not a polity — give it the water style class
         // and a quiet shoreline rather than a political border weight.
@@ -589,13 +627,21 @@ export async function territoryFromBasemapFeatures(
   names: string[],
   init: Partial<Territory>,
   keepSubdivisions = true,
+  snapToCoast = false,
 ): Promise<UUID | null> {
   const features = polygonsOf(await loadBasemap(sourceId));
   const wanted = new Set(names.map((n) => n.toLowerCase()));
   const matched = features.filter((f) => wanted.has(basemapFeatureName(f).toLowerCase()));
   if (matched.length === 0) return null;
 
-  const merged = dissolve(matched.map((f) => f.geometry as Polygon | MultiPolygon));
+  // Trim before dissolving, not after: the members share their inland borders
+  // exactly, and trimming each to the same coastline leaves those borders
+  // untouched, so the dissolve still finds them and erases them cleanly.
+  const shapes = matched.map((f) => f.geometry as Polygon | MultiPolygon);
+  const coast = snapToCoast ? await coastlineFor(shapes) : null;
+  const geometryOf = (g: Polygon | MultiPolygon) => (coast ? clipToLand(g, coast) : null) ?? g;
+
+  const merged = dissolve(shapes.map(geometryOf));
   if (!merged) return null;
 
   const project = getProject();
@@ -611,7 +657,7 @@ export async function territoryFromBasemapFeatures(
     r.set('labels', parentLabel);
     if (keepSubdivisions) {
       for (const f of matched) {
-        const child = makeTerritory(project, f.geometry as Polygon | MultiPolygon, {
+        const child = makeTerritory(project, geometryOf(f.geometry as Polygon | MultiPolygon), {
           name: basemapFeatureName(f),
           politicalType: 'province',
           parentId: parent.id,
