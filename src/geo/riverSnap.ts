@@ -39,6 +39,20 @@ const key = (cx: number, cy: number) => `${cx},${cy}`;
 const ALONG_SHARE = 0.5;
 
 /**
+ * How far the river's course may stray from the frontier it replaces, as a
+ * multiple of the tolerance.
+ *
+ * The frontier is one arc of a ring whose other arcs are its neighbours, and
+ * none of them cross. A course that wanders off makes the ring cross itself,
+ * and a self-crossing ring is resolved into pieces — differently for the realm
+ * on each side, because their rings are not the same ring. That is how a
+ * frontier snapped to a river tore holes in the map either side of it. Keeping
+ * the course inside a narrow corridor around the line it replaces keeps the
+ * ring simple, which is the only reason the two sides still agree.
+ */
+const CORRIDOR = 1.0;
+
+/**
  * Longitude degrees shrink towards the poles, so a tolerance in raw degrees
  * would reach three times further across Alaska than across the Amazon. Every
  * distance here is measured with longitude scaled by the latitude it is at.
@@ -126,6 +140,24 @@ function nearestRiver(index: RiverIndex, p: Position, tolerance: number): Hit | 
   return best;
 }
 
+/** Distance from a point to a polyline, on the same latitude-scaled metric. */
+function distanceToLine(p: Position, line: Position[]): number {
+  const sx = lonScale(p[1]);
+  let best = Infinity;
+  for (let i = 0; i < line.length - 1; i++) {
+    const [ax, ay] = line[i];
+    const [bx, by] = line[i + 1];
+    const dx = (bx - ax) * sx;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    let t = len2 === 0 ? 0 : (((p[0] - ax) * sx * dx + (p[1] - ay) * dy) / len2);
+    t = Math.max(0, Math.min(1, t));
+    const d = Math.hypot((p[0] - (ax + (bx - ax) * t)) * sx, p[1] - (ay + (by - ay) * t));
+    if (d < best) best = d;
+  }
+  return best;
+}
+
 /** Length of a polyline, with longitude scaled by the latitude it sits at. */
 function lengthOf(pts: Position[]): number {
   let total = 0;
@@ -159,7 +191,7 @@ function courseBetween(line: Position[], from: Hit, to: Hit): Position[] {
  * realms meet, and moving one in this arc but not in the two others that share
  * it would tear the map open at that point.
  *
- * A stretch qualifies on three counts, and each one is a mistake seen and
+ * A stretch qualifies on four counts, and each one is a mistake seen and
  * fixed. Three or more consecutive vertices must lie within the tolerance of
  * the *same* river, or a single vertex passing near a tributary drags the
  * border onto it and straight back. They must travel along it in a consistent
@@ -169,7 +201,10 @@ function courseBetween(line: Position[], from: Hit, to: Hit): Position[] {
  * all projecting onto much the same point, and snapping there swings the border
  * along the bank and back for no reason. Following a river means travelling
  * with it, so the course has to cover a fair share of the ground the frontier
- * covered.
+ * covered. Finally the course must stay inside a corridor around the line it
+ * replaces: one that wanders off crosses the neighbouring arcs of its own ring,
+ * and a self-crossing ring resolves differently for the realm on each side,
+ * which tore unclaimed slivers along every snapped river.
  */
 export function snapToRivers(arc: Position[], index: RiverIndex, tolerance: number): Position[] {
   if (arc.length < 4 || tolerance <= 0) return arc;
@@ -200,8 +235,10 @@ export function snapToRivers(arc: Position[], index: RiverIndex, tolerance: numb
     // The first and last vertices are pinned, so a run that reaches an end of
     // the arc gives up that vertex rather than the junction.
     if (hit && j - i >= 2) {
+      const stretch = arc.slice(i, j + 1);
       const course = courseBetween(index.lines[hit.line], hits[i]!, hits[j]!);
-      if (lengthOf(course) >= lengthOf(arc.slice(i, j + 1)) * ALONG_SHARE) {
+      const strays = course.some((p) => distanceToLine(p, stretch) > tolerance * CORRIDOR);
+      if (!strays && lengthOf(course) >= lengthOf(stretch) * ALONG_SHARE) {
         if (i === 0) out.push(arc[0]);
         for (const p of course) out.push(p);
         if (j === arc.length - 1) out.push(arc[arc.length - 1]);

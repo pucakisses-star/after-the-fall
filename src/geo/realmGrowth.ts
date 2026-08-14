@@ -75,11 +75,7 @@ export interface GrowthOptions {
   smoothing: number;
   /**
    * How far a frontier may be from a river and still be put onto it, in cells.
-   *
-   * Making a river expensive to cross settles a frontier *near* it; this is what
-   * puts the frontier *on* it. Without this the border comes out as a smooth arc
-   * wandering back and forth over the watercourse it is supposed to follow,
-   * which is the first thing a reader checks a border against. 0 turns it off.
+   * 0 turns it off, which is the default — see `DEFAULT_GROWTH`.
    */
   riverSnap: number;
   /**
@@ -106,10 +102,25 @@ export const DEFAULT_GROWTH: Omit<GrowthOptions, 'extent'> = {
   riverCost: 1.4,
   coastBonus: 0.45,
   smoothing: 4,
-  // Just under a cell. Wide enough to catch a frontier the lattice put one step
-  // off the river, narrow enough that a border merely passing within sight of a
-  // tributary is left alone.
-  riverSnap: 0.8,
+  // Off, and it has to stay off until the frontier is snapped once per border
+  // rather than once per realm.
+  //
+  // Putting a frontier onto the river it runs beside is right, and looks it —
+  // the Ohio and the Mississippi come out as real river borders. But snapping
+  // happens per realm, on that realm's own arc, and two realms only hold the
+  // *same* arc when the frontier between them is a single unbroken run in both
+  // their rings. Where a ring visits the same neighbour twice, one side snaps
+  // two short arcs and the other one long one, and they disagree by however far
+  // the river is. Measured over the whole map: 114 neighbouring pairs
+  // overlapping and 15,331 km2 of torn ground, against 6 pairs and 2,735 km2
+  // before it — unclaimed slivers strung along every snapped river.
+  //
+  // Simplifying and rounding survive the same split because they move a line by
+  // at most a cell; snapping moves it as far as the river, so it does not.
+  // The fix is to derive the shared borders first, snap each one once, and
+  // rebuild both realms from the result — not to snap each realm separately and
+  // hope the two agree.
+  riverSnap: 0,
   clipToCoast: true,
 };
 

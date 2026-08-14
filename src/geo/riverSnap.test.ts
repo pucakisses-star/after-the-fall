@@ -107,6 +107,25 @@ describe('snapToRivers', () => {
     expect(backwards).toBeLessThan(snapped.length / 4);
   });
 
+  it('refuses a course that wanders off the line it replaces', () => {
+    // A river that dives away and comes back stays within tolerance at the
+    // vertices the frontier happens to sample, but its course between them
+    // swings far off. Taking it would cross the neighbouring arcs of the same
+    // ring, and a self-crossing ring resolves differently for the realm on each
+    // side — which is what tore unclaimed slivers along every snapped river.
+    const detour: Position[] = [
+      [1, 5], [1.5, 5], [2, 5],
+      [2.2, 3.5], [2.6, 3.5],            // a long excursion south
+      [2.8, 5], [3.3, 5], [3.8, 5],
+    ];
+    const detourIndex = indexRivers([detour], 0.2);
+    const arc = straightArc(5.05, 1, 3.8, 14);
+    const snapped = snapToRivers(arc, detourIndex, 0.3);
+    // Whatever it does, it must not drag the border a degree and a half south.
+    const southmost = Math.min(...snapped.map((p) => p[1]));
+    expect(southmost).toBeGreaterThan(4.5);
+  });
+
   it('handles arcs too short to snap without complaint', () => {
     const tiny: Position[] = [[1, 5.1], [1.1, 5.1]];
     expect(snapToRivers(tiny, index, 0.4)).toBe(tiny);
