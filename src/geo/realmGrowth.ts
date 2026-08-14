@@ -45,8 +45,26 @@ export interface GrowthOptions {
    * as one.
    */
   coverage: number;
-  /** How far a frontier wanders from the midpoint between two capitals, 0–1. */
+  /**
+   * Strength of the terrain-like cost field, 0–1. This is what stops the map
+   * being a Voronoi diagram: without it every frontier settles on the straight
+   * bisector between two seats.
+   */
   roughness: number;
+  /** Wavelength of that field, in cells. Large means long, sweeping frontiers. */
+  grain: number;
+  /**
+   * Extra cost to enter a cell a watercourse runs through. Rivers are the
+   * boundary of first resort in the real world, and a map whose borders ignore
+   * them never looks like one.
+   */
+  riverCost: number;
+  /**
+   * Discount for a cell on the shoreline. Power travelled by water: realms
+   * spread along a coast far faster than into the interior, which is where the
+   * long thin coastal strips on a real map come from.
+   */
+  coastBonus: number;
   /** Rounds of corner-cutting applied to the traced outline. */
   smoothing: number;
 }
@@ -57,22 +75,61 @@ export const DEFAULT_GROWTH: Omit<GrowthOptions, 'extent'> = {
   // that the whole New World grows in well under a second.
   cellSize: 0.18,
   coverage: 0.62,
-  roughness: 0.55,
+  roughness: 0.8,
+  grain: 14,
+  riverCost: 1.4,
+  coastBonus: 0.45,
   smoothing: 4,
 };
 
 /**
- * Deterministic value noise in [0, 1) from lattice coordinates.
+ * Deterministic hash in [0, 1) from lattice coordinates.
  *
  * Deterministic matters twice over: the same map must come out of the same
  * inputs every time it is built, and the tests have to be able to assert on
  * the result at all.
  */
-function noise(x: number, y: number, salt: number): number {
-  let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(salt, 2147483647);
+function hash(x: number, y: number, salt: number): number {
+  let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(salt, 2147483647);
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   h ^= h >>> 16;
   return (h >>> 0) / 4294967296;
+}
+
+const smoothstep = (t: number) => t * t * (3 - 2 * t);
+
+/** Value noise: hashes on a coarse lattice, smoothly interpolated between. */
+function valueNoise(x: number, y: number, salt: number): number {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const tx = smoothstep(x - xi);
+  const ty = smoothstep(y - yi);
+  const a = hash(xi, yi, salt);
+  const b = hash(xi + 1, yi, salt);
+  const c = hash(xi, yi + 1, salt);
+  const d = hash(xi + 1, yi + 1, salt);
+  return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+}
+
+/**
+ * Fractal noise — several octaves of value noise, each finer and fainter.
+ *
+ * The octaves are the whole point. White noise per cell averages out over any
+ * distance, so a frontier perturbed by it still ends up on the bisector between
+ * two seats; that is why the first version of this produced hexagons. Noise
+ * that is *correlated* across tens of cells makes whole stretches of frontier
+ * bulge one way, which is what a real border looks like.
+ */
+function fbm(x: number, y: number, salt: number): number {
+  let sum = 0;
+  let amp = 0.5;
+  let freq = 1;
+  for (let octave = 0; octave < 4; octave++) {
+    sum += valueNoise(x * freq, y * freq, salt + octave * 7919) * amp;
+    freq *= 2;
+    amp *= 0.5;
+  }
+  return sum / 0.9375; // normalise back to roughly 0–1
 }
 
 /** A tiny binary heap; the growth front is the only thing that needs one. */
@@ -207,6 +264,68 @@ function rasterize(rings: Position[][], extent: [number, number, number, number]
   return { cols, rows, cell, west, south, land, landCount };
 }
 
+/**
+ * The price of entering each land cell.
+ *
+ * Three things go into it, and between them they are what make the frontiers
+ * look drawn rather than computed:
+ *
+ *  • fractal noise, standing in for the terrain nobody has modelled — ridges of
+ *    expensive ground that both neighbours stop at, so the border between them
+ *    wanders over hundreds of kilometres instead of running straight;
+ *  • rivers, which cost extra to cross, so borders settle onto them the way
+ *    real ones do;
+ *  • coasts, which are cheap, so a realm runs along a shoreline far faster than
+ *    it pushes inland — the origin of every long thin coastal state on a real
+ *    map.
+ */
+function costField(grid: Lattice, options: GrowthOptions, riverLines: Position[][]): Float32Array {
+  const { cols, rows, cell, west, south, land } = grid;
+  const field = new Float32Array(cols * rows);
+  const grain = Math.max(1, options.grain);
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const i = r * cols + c;
+      if (!land[i]) continue;
+      const terrain = 1 + options.roughness * (fbm(c / grain, r / grain, 1013) - 0.5) * 2;
+      // A cell with open water on any side is a shore.
+      const coastal =
+        (c > 0 && !land[i - 1]) ||
+        (c + 1 < cols && !land[i + 1]) ||
+        (r > 0 && !land[i - cols]) ||
+        (r + 1 < rows && !land[i + cols]);
+      field[i] = Math.max(0.12, terrain - (coastal ? options.coastBonus : 0));
+    }
+  }
+
+  // Stamp the watercourses on afterwards, so a river crossing stays expensive
+  // even where it runs along a cheap shore.
+  if (options.riverCost > 0) {
+    for (const line of riverLines) {
+      for (let k = 0; k < line.length - 1; k++) {
+        const [ax, ay] = line[k];
+        const [bx, by] = line[k + 1];
+        // Walk the segment at half-cell steps; rivers are far finer than the
+        // lattice, so sampling the endpoints alone would leave gaps a realm
+        // could pour through.
+        const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / (cell * 0.5)));
+        for (let t = 0; t <= steps; t++) {
+          const x = ax + ((bx - ax) * t) / steps;
+          const y = ay + ((by - ay) * t) / steps;
+          const c = Math.round((x - west) / cell - 0.5);
+          const r = Math.round((y - south) / cell - 0.5);
+          if (c < 0 || r < 0 || c >= cols || r >= rows) continue;
+          const i = r * cols + c;
+          if (land[i]) field[i] += options.riverCost;
+        }
+      }
+    }
+  }
+
+  return field;
+}
+
 /** The lattice cell a coordinate falls in, or the nearest land cell to it. */
 function cellFor(grid: Lattice, lon: number, lat: number): number | null {
   const c = Math.round((lon - grid.west) / grid.cell - 0.5);
@@ -243,13 +362,19 @@ export function growRealms(
   landRings: Position[][],
   seeds: RealmSeed[],
   options: GrowthOptions,
+  riverLines: Position[][] = [],
 ): GrowthResult {
   const grid = rasterize(landRings, options.extent, options.cellSize);
   const owner = new Int32Array(grid.cols * grid.rows).fill(-1);
+  const cost = costField(grid, options, riverLines);
 
-  const totalWeight = seeds.reduce((sum, s) => sum + s.weight, 0) || 1;
+  // Area, not reach, scales with the square of a realm's strength. Sharing the
+  // budget out in proportion to weight alone gave every realm much the same
+  // size — a tessellation of similar cells — when what a real map has is a few
+  // sprawling powers among many small ones.
+  const totalArea = seeds.reduce((sum, s) => sum + s.weight * s.weight, 0) || 1;
   const budget = grid.landCount * Math.max(0, Math.min(1, options.coverage));
-  const quota = seeds.map((s) => Math.max(1, Math.round((budget * s.weight) / totalWeight)));
+  const quota = seeds.map((s) => Math.max(1, Math.round((budget * s.weight * s.weight) / totalArea)));
   const taken = new Array(seeds.length).fill(0);
 
   const frontier = new Frontier();
@@ -262,7 +387,8 @@ export function growRealms(
 
   const { cols, rows } = grid;
   while (frontier.size > 0) {
-    const { cost, cell, realm } = frontier.pop();
+    const top = frontier.pop();
+    const { cell, realm } = top;
     if (owner[cell] !== -1) continue;
     if (taken[realm] >= quota[realm]) continue;
     owner[cell] = realm;
@@ -270,9 +396,11 @@ export function growRealms(
 
     const r = (cell / cols) | 0;
     const c = cell - r * cols;
-    // A step costs less for a stronger realm, and the noise term is what keeps
-    // the frontier from settling into a straight line between two capitals.
-    const step = 1 / Math.max(0.05, seeds[realm].weight);
+    // A step costs the terrain's price divided by the realm's strength. The
+    // terrain is shared between realms, which is what makes two of them agree
+    // on where the frontier lies — along a river, around a mountain — rather
+    // than meeting on the bisector between their seats.
+    const reach = 1 / Math.max(0.05, seeds[realm].weight);
     for (const [dr, dc] of [
       [-1, 0],
       [1, 0],
@@ -284,8 +412,7 @@ export function growRealms(
       if (rr < 0 || cc < 0 || rr >= rows || cc >= cols) continue;
       const next = rr * cols + cc;
       if (!grid.land[next] || owner[next] !== -1) continue;
-      const wobble = 1 + options.roughness * (noise(cc, rr, realm) - 0.35);
-      frontier.push(cost + step * wobble, next, realm);
+      frontier.push(top.cost + reach * cost[next], next, realm);
     }
   }
 
@@ -315,31 +442,36 @@ function traceRealm(
   smoothing: number,
 ): Polygon | MultiPolygon | null {
   const { cols, rows, cell, west, south } = grid;
-  // Edges keyed by their start corner, so a ring can be walked by lookup.
-  const next = new Map<string, [number, number][]>();
+  // Edges keyed by their start corner, each carrying who is on the *other* side.
+  // That label is what makes the shared-border handling below possible.
+  const next = new Map<string, { to: [number, number]; other: number }[]>();
   const key = (p: [number, number]) => `${p[0]},${p[1]}`;
   const corner = (c: number, r: number): [number, number] => [
     Number((west + c * cell).toFixed(6)),
     Number((south + r * cell).toFixed(6)),
   ];
+  const ownerAt = (rr: number, cc: number) =>
+    rr < 0 || cc < 0 || rr >= rows || cc >= cols ? -2 : owner[rr * cols + cc];
 
-  const addEdge = (a: [number, number], b: [number, number]) => {
+  const addEdge = (a: [number, number], b: [number, number], other: number) => {
     const list = next.get(key(a));
-    if (list) list.push(b);
-    else next.set(key(a), [b]);
+    if (list) list.push({ to: b, other });
+    else next.set(key(a), [{ to: b, other }]);
   };
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       if (owner[r * cols + c] !== realm) continue;
-      const mine = (rr: number, cc: number) =>
-        rr >= 0 && cc >= 0 && rr < rows && cc < cols && owner[rr * cols + cc] === realm;
       // Wound so the interior is always on the left, which makes the outer ring
       // counter-clockwise and any enclave clockwise — the GeoJSON convention.
-      if (!mine(r - 1, c)) addEdge(corner(c, r), corner(c + 1, r));
-      if (!mine(r, c + 1)) addEdge(corner(c + 1, r), corner(c + 1, r + 1));
-      if (!mine(r + 1, c)) addEdge(corner(c + 1, r + 1), corner(c, r + 1));
-      if (!mine(r, c - 1)) addEdge(corner(c, r + 1), corner(c, r));
+      const n = ownerAt(r - 1, c);
+      const e = ownerAt(r, c + 1);
+      const s = ownerAt(r + 1, c);
+      const w = ownerAt(r, c - 1);
+      if (n !== realm) addEdge(corner(c, r), corner(c + 1, r), n);
+      if (e !== realm) addEdge(corner(c + 1, r), corner(c + 1, r + 1), e);
+      if (s !== realm) addEdge(corner(c + 1, r + 1), corner(c, r + 1), s);
+      if (w !== realm) addEdge(corner(c, r + 1), corner(c, r), w);
     }
   }
 
@@ -348,14 +480,16 @@ function traceRealm(
     const startKey = next.keys().next().value as string;
     const start = startKey.split(',').map(Number) as [number, number];
     const ring: Position[] = [start];
+    const neighbours: number[] = [];
     let at = start;
     for (;;) {
       const options = next.get(key(at));
       if (!options || options.length === 0) break;
-      const to = options.pop()!;
+      const step = options.pop()!;
       if (options.length === 0) next.delete(key(at));
-      ring.push(to);
-      at = to;
+      ring.push(step.to);
+      neighbours.push(step.other);
+      at = step.to;
       if (key(at) === startKey) break;
     }
     // A ring that encloses less than a cell is a tracing artefact — two claimed
@@ -363,13 +497,136 @@ function traceRealm(
     // hairline across the map with no territory behind it.
     const closed = closeRing(ring);
     if (closed.length >= 4 && Math.abs(signedArea(closed)) > cell * cell * 0.25) {
-      rings.push(closed);
+      rings.push(dressRing(closed, neighbours, cell, smoothing));
     }
   }
   if (rings.length === 0) return null;
 
-  const smoothed = rings.map((ring) => smoothRing(ring, smoothing));
-  return assemble(smoothed);
+  return assemble(rings);
+}
+
+/**
+ * Turn a traced ring into a drawn one, without breaking shared borders.
+ *
+ * The naive approach — simplify the whole ring, then round it — pulls every
+ * realm away from its neighbours, because Douglas–Peucker keeps different
+ * vertices depending on where in the ring it starts. Two realms then disagree
+ * about a border they share, and the map grows a white seam along every
+ * frontier.
+ *
+ * So the ring is first cut into arcs at the points where the neighbour on the
+ * other side changes — the junctions where three regions meet. Each arc is
+ * simplified and rounded on its own with its endpoints pinned. Both realms
+ * either side of an arc see the same run of points (one of them reversed), and
+ * both simplification and corner-cutting give the same answer on a reversed
+ * polyline, so the two results are identical and the border stays shared.
+ */
+function dressRing(ring: Position[], neighbours: number[], cell: number, smoothing: number): Position[] {
+  if (neighbours.length !== ring.length - 1) {
+    // A ring that did not close cleanly; treat it as one arc rather than guess.
+    return smoothOpen(simplifyOpen(ring, cell * 1.3), smoothing);
+  }
+
+  // Cut points: where the neighbouring region changes between one edge and the
+  // next, walking the closed ring.
+  const cuts: number[] = [];
+  for (let i = 0; i < neighbours.length; i++) {
+    const prev = neighbours[(i - 1 + neighbours.length) % neighbours.length];
+    if (neighbours[i] !== prev) cuts.push(i);
+  }
+
+  // A ring with a single neighbour all the way round — an island, or a realm
+  // entirely surrounded by wilderness — has no junctions to pin.
+  if (cuts.length === 0) return smoothRing(simplifyRing(ring, cell * 1.3), smoothing);
+
+  const out: Position[] = [];
+  for (let k = 0; k < cuts.length; k++) {
+    const from = cuts[k];
+    const to = cuts[(k + 1) % cuts.length];
+    const arc: Position[] = [];
+    for (let i = from; ; i = (i + 1) % neighbours.length) {
+      arc.push(ring[i]);
+      if (i === to) break;
+    }
+    const dressed = smoothOpen(simplifyOpen(arc, cell * 1.3), smoothing);
+    // Drop the shared endpoint so arcs join without a duplicate vertex.
+    out.push(...(k === 0 ? dressed : dressed.slice(1)));
+  }
+  return closeRing(out);
+}
+
+/** Chaikin on an open polyline, with both ends pinned so arcs stay joined. */
+function smoothOpen(line: Position[], rounds: number): Position[] {
+  let current = line;
+  for (let round = 0; round < rounds && current.length > 2; round++) {
+    const out: Position[] = [current[0]];
+    for (let i = 0; i < current.length - 1; i++) {
+      const a = current[i];
+      const b = current[i + 1];
+      out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
+      out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+    }
+    out.push(current[current.length - 1]);
+    current = out;
+  }
+  return current.map((p) => [Number(p[0].toFixed(5)), Number(p[1].toFixed(5))]);
+}
+
+/**
+ * Ramer–Douglas–Peucker on an open polyline, endpoints always kept.
+ *
+ * Iterative rather than recursive: a traced arc can be thousands of points and
+ * the recursive form overflows the stack on exactly the shapes that need it.
+ * Symmetric under reversal, which is what lets two neighbours simplify a shared
+ * arc independently and still agree on it.
+ */
+function simplifyOpen(line: Position[], tolerance: number): Position[] {
+  if (line.length < 3) return line.slice();
+  const keep = new Uint8Array(line.length);
+  keep[0] = 1;
+  keep[line.length - 1] = 1;
+
+  const stack: [number, number][] = [[0, line.length - 1]];
+  const tol2 = tolerance * tolerance;
+  while (stack.length) {
+    const [first, last] = stack.pop()!;
+    if (last <= first + 1) continue;
+    let far = -1;
+    let farDist = tol2;
+    const [ax, ay] = line[first];
+    const [bx, by] = line[last];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    for (let i = first + 1; i < last; i++) {
+      const [px, py] = line[i];
+      let d2: number;
+      if (len2 === 0) {
+        d2 = (px - ax) ** 2 + (py - ay) ** 2;
+      } else {
+        let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+        t = Math.max(0, Math.min(1, t));
+        d2 = (px - (ax + t * dx)) ** 2 + (py - (ay + t * dy)) ** 2;
+      }
+      if (d2 > farDist) {
+        farDist = d2;
+        far = i;
+      }
+    }
+    if (far === -1) continue;
+    keep[far] = 1;
+    stack.push([first, far], [far, last]);
+  }
+
+  const out: Position[] = [];
+  for (let i = 0; i < line.length; i++) if (keep[i]) out.push(line[i]);
+  return out;
+}
+
+/** Whole-ring simplify, for a ring with no junctions to pin. */
+function simplifyRing(ring: Position[], tolerance: number): Position[] {
+  const open = simplifyOpen(ring.slice(0, -1), tolerance);
+  return closeRing(open.length >= 3 ? open : ring.slice(0, -1));
 }
 
 function closeRing(ring: Position[]): Position[] {

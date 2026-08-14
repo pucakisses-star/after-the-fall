@@ -42,13 +42,30 @@ border tiers, and labelled by the ordinary label engine.
 
 **The shapes are grown, not traced.** A collapsed world that still divides at the state line is not a
 collapsed world, and no amount of dissolving modern subdivisions can produce the look of a realm
-spreading from a city until it meets a rival. So `geo/realmGrowth.ts` rasterises the coastline to a
-20 km lattice, lets every realm claim outward from its seat at a rate set by its strength, and puts
-the frontier where two claims meet — wandered by a deterministic noise field, so no border is a
-straight line between two capitals. A realm stops once it has taken the ground its strength allows,
-which is what leaves genuine wilderness between them. The lattice is then traced into rings and
-rounded off, so none of the grid survives into the outline. The whole New World grows in under a
-second, and the same inputs always give the same map.
+spreading from a city until it meets a rival. `geo/realmGrowth.ts` rasterises the coastline to a
+20 km lattice and lets each realm claim outward from its seat, paying a price per cell that decides
+what the map looks like:
+
+* **fractal noise**, standing in for terrain nobody has modelled — ridges of expensive ground that
+  both neighbours stop at. This is the part that matters. White noise per cell averages out over
+  distance, so a frontier perturbed by it still lands on the straight bisector between two seats, and
+  the first version of this produced a field of hexagons. Noise correlated across tens of cells makes
+  whole stretches of frontier bulge one way, which is what a real border does.
+* **rivers cost extra to cross**, so borders settle onto them as real ones do.
+* **coasts are cheap**, so a realm runs along a shoreline far faster than it pushes inland — the
+  origin of every long thin coastal state on a real map.
+
+Area scales with the *square* of a realm's strength, so a few powers sprawl among many small ones
+instead of every realm coming out the same size, and each stops once it has taken what its strength
+allows, which is what leaves genuine wilderness between them.
+
+Turning the lattice back into outlines is where shared borders are won or lost. Simplifying each
+realm's ring on its own pulls every neighbour apart, because Douglas–Peucker keeps different vertices
+depending on where in the ring it starts — the map grows a white seam along every frontier. So each
+ring is cut into arcs at the junctions where three regions meet, and each arc is simplified and
+rounded once with its endpoints pinned. Both simplification and corner-cutting give the same answer
+on a reversed polyline, so the two realms either side of an arc agree on it exactly. The whole New
+World grows in about a second, and the same inputs always give the same map.
 
 Realm names, their tier and the empire each belongs to come from the setting's own realm list; where
 each sits is an informed placement, not a tracing of the mod's province map, which is not published

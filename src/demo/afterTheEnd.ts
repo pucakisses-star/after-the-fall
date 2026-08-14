@@ -23,14 +23,14 @@
  * ordinary editable territory, which is the point of the application.
  */
 
-import { loadBasemap, polygonsOf } from '@/geo/basemap';
+import { linesOf, loadBasemap, polygonsOf } from '@/geo/basemap';
 import { dissolve, interiorPoint } from '@/geo/operations';
 import { DEFAULT_GROWTH, growRealms, type RealmSeed } from '@/geo/realmGrowth';
 import { PALETTES, STYLE_IDS } from '@/model/defaults';
 import { createProject, findLayerByKind } from '@/model/project';
 import { newId } from '@/model/ids';
 import type { MapLabel, MapProject, PoliticalType, Settlement, TextStyle } from '@/model/types';
-import type { MultiPolygon, Polygon, Position } from 'geojson';
+import type { LineString, MultiLineString, MultiPolygon, Polygon, Position } from 'geojson';
 
 /** A vassal realm: a name, a seat, and how far its writ runs. */
 interface Realm {
@@ -575,8 +575,13 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
   project.layers[cityLabels.id] = { ...project.layers[cityLabels.id], visible: false };
 
   let rings: Position[][];
+  let rivers: Position[][] = [];
   try {
     rings = coastlineRings(await loadBasemap('world-land-10m'));
+    // Rivers are what a frontier settles on when it has the choice, so the
+    // growth is given them; without them the borders ignore the one feature a
+    // reader expects them to follow.
+    rivers = riverLines(await loadBasemap('world-rivers-10m'));
   } catch {
     return { project, center: CENTER, zoom: ZOOM };
   }
@@ -587,7 +592,7 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
       seeds.push({ id: realm.name, seeds: [realm.seat, ...(realm.also ?? [])], weight: realm.weight });
     }
   }
-  const grown = growRealms(rings, seeds, { extent: AMERICAS, ...DEFAULT_GROWTH, coverage: 0.72 });
+  const grown = growRealms(rings, seeds, { extent: AMERICAS, ...DEFAULT_GROWTH }, rivers);
 
   for (const empire of EMPIRES) {
     const parts: (Polygon | MultiPolygon)[] = [];
@@ -754,6 +759,17 @@ function vassalColor(base: string, index: number, count: number): string {
   ][seg];
   const to255 = (v: number) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
   return `#${to255(rgb[0])}${to255(rgb[1])}${to255(rgb[2])}`;
+}
+
+/** Every watercourse, as plain polylines. */
+function riverLines(features: Awaited<ReturnType<typeof loadBasemap>>): Position[][] {
+  const out: Position[][] = [];
+  for (const f of linesOf(features)) {
+    const g = f.geometry as LineString | MultiLineString;
+    if (g.type === 'LineString') out.push(g.coordinates);
+    else out.push(...g.coordinates);
+  }
+  return out;
 }
 
 /** Every ring of every land polygon, which is all the growth needs. */
