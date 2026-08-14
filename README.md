@@ -36,9 +36,23 @@ Americas of the Crusader Kings total conversion — so the feature set is visibl
 real subject. **New** starts a blank map, one seeded with real geography, or the smaller
 north-eastern demonstration map.
 
-Thirty sovereign realms and about a hundred and fifty vassals span both continents, built by the
-same public API the UI uses: territories arranged into the empire → vassal hierarchy, given the
-border tiers, and labelled by the ordinary label engine.
+A hundred and thirty sovereign states and seven empires holding fifty-seven vassals between them
+span both continents, built by the same public API the UI uses: territories arranged into the
+empire → vassal hierarchy, given the border tiers, and labelled by the ordinary label engine.
+
+**Only a real empire is drawn as one.** The realm table groups its realms under twenty-eight
+headings, and gathering every one of them into a single territory made two continents read as
+twenty-eight blocs however many realms were inside them — which is not what a collapsed world looks
+like. A confederation is an alliance of states, not a state; a group of petty kingdoms is a region,
+not a realm. Those dissolve into their members, each its own sovereign with its own international
+border, and only the seven groups the setting calls empires still gather their realms under one
+crown. The states are then coloured by the graph colourer (`geo/palette.ts`) so no two neighbours
+share a tint — carrying their old group's colour would only have drawn the bloc again by other
+means.
+
+Names follow the same logic. The label engine never drops a label on its own (§11), so a hundred and
+thirty country names at a continental zoom would be a mat; a state large enough to carry its name
+keeps it, and the rest hold theirs hidden for whoever zooms in.
 
 **The shapes are grown, not traced.** A collapsed world that still divides at the state line is not a
 collapsed world, and no amount of dissolving modern subdivisions can produce the look of a realm
@@ -111,8 +125,8 @@ twelve seconds, and the same inputs always give the same map.
 Realm names, their tier and the empire each belongs to come from the setting's own realm list; where
 each sits is an informed placement, not a tracing of the mod's province map, which is not published
 as geodata. Treat every border as a starting point to redraw, which is the whole point of the
-application. Vassal and capital names start hidden — a hundred and fifty of them under thirty empire
-names is a mat rather than a map — and the Region and City Labels layers turn them on.
+application. Vassal and capital names start hidden — a mat rather than a map at the opening zoom —
+and the Region and City Labels layers turn them on.
 
 Reference geography ships in `public/data/` and is fetched lazily — only the datasets you switch on
 are ever loaded, and nothing is downloaded from the internet at runtime.

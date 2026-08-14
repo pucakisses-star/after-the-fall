@@ -24,12 +24,13 @@
  */
 
 import { linesOf, loadBasemap, polygonsOf } from '@/geo/basemap';
-import { dissolve, interiorPoint } from '@/geo/operations';
+import { areaKm2, dissolve, interiorPoint } from '@/geo/operations';
+import { recolor } from '@/geo/palette';
 import { DEFAULT_GROWTH, growRealms, type LandPolygon, type RealmSeed } from '@/geo/realmGrowth';
 import { PALETTES, STYLE_IDS } from '@/model/defaults';
 import { createProject, findLayerByKind } from '@/model/project';
 import { newId } from '@/model/ids';
-import type { MapLabel, MapProject, PoliticalType, Settlement, TextStyle } from '@/model/types';
+import type { MapLabel, MapProject, PoliticalType, Settlement, Territory, TextStyle } from '@/model/types';
 import type { LineString, MultiLineString, MultiPolygon, Polygon, Position } from 'geojson';
 
 /** A vassal realm: a name, a seat, and how far its writ runs. */
@@ -599,6 +600,20 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
   }
   const grown = growRealms(land, seeds, { extent: AMERICAS, ...DEFAULT_GROWTH }, rivers);
 
+  /**
+   * Only a real empire is drawn as one.
+   *
+   * The map used to gather all twenty-eight groups into single territories, so
+   * two continents read as twenty-eight blocs however many realms were inside
+   * them — which is not what a collapsed world looks like. A confederation is
+   * an alliance of states, not a state; a group of petty kingdoms is a region,
+   * not a realm. Those now dissolve into their members, each of which is its
+   * own sovereign with its own colour and its own international border, and
+   * only the seven groups the setting actually calls empires still gather
+   * their realms under one crown. 28 blocs become 7 empires and 130 states.
+   */
+  const sovereignStates: Territory[] = [];
+
   for (const empire of EMPIRES) {
     const parts: (Polygon | MultiPolygon)[] = [];
     for (const realm of empire.realms) {
@@ -606,6 +621,57 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
       if (shape) parts.push(shape);
     }
     if (parts.length === 0) continue;
+
+    if (empire.type !== 'empire') {
+      const seatRealm = empire.realms.find((r) => r.capital) ?? empire.realms[0];
+      let seatStateId: string | null = null;
+      for (const realm of empire.realms) {
+        const shape = grown.shapes.get(realm.name);
+        if (!shape) continue;
+        const id = newId();
+        if (realm === seatRealm) seatStateId = id;
+        const state: Territory = {
+          id,
+          layerId: territoryLayer.id,
+          name: realm.name,
+          shortName: realm.short,
+          politicalType: realm.type,
+          parentId: null,
+          liegeId: null,
+          capitalId: null,
+          notes: '',
+          locked: false,
+          hidden: false,
+          timeline: { start: null, end: null },
+          geometry: shape,
+          styleClassId: STYLE_IDS.territoryDefault,
+          // Recoloured below, once every state exists and its neighbours are
+          // known: tints of one group colour would only redraw the bloc.
+          styleOverrides: { fillColor: empire.color },
+          inheritParentColor: false,
+          borderKind: 'international',
+          labelId: null,
+        };
+        project.territories[id] = state;
+        sovereignStates.push(state);
+        attachLabel(project, id, 'territories', {
+          layerId: countryLabels.id,
+          kind: 'country',
+          text: realm.short,
+          coords: interiorPoint(shape),
+          styleClassId: STYLE_IDS.textCountry,
+          // Set below, once every state's area is known: a hundred and thirty
+          // country names at a continental zoom is a mat, so only the states
+          // large enough to carry one keep it.
+          hidden: true,
+          style: { fontSize: 8.5, tracking: 1.4 },
+        });
+      }
+      if (seatStateId) {
+        addCapital(project, seatRealm, seatStateId, settlementLayer.id, cityLabels.id);
+      }
+      continue;
+    }
     const whole = parts.length === 1 ? parts[0] : dissolve(parts);
     if (!whole) continue;
 
@@ -673,31 +739,36 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
       });
     });
 
-    const settlement: Settlement = {
-      id: capitalId,
-      layerId: settlementLayer.id,
-      name: seat.short,
-      notes: '',
-      locked: false,
-      hidden: false,
-      timeline: { start: null, end: null },
-      type: 'national-capital',
-      geometry: { type: 'Point', coordinates: seat.seat },
-      population: null,
-      ownerId: empireId,
-      styleClassId: STYLE_IDS.symbolCapitalNational,
-      styleOverrides: {},
-      labelId: null,
-    };
-    project.settlements[capitalId] = settlement;
-    attachLabel(project, capitalId, 'settlements', {
-      layerId: cityLabels.id,
-      kind: 'city',
-      text: settlement.name,
-      coords: seat.seat,
-      styleClassId: STYLE_IDS.textCapital,
-      offset: [10, 0],
+    addCapital(project, seat, empireId, settlementLayer.id, cityLabels.id, capitalId);
+  }
+
+  // Colour the sovereign states so no two neighbours share a tint. They came
+  // out of the same group and carried its colour, which would have drawn the
+  // bloc all over again in a different way — the graph colourer is exactly the
+  // tool for "many small states, each distinct from the ones it touches".
+  if (sovereignStates.length) {
+    const colors = recolor(sovereignStates, (t) => t.styleOverrides.fillColor ?? '#d8d2c4', {
+      mode: 'historical-atlas',
     });
+    for (const [id, color] of colors) {
+      const t = project.territories[id];
+      if (t) project.territories[id] = { ...t, styleOverrides: { ...t.styleOverrides, fillColor: color } };
+    }
+  }
+
+  // Name the states that have room for a name. The label engine never drops one
+  // by itself (§11), so a hundred and thirty country names at a continental
+  // zoom would be a mat rather than a map; the rest keep their label, hidden,
+  // ready for whoever zooms in and switches it on.
+  const NAMED_ABOVE_KM2 = 260_000;
+  for (const state of sovereignStates) {
+    // The label id lands on the copy in the project, not on the object that
+    // went into the array.
+    const current = project.territories[state.id];
+    const label = current?.labelId ? project.labels[current.labelId] : null;
+    if (!label || !current) continue;
+    if (areaKm2(current.geometry) < NAMED_ABOVE_KM2) continue;
+    project.labels[label.id] = { ...label, hidden: false };
   }
 
   for (const w of WATER_LABELS) {
@@ -713,6 +784,47 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
   }
 
   return { project, center: CENTER, zoom: ZOOM };
+}
+
+/**
+ * The capital of a realm: a settlement, its symbol and its name.
+ *
+ * Shared because a sovereign state has one for exactly the same reason an
+ * empire does, and the two used to differ only in which territory owned it.
+ */
+function addCapital(
+  project: MapProject,
+  seat: Realm,
+  ownerId: string,
+  settlementLayerId: string,
+  cityLayerId: string,
+  id: string = newId(),
+): void {
+  const settlement: Settlement = {
+    id,
+    layerId: settlementLayerId,
+    name: seat.short,
+    notes: '',
+    locked: false,
+    hidden: false,
+    timeline: { start: null, end: null },
+    type: 'national-capital',
+    geometry: { type: 'Point', coordinates: seat.seat },
+    population: null,
+    ownerId,
+    styleClassId: STYLE_IDS.symbolCapitalNational,
+    styleOverrides: {},
+    labelId: null,
+  };
+  project.settlements[id] = settlement;
+  attachLabel(project, id, 'settlements', {
+    layerId: cityLayerId,
+    kind: 'city',
+    text: settlement.name,
+    coords: seat.seat,
+    styleClassId: STYLE_IDS.textCapital,
+    offset: [10, 0],
+  });
 }
 
 /**
@@ -815,6 +927,7 @@ function makeLabel(init: {
   attachedToId?: string;
   offset?: [number, number];
   manualPosition?: boolean;
+  hidden?: boolean;
   style?: Partial<TextStyle>;
 }): MapLabel {
   return {
@@ -823,7 +936,7 @@ function makeLabel(init: {
     name: init.text,
     notes: '',
     locked: false,
-    hidden: false,
+    hidden: init.hidden ?? false,
     timeline: { start: null, end: null },
     kind: init.kind,
     text: init.text,
