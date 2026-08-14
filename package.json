@@ -1,0 +1,39 @@
+{
+  "name": "after-the-fall",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Historical, political and alternate-history cartography editor",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false --pretty",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@turf/turf": "^7.4.0",
+    "dexie": "^4.4.4",
+    "ol": "^10.10.0",
+    "proj4": "^2.21.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "topojson-client": "^3.1.0",
+    "us-atlas": "^3.0.1",
+    "world-atlas": "^2.0.2",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^22.20.1",
+    "@types/proj4": "^2.5.6",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/topojson-client": "^3.1.5",
+    "@vitejs/plugin-react": "^5.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.0",
+    "vitest": "^4.1.10"
+  }
+}
