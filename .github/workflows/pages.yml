@@ -77,5 +77,25 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # Wait out GitHub's Jekyll builder before publishing.
+      #
+      # While the Pages source is "Deploy from a branch", that builder runs on
+      # every push alongside this workflow and publishes the branch *root* — the
+      # unbuilt index.html asking for /src/main.tsx, and none of the geography,
+      # which lives under public/. Both target the same site and the last
+      # deployment to land wins.
+      #
+      # Measured on this repository: the Jekyll run takes about 50 s. This
+      # workflow takes 45 s with a warm npm cache and a little over two minutes
+      # with a cold one — so which one lands last is a coin flip, and the site
+      # has flipped to the raw repository more than once. Waiting here costs two
+      # minutes of CI and makes it deterministic.
+      #
+      # DELETE THIS STEP once Settings ▸ Pages ▸ Source is set to GitHub
+      # Actions. The Jekyll run stops entirely at that point and the wait is
+      # pure delay.
+      - name: Let the branch-source build finish first
+        run: sleep 120
+
       - id: deployment
         uses: actions/deploy-pages@v4

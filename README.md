@@ -150,10 +150,14 @@ workflow to show for it.
 
 The workflow passes `enablement: true` to `configure-pages`, which is the documented way to set the
 source from CI, but on this repository it does not take effect: the Jekyll run still appears for
-every push and still publishes the root. The site is correct only because Jekyll finishes in about
-50 seconds while this workflow installs, typechecks, tests and builds first, so ours lands second.
-The corollary is worth stating plainly — **if this workflow ever fails, the raw repository stays
-live**. Set the source to GitHub Actions in the repository settings and the whole race disappears.
+every push and still publishes the root. Measured timings — Jekyll about 50 s, this workflow 45 s
+warm and a little over two minutes cold — make which one lands last a coin flip, and the site has
+flipped to the raw repository more than once. The deploy job therefore waits two minutes before
+publishing, which makes it deterministic at the cost of a slower deploy.
+
+**Set the source to GitHub Actions in the repository settings** and the whole thing goes away: the
+Jekyll run stops, the race stops, and the `sleep` in the deploy job can be deleted. Until then, note
+that a failure in this workflow leaves the raw repository live.
 
 Pages serves from a sub-path (`/<repo>/`), which is why `vite.config.ts` sets `base: './'` and the
 bundled geography is fetched with document-relative URLs. Both are load-bearing — changing either to
