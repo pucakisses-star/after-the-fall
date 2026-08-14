@@ -110,30 +110,27 @@ export const DEFAULT_GROWTH: Omit<GrowthOptions, 'extent'> = {
   riverCost: 1.4,
   coastBonus: 0.45,
   smoothing: 4,
-  // Still off, and now for a measured reason rather than a guessed one.
+  // Just under a cell: wide enough to catch a frontier the lattice put one step
+  // off the river, narrow enough to leave alone a border that merely passes
+  // within sight of a tributary.
   //
-  // Snapping a frontier onto its river tears the map two ways, and only one of
-  // them can be fixed from inside the snap. A course can stray onto a third
-  // realm's ground, which takes the two realms either side of the frontier with
-  // it while the third stands still — that one is fixed, by refusing any course
-  // that leaves the ground the two of them hold. And two realms are only handed
-  // the *same* arc when the frontier between them is a single unbroken run in
-  // both their rings, which is not always true; where it is not, one side snaps
-  // two short arcs and the other one long one and they part company by however
-  // far the river is.
+  // On, now that a frontier is dressed once per border rather than once per
+  // realm. It was off for two measured reasons and this is what each is worth,
+  // over the whole map:
   //
-  // Measured over the whole map, growing it both ways:
+  //   per realm, off                4 pairs overlapping,  2,211 km2
+  //   per realm, on               114 pairs,             15,331 km2
+  //   per realm, on + trespass guard 79 pairs,           18,785 km2
+  //   per border, off               2 pairs,              1,594 km2
+  //   per border, on               20 pairs,                795 km2
   //
-  //   off              4 neighbouring pairs overlapping,  2,211 km2
-  //   on, unguarded  114 pairs,                          15,331 km2
-  //   on, guarded     79 pairs,                          18,785 km2
-  //
-  // So the guard is worth having and is nowhere near enough. The rest needs the
-  // frontier snapped once per *border* rather than once per realm: derive the
-  // shared chains from the lattice first, snap each one, and rebuild both
-  // realms from the result. Until that exists this stays at 0, because a
-  // straight border is wrong and a torn one is broken.
-  riverSnap: 0,
+  // Twenty-four times less torn ground than the best per-realm attempt, and
+  // less than the map had with no snapping at all — the junctions being decided
+  // once for everyone repairs disagreements that were there before rivers came
+  // into it. What is left averages forty square kilometres a pair, which is
+  // smaller than a lattice cell and of a piece with the junction rounding that
+  // was always there.
+  riverSnap: 0.8,
   clipToCoast: true,
 };
 
@@ -606,9 +603,14 @@ export function growRealms(
           },
         }
       : null;
+  // Decided once for the whole map, and one dressed arc per border, shared by
+  // the realms either side of it.
+  const junctions = findJunctions(grid, owner);
+  const cache: ArcCache = { dressed: new Map() };
+
   seeds.forEach((seed, index) => {
     claimed.set(seed.id, taken[index]);
-    const outline = traceRealm(grid, owner, index, options.smoothing, riverBorders);
+    const outline = traceRealm(grid, owner, index, options.smoothing, riverBorders, junctions, cache);
     if (!outline) return;
     // A realm whose whole claim is trimmed away had nothing but the sea-side
     // overhang of a cell or two, and is better absent than drawn as a slick.
@@ -618,6 +620,62 @@ export function growRealms(
 
   const held = taken.reduce((a, b) => a + b, 0);
   return { shapes, claimed, wilderness: 1 - held / Math.max(1, grid.landCount) };
+}
+
+/**
+ * The corners where three or more regions meet.
+ *
+ * This is what makes a shared border genuinely shared. Each realm used to cut
+ * its own ring wherever the neighbour on the other side changed as it walked —
+ * a local rule, and two realms walking the same frontier do not always chop it
+ * the same way. Where one of them cut a run in two and the other kept it whole,
+ * they dressed different arcs and drifted apart, which is precisely how
+ * snapping a frontier to a river tore the map.
+ *
+ * Deciding the junctions once, from the lattice, removes the disagreement at
+ * source: both realms cut at the same corners, so both are handed the same arc.
+ * Wilderness and the world's edge count as regions, because a frontier that
+ * runs out into open ground ends there just as much as at a rival.
+ */
+function findJunctions(grid: Lattice, owner: Int32Array): Set<string> {
+  const { cols, rows, cell, west, south } = grid;
+  const ownerAt = (rr: number, cc: number) =>
+    rr < 0 || cc < 0 || rr >= rows || cc >= cols ? -2 : owner[rr * cols + cc];
+  const junctions = new Set<string>();
+  for (let r = 0; r <= rows; r++) {
+    for (let c = 0; c <= cols; c++) {
+      const a = ownerAt(r - 1, c - 1);
+      const b = ownerAt(r - 1, c);
+      const d = ownerAt(r, c - 1);
+      const e = ownerAt(r, c);
+      const distinct = new Set([a, b, d, e]);
+      if (distinct.size >= 3) junctions.add(cornerKey(west, south, cell, c, r));
+    }
+  }
+  return junctions;
+}
+
+/** A lattice corner as a string, formatted identically wherever it is needed. */
+function cornerKey(west: number, south: number, cell: number, c: number, r: number): string {
+  return `${Number((west + c * cell).toFixed(6))},${Number((south + r * cell).toFixed(6))}`;
+}
+
+/**
+ * One dressed arc, shared by the two realms either side of it.
+ *
+ * Keyed by the arc's own undressed vertices, canonicalised so that the same run
+ * of border walked in either direction produces the same key — which is the
+ * whole point: realm A holds it one way round and realm B the other, and they
+ * must come away with the same line, not merely two lines that agree.
+ */
+interface ArcCache {
+  dressed: Map<string, Position[]>;
+}
+
+function canonicalArcKey(arc: Position[]): { key: string; reversed: boolean } {
+  const forward = arc.map((p) => `${p[0]},${p[1]}`).join(';');
+  const backward = [...arc].reverse().map((p) => `${p[0]},${p[1]}`).join(';');
+  return backward < forward ? { key: backward, reversed: true } : { key: forward, reversed: false };
 }
 
 /**
@@ -633,6 +691,8 @@ function traceRealm(
   realm: number,
   smoothing: number,
   rivers: RiverBorders | null,
+  junctions: Set<string>,
+  cache: ArcCache,
 ): Polygon | MultiPolygon | null {
   const { cols, rows, cell, west, south } = grid;
   // Edges keyed by their start corner, each carrying who is on the *other* side.
@@ -690,7 +750,7 @@ function traceRealm(
     // hairline across the map with no territory behind it.
     const closed = closeRing(ring);
     if (closed.length >= 4 && Math.abs(signedArea(closed)) > cell * cell * 0.25) {
-      rings.push(dressRing(closed, neighbours, cell, smoothing, rivers, realm));
+      rings.push(dressRing(closed, neighbours, cell, smoothing, rivers, realm, junctions, cache));
     }
   }
   if (rings.length === 0) return null;
@@ -707,12 +767,19 @@ function traceRealm(
  * about a border they share, and the map grows a white seam along every
  * frontier.
  *
- * So the ring is first cut into arcs at the points where the neighbour on the
- * other side changes — the junctions where three regions meet. Each arc is
- * simplified and rounded on its own with its endpoints pinned. Both realms
- * either side of an arc see the same run of points (one of them reversed), and
- * both simplification and corner-cutting give the same answer on a reversed
- * polyline, so the two results are identical and the border stays shared.
+ * So the ring is cut into arcs at the junctions where three or more regions
+ * meet, and each arc is dressed once and *shared* by the realms either side of
+ * it — looked up from a cache keyed on the arc's own undressed vertices, taken
+ * in whichever direction sorts first so that both realms ask the same question.
+ *
+ * Both halves of that matter, and the second one was learned the hard way.
+ * Cutting at globally-decided junctions rather than "wherever the neighbour
+ * changes as I walk" is what guarantees the two realms are handed the *same*
+ * arc; sharing one dressed result is what guarantees they get the same line out
+ * of it rather than two lines that merely ought to agree. Simplifying and
+ * rounding are symmetric under reversal, so the old arrangement survived them —
+ * but snapping a frontier onto a river moves a line as far as the river, and it
+ * did not survive that at all.
  */
 function dressRing(
   ring: Position[],
@@ -721,30 +788,42 @@ function dressRing(
   smoothing: number,
   rivers: RiverBorders | null,
   realmIndex: number,
+  junctions: Set<string>,
+  cache: ArcCache,
 ): Position[] {
   const dress = (arc: Position[], neighbour: number): Position[] => {
-    const smoothed = smoothOpen(simplifyOpen(arc, cell * 1.3), smoothing);
-    if (!rivers) return smoothed;
-    // The frontier may only be moved over ground the two realms either side of
-    // it hold between them, or over nobody's. Anywhere else and both of them
-    // walk onto a third realm that is not moving with them.
-    const ours = (p: Position) => {
-      const owner = rivers.ownerAt(p);
-      return owner === -1 || owner === realmIndex || owner === neighbour;
-    };
-    return snapToRivers(smoothed, rivers.index, rivers.tolerance, ours);
+    const { key, reversed } = canonicalArcKey(arc);
+    const done = cache.dressed.get(key);
+    if (done) return reversed ? [...done].reverse() : done;
+
+    // Dress the arc the *canonical* way round, not the way this realm happens
+    // to hold it, so the answer is one line rather than one line per realm.
+    const canonical = reversed ? [...arc].reverse() : arc;
+    const smoothed = smoothOpen(simplifyOpen(canonical, cell * 1.3), smoothing);
+    let out = smoothed;
+    if (rivers) {
+      // The frontier may only be moved over ground the two realms either side
+      // of it hold between them, or over nobody's. Anywhere else and both of
+      // them walk onto a third realm that is not moving with them.
+      const ours = (p: Position) => {
+        const owner = rivers.ownerAt(p);
+        return owner === -1 || owner === realmIndex || owner === neighbour;
+      };
+      out = snapToRivers(smoothed, rivers.index, rivers.tolerance, ours);
+    }
+    cache.dressed.set(key, out);
+    return reversed ? [...out].reverse() : out;
   };
   if (neighbours.length !== ring.length - 1) {
     // A ring that did not close cleanly; treat it as one arc rather than guess.
     return dress(ring, neighbours[0] ?? -1);
   }
 
-  // Cut points: where the neighbouring region changes between one edge and the
-  // next, walking the closed ring.
+  // Cut points: the corners the whole map agreed on, not this realm's own idea
+  // of where its neighbour changed.
   const cuts: number[] = [];
   for (let i = 0; i < neighbours.length; i++) {
-    const prev = neighbours[(i - 1 + neighbours.length) % neighbours.length];
-    if (neighbours[i] !== prev) cuts.push(i);
+    if (junctions.has(`${ring[i][0]},${ring[i][1]}`)) cuts.push(i);
   }
 
   // A ring with a single neighbour all the way round — an island, or a realm

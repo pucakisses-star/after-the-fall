@@ -98,32 +98,34 @@ tie-break, because a traced frontier is a staircase on which points tie constant
 the chord", and keeping whichever was found first is an answer that depends on which end you started
 from. Ties go to the lexicographically smaller point, which does not.
 
-**Putting a frontier onto the river it runs beside is written, and switched off.** Making a crossing
-expensive settles a frontier *near* a watercourse; it does not put it *on* one, so `geo/riverSnap.ts`
-replaces any stretch running within about a cell of a river with that river's own course. It looks
-right — the Ohio from Evansville past Louisville, the Mississippi from Memphis to Natchez, meander for
-meander — and it is wrong, because it snaps per realm rather than per border.
+**A frontier that runs beside a river is put onto it.** Making a crossing expensive settles a
+frontier *near* a watercourse; it does not put it *on* one, so `geo/riverSnap.ts` replaces any
+stretch running within about a cell of a river with that river's own course — the Ohio from
+Evansville past Louisville, the Mississippi from Pine Bluff to Vicksburg, meander for meander.
 
-It tears the map two ways, and only one of them can be fixed from inside the snap. A course can
-stray onto a *third* realm's ground, which takes the two realms either side of the frontier with it
-while the third stands still; that one is fixed, by refusing any course that leaves the ground those
-two hold between them. And two realms are handed the *same* arc only when the frontier between them
-is a single unbroken run in both their rings — where it is not, one side snaps two short arcs and the
-other one long one, and they part company by however far the river is. Simplifying and rounding
-survive that split because they move a line by at most a cell; snapping moves it as far as the river.
+Getting there took three attempts and two real causes, both found by measuring rather than reasoning.
+A snapped course could stray onto a *third* realm's ground, taking the two realms either side of the
+frontier with it while the third stood still; a course may now only cross ground those two hold
+between them. And — the larger one — two realms were dressing the frontier *separately* and hoping to
+agree. They were cut at whatever point each realm's own walk noticed its neighbour change, so where
+one chopped a run in two and the other kept it whole, they drifted apart by however far the river was.
 
-Measured over the whole map, growing it three ways:
+Junctions are now decided once for the whole map, from the lattice: every corner where three or more
+regions meet, wilderness and the world's edge included. Both realms cut there, so both are handed the
+same arc — and that arc is dressed *once* and shared, keyed on its own undressed vertices taken in
+whichever direction sorts first. Not two lines that ought to agree; one line.
 
 | | neighbouring pairs overlapping | torn ground |
 |---|---|---|
-| off | 4 | 2,211 km² |
-| on, unguarded | 114 | 15,331 km² |
-| on, guarded | 79 | 18,785 km² |
+| per realm, snapping off | 4 | 2,211 km² |
+| per realm, on | 114 | 15,331 km² |
+| per realm, on, trespass guarded | 79 | 18,785 km² |
+| per border, off | 2 | 1,594 km² |
+| **per border, on** | **20** | **795 km²** |
 
-So the guard is worth having and nowhere near enough. `riverSnap: 0` stays the default until the
-frontier is snapped once per *border* rather than once per realm — derive the shared chains from the
-lattice first, snap each one, rebuild both realms from the result. A straight border is wrong; a torn
-one is broken.
+Twenty-four times less torn ground than the best per-realm attempt, and less than the map had with no
+snapping at all — deciding the junctions once repairs disagreements that predated rivers entirely.
+What remains averages forty square kilometres a pair, smaller than a lattice cell.
 
 **A realm ends where the land does.** The lattice claims whole cells, so a coastal realm's outline
 runs up to half a cell — twenty kilometres — out to sea, and rounding it off pushes it further: a
