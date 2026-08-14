@@ -152,9 +152,11 @@ export function createProject(opts: NewProjectOptions = {}): MapProject {
     timeline: { enabled: false, currentYear: 1453, minYear: 800, maxYear: 1900, step: 1 },
     basemap: [
       { sourceId: 'world-land-50m', visible: true, opacity: 1 },
+      { sourceId: 'world-land-10m', visible: false, opacity: 1 },
+      { sourceId: 'world-countries-50m', visible: false, opacity: 1 },
+      { sourceId: 'world-countries-10m', visible: false, opacity: 1 },
       { sourceId: 'us-states', visible: false, opacity: 1 },
       { sourceId: 'us-counties', visible: false, opacity: 1 },
-      { sourceId: 'world-countries-50m', visible: false, opacity: 1 },
     ],
     oceanColor: '#cfe0ea',
     landColor: '#f0e8d5',

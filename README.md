@@ -33,8 +33,20 @@ The first launch loads a demonstration map (a fictional partition of the north-e
 States) so the feature set is visible immediately. **New** starts a blank map or one seeded with
 real geography.
 
-Reference geography (Natural Earth coastlines and country outlines, US Census states and counties)
-ships in `public/data/` and is fetched lazily — nothing is downloaded at runtime.
+Reference geography ships in `public/data/` and is fetched lazily — only the datasets you switch on
+are ever loaded, and nothing is downloaded from the internet at runtime.
+
+| Dataset | Scale | Size | Good for |
+|---|---|---|---|
+| World coastlines / countries | 1:110m | 55–105 KB | the whole globe at a glance |
+| World coastlines / countries | 1:50m | 530–740 KB | continents and large countries |
+| World coastlines / countries | 1:10m | 2.9–3.5 MB | regions — ~7× the vertex density of 1:50m |
+| US states / counties (Census) | — | 110–820 KB | North America, finer than Natural Earth there |
+
+1:10m is the finest scale Natural Earth publishes. For anything more detailed than that — a single
+bay, an estuary, a city shoreline — import your own: [GSHHG](https://www.soest.hawaii.edu/pwessel/gshhg/)
+has full-resolution global coastlines, and an OSM extract clipped to your area works too. Both come
+in as GeoJSON through **Import**.
 
 ### Deploying to GitHub Pages
 
@@ -57,7 +69,7 @@ handled:
 |---|---|
 | Pastel political fills | `TerritoryStyle.fillColor` + the palette generator (`geo/palette.ts`) |
 | Thin internal boundaries, heavy sovereign ones | Borders are **derived**, not drawn — `render/borders.ts` |
-| Detailed coastline geometry | Real Natural Earth / Census data, convertible to editable territories |
+| Detailed coastline geometry | Natural Earth 1:110m/1:50m/1:10m and US Census data, convertible to editable territories |
 | Widely-spaced country names | Per-glyph text rendering with real tracking — `render/textRenderer.ts` |
 | Sea labels on broad curves, river labels along rivers | Text-on-path, same module |
 | City circles, larger capital symbols | `render/symbols.ts`, one definition drawn to canvas *and* SVG |

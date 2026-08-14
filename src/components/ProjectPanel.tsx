@@ -7,7 +7,7 @@ import { useRef, useState } from 'react';
 import { commit, useProjectStore } from '@/state/projectStore';
 import { toast, useUIStore } from '@/state/uiStore';
 import { PROJECTION_PRESETS, registerCustomProjection } from '@/geo/projections';
-import { BUILTIN_BASEMAPS, allBasemapSources } from '@/geo/basemap';
+import { BASEMAP_SIZES, BUILTIN_BASEMAPS, allBasemapSources } from '@/geo/basemap';
 import { referenceImageForView, registerImportedBasemap } from '@/io/importers';
 import { useMapController } from './MapContext';
 import { Field, Section, Slider } from './Inspector';
@@ -204,7 +204,10 @@ function BasemapSection() {
         return (
           <label key={s.id} className="checkbox">
             <input type="checkbox" checked={state?.visible ?? false} onChange={(e) => toggle(s.id, e.target.checked)} />
-            {s.name}
+            <span style={{ flex: 1 }}>{s.name}</span>
+            {BASEMAP_SIZES[s.id] && (
+              <span style={{ color: 'var(--text-faint)', fontSize: 10 }}>{BASEMAP_SIZES[s.id]}</span>
+            )}
           </label>
         );
       })}
@@ -236,7 +239,8 @@ function BasemapSection() {
       </div>
       <p className="hint">
         Reference geography is a tracing aid and is not part of the document. Convert it to make it
-        editable — {BUILTIN_BASEMAPS.length} datasets ship with the app.
+        editable — {BUILTIN_BASEMAPS.length} datasets ship with the app, fetched only when switched on.
+        Pick the scale that matches your zoom: 1:110m for a world map, 1:10m for a region.
       </p>
     </Section>
   );

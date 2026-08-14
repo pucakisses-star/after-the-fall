@@ -34,6 +34,15 @@ const STARTING_POINTS: { id: string; label: string; description: string; basemap
     zoom: 2.4,
   },
   {
+    id: 'world-detailed',
+    label: 'World — detailed coastlines (1:10m)',
+    description:
+      'Natural Earth at its finest published scale, ~7× the coastline detail of 1:50m. 6 MB, so use it when you are mapping a region rather than the globe.',
+    basemaps: ['world-land-10m', 'world-countries-10m'],
+    center: [0, 20],
+    zoom: 2.4,
+  },
+  {
     id: 'us-states',
     label: 'United States — states',
     description: 'State outlines, ideal for alternate-history North America.',

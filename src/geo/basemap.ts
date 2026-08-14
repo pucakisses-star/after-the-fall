@@ -13,10 +13,19 @@ import type { Topology, GeometryCollection } from 'topojson-specification';
 import type { Feature, FeatureCollection, MultiPolygon, Polygon } from 'geojson';
 import type { BasemapSource } from '@/model/types';
 
+/**
+ * Bundled reference geography, ordered coarse → detailed within each family.
+ *
+ * The scale is part of the name because it is the thing that actually matters
+ * when choosing: 1:110m is a world-at-a-glance outline, 1:50m holds up to about
+ * country level, and 1:10m is the finest Natural Earth publishes — roughly seven
+ * times the vertex density of 1:50m in a region-sized view. Beyond that you want
+ * a national dataset (the US files below) or your own import.
+ */
 export const BUILTIN_BASEMAPS: BasemapSource[] = [
   {
     id: 'world-land-110m',
-    name: 'World coastlines (coarse)',
+    name: 'World coastlines — 1:110m (coarse)',
     url: 'data/world/land-110m.json',
     format: 'topojson',
     objectName: 'land',
@@ -24,15 +33,23 @@ export const BUILTIN_BASEMAPS: BasemapSource[] = [
   },
   {
     id: 'world-land-50m',
-    name: 'World coastlines (medium)',
+    name: 'World coastlines — 1:50m (medium)',
     url: 'data/world/land-50m.json',
     format: 'topojson',
     objectName: 'land',
     role: 'land',
   },
   {
+    id: 'world-land-10m',
+    name: 'World coastlines — 1:10m (detailed)',
+    url: 'data/world/land-10m.json',
+    format: 'topojson',
+    objectName: 'land',
+    role: 'land',
+  },
+  {
     id: 'world-countries-110m',
-    name: 'Country boundaries (coarse)',
+    name: 'Country boundaries — 1:110m (coarse)',
     url: 'data/world/countries-110m.json',
     format: 'topojson',
     objectName: 'countries',
@@ -40,15 +57,23 @@ export const BUILTIN_BASEMAPS: BasemapSource[] = [
   },
   {
     id: 'world-countries-50m',
-    name: 'Country boundaries (medium)',
+    name: 'Country boundaries — 1:50m (medium)',
     url: 'data/world/countries-50m.json',
     format: 'topojson',
     objectName: 'countries',
     role: 'countries',
   },
   {
+    id: 'world-countries-10m',
+    name: 'Country boundaries — 1:10m (detailed)',
+    url: 'data/world/countries-10m.json',
+    format: 'topojson',
+    objectName: 'countries',
+    role: 'countries',
+  },
+  {
     id: 'us-states',
-    name: 'US states',
+    name: 'US states (Census)',
     url: 'data/us/states-10m.json',
     format: 'topojson',
     objectName: 'states',
@@ -56,13 +81,29 @@ export const BUILTIN_BASEMAPS: BasemapSource[] = [
   },
   {
     id: 'us-counties',
-    name: 'US counties',
+    name: 'US counties (Census)',
     url: 'data/us/counties-10m.json',
     format: 'topojson',
     objectName: 'counties',
     role: 'counties',
   },
 ];
+
+/**
+ * Approximate download size, shown next to each dataset so the detailed files
+ * are an informed choice rather than a surprise. Values are the on-disk sizes of
+ * the shipped TopoJSON.
+ */
+export const BASEMAP_SIZES: Record<string, string> = {
+  'world-land-110m': '55 KB',
+  'world-land-50m': '530 KB',
+  'world-land-10m': '2.9 MB',
+  'world-countries-110m': '105 KB',
+  'world-countries-50m': '740 KB',
+  'world-countries-10m': '3.5 MB',
+  'us-states': '110 KB',
+  'us-counties': '820 KB',
+};
 
 export type PolyFeature = Feature<Polygon | MultiPolygon, Record<string, unknown>>;
 
