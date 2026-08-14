@@ -24,7 +24,7 @@
  */
 
 import { linesOf, loadBasemap, polygonsOf } from '@/geo/basemap';
-import { areaKm2, dissolve, interiorPoint } from '@/geo/operations';
+import { dissolve, interiorPoint } from '@/geo/operations';
 import { recolor } from '@/geo/palette';
 import { DEFAULT_GROWTH, growRealms, type LandPolygon, type RealmSeed } from '@/geo/realmGrowth';
 import { PALETTES, STYLE_IDS } from '@/model/defaults';
@@ -660,11 +660,9 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
           text: realm.short,
           coords: interiorPoint(shape),
           styleClassId: STYLE_IDS.textCountry,
-          // Set below, once every state's area is known: a hundred and thirty
-          // country names at a continental zoom is a mat, so only the states
-          // large enough to carry one keep it.
-          hidden: true,
-          style: { fontSize: 8.5, tracking: 1.4 },
+          // Sized below, once the shape is known: a name belongs to its state
+          // and should look like it does.
+          style: stateNameStyle(shape),
         });
       }
       if (seatStateId) {
@@ -756,21 +754,6 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
     }
   }
 
-  // Name the states that have room for a name. The label engine never drops one
-  // by itself (§11), so a hundred and thirty country names at a continental
-  // zoom would be a mat rather than a map; the rest keep their label, hidden,
-  // ready for whoever zooms in and switches it on.
-  const NAMED_ABOVE_KM2 = 260_000;
-  for (const state of sovereignStates) {
-    // The label id lands on the copy in the project, not on the object that
-    // went into the array.
-    const current = project.territories[state.id];
-    const label = current?.labelId ? project.labels[current.labelId] : null;
-    if (!label || !current) continue;
-    if (areaKm2(current.geometry) < NAMED_ABOVE_KM2) continue;
-    project.labels[label.id] = { ...label, hidden: false };
-  }
-
   for (const w of WATER_LABELS) {
     const label = makeLabel({
       layerId: waterLabels.id,
@@ -784,6 +767,48 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
   }
 
   return { project, center: CENTER, zoom: ZOOM };
+}
+
+/**
+ * How large to set a state's name: as large as the state.
+ *
+ * Every state is named, and none of them is named at the same size. That is how
+ * an atlas plate of many small realms is drawn — a grand duchy's name is set
+ * across it in wide capitals, a city-state's is four points and tucked inside —
+ * and it is the only way a hundred and thirty names sit on two continents
+ * without every one of them fighting its neighbours for the same ground.
+ *
+ * The measure is the realm's own width, at the latitude it sits at, so a name
+ * is scaled by the room it actually has rather than by an area that a long thin
+ * realm and a round one can share. Logarithmic, because the largest realm here
+ * is some four hundred times the smallest and a linear scale would set one of
+ * them at a hundred points or the other at a quarter of one.
+ */
+function stateNameStyle(shape: Polygon | MultiPolygon): { fontSize: number; tracking: number } {
+  const rings = shape.type === 'Polygon' ? shape.coordinates : shape.coordinates.flat();
+  let west = Infinity;
+  let east = -Infinity;
+  let south = Infinity;
+  let north = -Infinity;
+  for (const ring of rings) {
+    for (const [x, y] of ring) {
+      if (x < west) west = x;
+      if (x > east) east = x;
+      if (y < south) south = y;
+      if (y > north) north = y;
+    }
+  }
+  if (!Number.isFinite(west)) return { fontSize: 6, tracking: 0.8 };
+  const km = Math.max(
+    (east - west) * 111 * Math.max(0.2, Math.cos((((south + north) / 2) * Math.PI) / 180)),
+    (north - south) * 111,
+  );
+
+  // 300 km sets the floor, 2,600 km the ceiling: the span between a petty realm
+  // and an empire on this map.
+  const t = Math.min(1, Math.max(0, Math.log(km / 300) / Math.log(2600 / 300)));
+  const fontSize = Number((5 + t * 6.5).toFixed(2));
+  return { fontSize, tracking: Number((fontSize * 0.17).toFixed(2)) };
 }
 
 /**

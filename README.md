@@ -50,9 +50,17 @@ crown. The states are then coloured by the graph colourer (`geo/palette.ts`) so 
 share a tint — carrying their old group's colour would only have drawn the bloc again by other
 means.
 
-Names follow the same logic. The label engine never drops a label on its own (§11), so a hundred and
-thirty country names at a continental zoom would be a mat; a state large enough to carry its name
-keeps it, and the rest hold theirs hidden for whoever zooms in.
+Every state carries its name, and none of them carries it at the same size. A grand duchy's name is
+set across it in wide capitals; a petty realm's is five points and tucked inside. That is how an
+atlas plate of many small realms is drawn, and it is the only way a hundred and thirty names sit on
+two continents without every one of them fighting its neighbours for the same ground. The measure is
+the realm's own width at the latitude it sits at — room it actually has, rather than an area a long
+thin realm and a round one can share — on a log scale, since the largest realm here is some four
+hundred times the smallest.
+
+Label text is a fixed pixel size, not a fixed ground distance, so this is set for the scale you read
+state names at. Zoomed out to both continents the eastern seaboard crowds; the names spread as soon
+as you zoom into a region.
 
 **The shapes are grown, not traced.** A collapsed world that still divides at the state line is not a
 collapsed world, and no amount of dissolving modern subdivisions can produce the look of a realm
