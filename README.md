@@ -124,6 +124,12 @@ the globe that happens to be pointed at Brazil. A new map comes cropped to the w
 the view, never the document — anything you have drawn outside it stays put, stays editable and still
 exports.
 
+Drawing a crop frames the region it covers, which is the point of drawing one. *Opening* a map does
+not: the document carries its own view, and that is what it opens on. The two used to go through the
+same path, so a map that ships framed on one region opened framed on its whole crop instead — the
+demonstration map is about the north-east and opened on the continent, with its country names
+overprinting each other in the middle.
+
 Cropping is what makes the antimeridian matter. Afro-Eurasia is a single part of Natural Earth's
 1:10m land file whose ring steps from +180° to −180°, so its bounding box is the entire globe and
 every window on Earth "overlaps" it — which is how the whole of Eurasia turns up in a map of the
@@ -166,6 +172,8 @@ along the river itself via text-on-path.
 
 **Cities and towns** draw as quiet hollow dots with grey names, below the map's own settlements, so
 real places read as a backdrop you are placing your own against rather than competing with them.
+They are on by default everywhere — a new map, the demonstration map and the After the End map —
+which is what that ordering is for: the reference layer can be left on while you work over it.
 Both the dots and the names thin out as you zoom out — 7,300 of either is a stipple, not a map — with
 dots surviving a few ranks longer than names, so a city appears as a mark first and earns its name
 further in. The layer is decluttered, so a name is dropped rather than overprinted. The screen and the SVG exporter

@@ -555,7 +555,12 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
     { sourceId: 'world-land-10m', visible: true, opacity: 1 },
     { sourceId: 'world-lakes-10m', visible: true, opacity: 1 },
     { sourceId: 'world-rivers-10m', visible: true, opacity: 1 },
-    { sourceId: 'world-places-10m', visible: false, opacity: 1 },
+    // Real cities on, under the map's own thirty capitals. They draw as quiet
+    // hollow dots with grey names and are filtered by Natural Earth's
+    // scalerank, so a continental view shows the handful that carry it and the
+    // rest arrive as you zoom — the surviving population of the old world, for
+    // the realms above to be seated among.
+    { sourceId: 'world-places-10m', visible: true, opacity: 1 },
     { sourceId: 'na-admin1-10m', visible: false, opacity: 1 },
   ];
 

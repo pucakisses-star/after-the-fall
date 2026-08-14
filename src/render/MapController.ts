@@ -135,6 +135,8 @@ export class MapController {
   private lastOceanColor: string | null = null;
   private lastWaterLandKey: string | null = null;
   private lastProjectionId: string | null = null;
+  /** Which document is on screen, so a *load* can be told from an edit. */
+  private lastProjectId: string | null = null;
   private lastWorkingExtent: string | null = null;
   private lastStyles: unknown = null;
   private lastLayers: unknown = null;
@@ -311,16 +313,25 @@ export class MapController {
     return [c[0], c[1]];
   }
 
-  setProjection(settings: ProjectionSettings): void {
+  /**
+   * @param loaded A different document just replaced the one on screen, so its
+   *   own saved view is what to open on — not wherever the last map was left.
+   */
+  setProjection(settings: ProjectionSettings, loaded = false): void {
     const project = useProjectStore.getState().project;
     const projection = olProjectionFor(settings);
     const old = this.map.getView();
     const centreLonLat = this.toLonLat(old.getCenter() ?? [0, 0]);
 
+    // Changing projection on the map you are working on should keep you where
+    // you are; opening a different map should not. Both went through the old
+    // view before, which is why a prebuilt map opened at whatever zoom the
+    // previous one happened to be left at rather than the view it ships with.
+    const seed = loaded ? project.view : { center: centreLonLat, zoom: old.getZoom() ?? 4, rotation: old.getRotation() };
     const view = buildView(project, projection, {
-      center: transformCoord(centreLonLat, 'EPSG:4326', projection.getCode()),
-      zoom: old.getZoom() ?? 4,
-      rotation: old.getRotation(),
+      center: transformCoord(seed.center as Coordinate, 'EPSG:4326', projection.getCode()),
+      zoom: seed.zoom,
+      rotation: seed.rotation,
     });
     this.map.setView(view);
     this.lastProjectionId = settings.id;
@@ -334,7 +345,7 @@ export class MapController {
     const frame = project.workingExtent
       ? projectExtent(projection.getCode(), project.workingExtent)
       : projection.getExtent();
-    if (frame && !this.territorySource.getFeatures().length) {
+    if (frame && !loaded && !this.territorySource.getFeatures().length) {
       view.fit(frame, { size: this.map.getSize(), padding: [20, 20, 20, 20] });
     }
     this.attachPointer();
@@ -345,13 +356,15 @@ export class MapController {
    * changes. Both depend on it: the view for its bounds, the reference layers
    * for what was clipped away before they were ever projected.
    */
-  private applyWorkingExtent(project: MapProject): void {
+  private applyWorkingExtent(project: MapProject, loaded = false): void {
     const old = this.map.getView();
     const projection = old.getProjection();
     const view = buildView(project, projection, {
-      center: old.getCenter() ?? [0, 0],
-      zoom: old.getZoom() ?? 4,
-      rotation: old.getRotation(),
+      center: loaded
+        ? transformCoord(project.view.center as Coordinate, 'EPSG:4326', projection.getCode())
+        : (old.getCenter() ?? [0, 0]),
+      zoom: loaded ? project.view.zoom : (old.getZoom() ?? 4),
+      rotation: loaded ? project.view.rotation : old.getRotation(),
     });
     this.map.setView(view);
 
@@ -364,7 +377,9 @@ export class MapController {
     // not move the view: "the map now covers the world" is not a request to be
     // thrown out to the far edge of the projection, which for a conic is a cone
     // tens of thousands of kilometres wide.
-    if (project.workingExtent) {
+    // A map that arrived with its own view has already said where to open; only
+    // a crop the user just drew is a request to be shown the region it covers.
+    if (project.workingExtent && !loaded) {
       const frame = projectExtent(projection.getCode(), project.workingExtent);
       if (frame) view.fit(frame, { size: this.map.getSize(), padding: [20, 20, 20, 20] });
     }
@@ -391,14 +406,16 @@ export class MapController {
   // -------------------------------------------------------------------------
 
   syncAll(project: MapProject, force: boolean): void {
+    const loaded = this.lastProjectId !== null && project.id !== this.lastProjectId;
+    this.lastProjectId = project.id;
     if (project.projection.id !== this.lastProjectionId) {
       this.lastWorkingExtent = extentKey(project.workingExtent);
-      this.setProjection(project.projection);
+      this.setProjection(project.projection, loaded);
       return;
     }
     if (extentKey(project.workingExtent) !== this.lastWorkingExtent) {
       this.lastWorkingExtent = extentKey(project.workingExtent);
-      this.applyWorkingExtent(project);
+      this.applyWorkingExtent(project, loaded);
       // Falls through: everything below is independent of the extent.
     }
     if (force || this.lastStyles !== project.styles) {
