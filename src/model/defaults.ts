@@ -9,6 +9,8 @@ import { fixedId } from './ids';
 import type {
   BorderStyleKind,
   LineStyle,
+  PoliticalCohesion,
+  PoliticalRelationship,
   PoliticalType,
   SettlementType,
   StyleSheet,
@@ -45,6 +47,7 @@ export const STYLE_IDS = {
   textOcean: fixedId('text-ocean'),
   textWater: fixedId('text-water'),
   textRiver: fixedId('text-river'),
+  textRelationship: fixedId('text-relationship'),
 
   symbolCapitalImperial: fixedId('sym-cap-imperial'),
   symbolCapitalNational: fixedId('sym-cap-national'),
@@ -178,6 +181,101 @@ export function politicalTypeInfo(t: PoliticalType) {
   return POLITICAL_TYPES.find((p) => p.value === t);
 }
 
+/**
+ * What each constitutional status means to the renderer (spec §2, §6, §7, §17,
+ * §26, §35).
+ *
+ * This table is the whole point of separating status from rank: given only
+ * "Dubuque is a county, is a vassal, belongs to the Midwest Confederation", the
+ * renderer reads its fill, its border, its label class and its subtitle from
+ * here. Nothing about a vassal's appearance is set by hand on the vassal.
+ *
+ *   variation  how far the fill may drift from the parent's, 0–1, before the
+ *              project's cohesion setting scales it. Ordinary members barely
+ *              move; a vassal moves enough to be obviously a different kind of
+ *              thing while staying in the family.
+ *   border     the line drawn round it *inside* its parent. Never
+ *              `international` for anything held by somebody — that is what
+ *              stops a vassal's edge reading like a national frontier.
+ *   emphasis   which label class it takes: quiet italic for ordinary members,
+ *              uppercase for a special status, full country treatment for a
+ *              sovereign.
+ *   subtitle   template for the line under the name, `{parent}` being the
+ *              parent's short name. Null where a subtitle would be noise.
+ */
+export const POLITICAL_RELATIONSHIPS: {
+  value: PoliticalRelationship;
+  label: string;
+  variation: number;
+  border: BorderStyleKind;
+  emphasis: 'sovereign' | 'constituent' | 'special';
+  subtitle: string | null;
+  /** Free cities pick their own colour rather than inheriting one. */
+  ownColor?: boolean;
+}[] = [
+  { value: 'sovereign', label: 'Sovereign', variation: 0, border: 'international', emphasis: 'sovereign', subtitle: null },
+  { value: 'constituent', label: 'Constituent state', variation: 0.08, border: 'provincial', emphasis: 'constituent', subtitle: null },
+  { value: 'vassal', label: 'Vassal', variation: 0.3, border: 'subordinate', emphasis: 'special', subtitle: 'Vassal of the {parent}' },
+  { value: 'autonomous-vassal', label: 'Autonomous vassal', variation: 0.2, border: 'subordinate', emphasis: 'special', subtitle: 'Autonomous vassal of the {parent}' },
+  { value: 'tributary', label: 'Tributary', variation: 0.24, border: 'subordinate', emphasis: 'special', subtitle: 'Tributary of the {parent}' },
+  { value: 'personal-union', label: 'Personal union', variation: 0.14, border: 'major-political', emphasis: 'special', subtitle: 'In personal union with the {parent}' },
+  { value: 'free-city', label: 'Free city', variation: 0.5, border: 'major-political', emphasis: 'special', subtitle: 'Free City', ownColor: true },
+  { value: 'march', label: 'March', variation: 0.2, border: 'subordinate', emphasis: 'special', subtitle: 'March of the {parent}' },
+  { value: 'protectorate', label: 'Protectorate', variation: 0.26, border: 'major-political', emphasis: 'special', subtitle: 'Protectorate of the {parent}' },
+  { value: 'occupied', label: 'Occupied', variation: 0.32, border: 'ceasefire', emphasis: 'special', subtitle: 'Occupied by the {parent}' },
+  { value: 'disputed', label: 'Disputed', variation: 0.32, border: 'disputed', emphasis: 'special', subtitle: 'Disputed' },
+];
+
+export function relationshipInfo(r: PoliticalRelationship) {
+  return POLITICAL_RELATIONSHIPS.find((x) => x.value === r) ?? POLITICAL_RELATIONSHIPS[1];
+}
+
+/** How strongly members are drawn as part of their realm (spec §18). */
+export const POLITICAL_COHESION: { value: PoliticalCohesion; label: string; factor: number; hint: string }[] = [
+  { value: 'unified', label: 'Unified', factor: 0.3, hint: 'Members are almost the same colour as the realm.' },
+  { value: 'strong', label: 'Strong', factor: 0.65, hint: 'Small variations. Reads as one realm at a glance.' },
+  { value: 'moderate', label: 'Moderate', factor: 1, hint: 'Clearly distinguishable related shades.' },
+  { value: 'loose', label: 'Loose', factor: 1.7, hint: 'A broad family, still recognisably related.' },
+  { value: 'independent', label: 'Independent', factor: 0, hint: 'No inheritance — every member keeps its own colour.' },
+];
+
+export function cohesionFactor(c: PoliticalCohesion | undefined): number {
+  return POLITICAL_COHESION.find((x) => x.value === c)?.factor ?? 0.65;
+}
+
+/**
+ * The status a territory should have when nothing has said otherwise.
+ *
+ * Documents written before status existed carry it inside `politicalType`, so
+ * the six ranks that are really statuses are read back out; everything else is
+ * sovereign if it stands alone and an ordinary member if it does not.
+ */
+export function inferRelationship(
+  politicalType: PoliticalType,
+  hasParent: boolean,
+): PoliticalRelationship {
+  switch (politicalType) {
+    case 'vassal':
+      return 'vassal';
+    case 'autonomous-territory':
+      return 'autonomous-vassal';
+    case 'protectorate':
+      return 'protectorate';
+    case 'colony':
+      return 'protectorate';
+    case 'march':
+      return 'march';
+    case 'occupied-territory':
+      return 'occupied';
+    case 'disputed-territory':
+      return 'disputed';
+    case 'city-state':
+      return hasParent ? 'free-city' : 'sovereign';
+    default:
+      return hasParent ? 'constituent' : 'sovereign';
+  }
+}
+
 export const SETTLEMENT_TYPES: {
   value: SettlementType;
   label: string;
@@ -297,6 +395,14 @@ export function createDefaultStyleSheet(): StyleSheet {
     defaultTextStyle({ fontSize: 17, tracking: 6, transform: 'uppercase', color: '#241d13', haloWidth: 3 }),
   );
   text(STYLE_IDS.textRegion, 'Region label', defaultTextStyle({ fontSize: 12, tracking: 1.6, italic: true, color: '#4a3d2b' }));
+  // The line under a special vassal's name — "Vassal of the M.C." Smaller and
+  // lighter than the name it belongs to, because it is an annotation on that
+  // name rather than a second name (spec §12).
+  text(
+    STYLE_IDS.textRelationship,
+    'Relationship note',
+    defaultTextStyle({ fontSize: 8, tracking: 0.3, italic: true, color: '#5c5040', haloWidth: 2 }),
+  );
   text(STYLE_IDS.textCity, 'City label', defaultTextStyle({ fontSize: 11, tracking: 0.2, align: 'left' }));
   text(
     STYLE_IDS.textCapital,

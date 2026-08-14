@@ -15,6 +15,7 @@ import {
   mergeSelected,
   createTerritoryFromSelection,
   setParent,
+  setRelationship,
   setTerritoryFill,
   setHiddenFor,
   setLockedFor,
@@ -26,11 +27,13 @@ import {
   BORDER_HIERARCHY,
   FONT_STACKS,
   PALETTES,
+  POLITICAL_RELATIONSHIPS,
   POLITICAL_TYPES,
   SETTLEMENT_TYPES,
   STYLE_IDS,
 } from '@/model/defaults';
 import { resolveTerritoryStyle, resolveTextStyle, resolveSymbolStyle } from '@/model/resolveStyle';
+import { relationshipSubtitle } from '@/model/hierarchy';
 import { areaKm2 } from '@/geo/operations';
 import { formatArea } from '@/geo/topology';
 import { useMapController } from './MapContext';
@@ -112,6 +115,7 @@ function TerritoryInspector({ territory: t }: { territory: Territory }) {
   const project = useProjectStore((s) => s.project);
   const style = resolveTerritoryStyle(project, t);
   const area = useMemo(() => areaKm2(t.geometry), [t.geometry]);
+  const subtitle = relationshipSubtitle(project, t);
 
   const update = (changes: Partial<Territory>, label = 'Edit territory') =>
     commit(label, (r) => r.update<Territory>('territories', t.id, changes));
@@ -214,6 +218,33 @@ function TerritoryInspector({ territory: t }: { territory: Territory }) {
             ))}
           </select>
         </Field>
+        {/* Status, not rank. The two above it — political type and parent — say
+            what this is called and who holds it; this says on what terms, which
+            is what the fill, the border and the label under the name all come
+            from. */}
+        <Field label="Status">
+          <select
+            className="select"
+            value={String(t.relationship)}
+            onChange={(e) => setRelationship(t.id, e.target.value)}
+          >
+            {POLITICAL_RELATIONSHIPS.map((x) => (
+              <option key={x.value} value={x.value}>
+                {x.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {subtitle && (
+          <p className="hint" style={{ marginTop: -2 }}>
+            Labelled <em>{subtitle}</em> beneath its name.
+          </p>
+        )}
+        {t.relationship !== 'sovereign' && !t.parentId && (
+          <p className="hint" style={{ marginTop: -2 }}>
+            Held on those terms by nobody — set a parent realm above, or this reads as sovereign.
+          </p>
+        )}
       </Section>
 
       <Section title="Appearance">

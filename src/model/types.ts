@@ -258,6 +258,45 @@ export type PoliticalType =
   | 'barony'
   | (string & {}); // custom types (§5) are just free strings
 
+/**
+ * How a territory is held, as opposed to what it is called (spec §7).
+ *
+ * `politicalType` is a *rank* — duchy, county, canton. This is the orthogonal
+ * question of constitutional status, and the two genuinely are independent: the
+ * County of Dubuque is a county by rank and a vassal by status, while the Canton
+ * of Iowa is an ordinary member of the same confederation. Keeping them in one
+ * field, as this used to, means the map cannot tell those two apart, and every
+ * subdivision ends up drawn like an independent country.
+ *
+ * The renderer derives the fill, the border class, the label class and the
+ * relationship subtitle from this one value, so changing a vassal to a sovereign
+ * restyles it, redraws its frontier and drops it out of its old parent's union
+ * without anything else being edited.
+ */
+export type PoliticalRelationship =
+  | 'sovereign'
+  /** An ordinary canton, province or state of the parent realm. */
+  | 'constituent'
+  | 'vassal'
+  | 'autonomous-vassal'
+  | 'tributary'
+  | 'personal-union'
+  | 'free-city'
+  | 'march'
+  | 'protectorate'
+  | 'occupied'
+  | 'disputed'
+  | (string & {});
+
+/**
+ * How strongly a realm's members are drawn as part of it (spec §18).
+ *
+ * Scales the colour variation every relationship asks for, so one control takes
+ * a map from "these are all one country" to "these are allies who happen to
+ * share a border". `independent` switches inheritance off altogether.
+ */
+export type PoliticalCohesion = 'unified' | 'strong' | 'moderate' | 'loose' | 'independent';
+
 /** Fields shared by every addressable thing on the map. */
 export interface FeatureBase {
   id: UUID;
@@ -271,7 +310,14 @@ export interface FeatureBase {
 
 export interface Territory extends FeatureBase {
   shortName: string;
+  /** What it is called: empire, duchy, canton, county. Its *rank*. */
   politicalType: PoliticalType;
+  /**
+   * How it is held: sovereign, ordinary constituent, vassal, free city. Its
+   * *status*, which is a separate question from its rank — see
+   * `PoliticalRelationship`. Drives fill, border class and label class.
+   */
+  relationship: PoliticalRelationship;
   /**
    * Hierarchy (§7). Points at another Territory. An Empire has `parentId: null`;
    * its Kingdoms point at it; their Duchies point at the Kingdoms, and so on.
@@ -485,6 +531,12 @@ export interface MapProject {
   styles: StyleSheet;
   timeline: TimelineSettings;
   basemap: BasemapLayerState[];
+  /**
+   * How strongly members of a realm are drawn as part of it (spec §18). One
+   * control over the whole map, because "how unified do these look" is a
+   * decision about the plate, not about any one territory.
+   */
+  politicalCohesion: PoliticalCohesion;
   /** Colour applied behind everything — the ocean (§17). */
   oceanColor: Color;
   landColor: Color;

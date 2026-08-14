@@ -38,6 +38,7 @@ function territory(id: string, geometry: Polygon, over: Partial<Territory> = {})
     name: id,
     shortName: '',
     politicalType: 'kingdom',
+    relationship: 'sovereign',
     parentId: null,
     liegeId: null,
     capitalId: null,

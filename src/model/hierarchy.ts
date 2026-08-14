@@ -6,6 +6,7 @@
  * undo system needs. These helpers rebuild the tree views on demand.
  */
 
+import { relationshipInfo } from './defaults';
 import type { MapLayer, MapProject, Territory, UUID } from './types';
 
 export interface TreeNode<T> {
@@ -114,6 +115,29 @@ export function wouldCreateCycle(project: MapProject, id: UUID, candidateParent:
 export function sovereignOf(project: MapProject, id: UUID): Territory | undefined {
   const chain = ancestorsOf(project, id);
   return chain.length ? chain[chain.length - 1] : project.territories[id];
+}
+
+/**
+ * The line that goes under a territory's name, or null (spec §26).
+ *
+ * Generated from the relationship's own template rather than stored, so the
+ * moment Dubuque stops being a vassal the line stops claiming it is one. The
+ * only substitution is `{parent}`, which takes the parent's short name where it
+ * has one — "Vassal of the M.C." is what the reference plate prints, not "Vassal
+ * of the Midwest Confederation", because the note is an annotation and has to
+ * fit under the name.
+ *
+ * A relationship whose meaning is already obvious from the map gets no line: an
+ * ordinary canton of a realm does not need telling that it is one, and neither
+ * does a sovereign.
+ */
+export function relationshipSubtitle(project: MapProject, t: Territory): string | null {
+  const template = relationshipInfo(t.relationship).subtitle;
+  if (!template) return null;
+  if (!template.includes('{parent}')) return template;
+  const parent = t.parentId ? project.territories[t.parentId] : undefined;
+  if (!parent) return null;
+  return template.replace('{parent}', parent.shortName || parent.name);
 }
 
 /** True when a layer, or any of its ancestors, is hidden/locked. */

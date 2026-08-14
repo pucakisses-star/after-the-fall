@@ -182,6 +182,42 @@ The subdivisions are cropped rather than coarsened, on the same logic: the world
 file covers the Americas. It is what makes a realm buildable out of real administrative units
 outside the United States, which is the only place the Census files cover.
 
+**A realm's members are drawn as its members.** A territory carries two independent facts about
+itself: its *rank* — duchy, canton, county — and its *status*, which is how it is held. The County of
+Dubuque is a county by rank and a vassal by status; the Canton of Iowa is an ordinary member of the
+same confederation. Those used to be one field, and the consequence was that every subdivision drew
+like an independent country: a rainbow of unrelated fills, each behind the same heavy black frontier,
+with nothing to say they belonged to one political system.
+
+Status is now its own field, and it is the only thing that has to be set. From "Dubuque is a county,
+is a vassal, belongs to the Midwest Confederation" the renderer reads:
+
+* **the fill** — a variation on the realm's colour rather than a fresh one. How far it drifts is a
+  property of the status: an ordinary canton barely moves, a vassal moves far enough to read as a
+  different kind of thing without leaving the family, a free city keeps its own colour entirely.
+* **the border class** — never `international` for anything held by somebody, which is what stops a
+  vassal's edge reading like a national frontier.
+* **the line under its name** — "Vassal of the M.C.", generated from the status's own template, so
+  the moment Dubuque stops being a vassal the line stops saying it is one.
+* **the outer frontier** — already derived, from the union of whatever currently claims the parent.
+
+So changing one dropdown from Vassal to Sovereign restyles the fill, promotes the boundary to a
+sovereign frontier, deletes the relationship note and drops the territory out of its old realm's
+union — the five edits a user would otherwise make by hand, and get one of them wrong.
+
+**Political cohesion** (Project panel) scales every status's variation at once, from *Unified* — where
+members are nearly the realm's own colour — to *Independent*, which switches inheritance off. The
+default is *Strong*, which is where the reference atlases sit: one realm at a glance, its cantons at
+second glance.
+
+The per-sibling spread is small and deliberate, and it was wrong at first in a way worth recording:
+it was scaled by how far the member sat from its realm, which at strong cohesion came to well under
+one part in 255, so every canton rounded to the identical hex and was distinguishable only by the
+hairline between them. How far a vassal sits from its realm and how far two cantons sit from each
+other are different questions. It now varies hue, saturation and lightness from three different mixes
+of the territory's id — three axes because four siblings spread along one would collide about half
+the time, and from the id so a saved map opens in the colours it was saved in.
+
 **Most maps are about somewhere, not everywhere.** Project → Map area crops the map to a region:
 reference geography outside it is never projected or drawn, and the view cannot pan or zoom past it,
 so a map of the Americas behaves like a sheet of paper of a definite size rather than a window onto

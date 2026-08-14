@@ -24,6 +24,7 @@
  */
 
 import { linesOf, loadBasemap, polygonsOf } from '@/geo/basemap';
+import { relationshipInfo } from '@/model/defaults';
 import { dissolve, interiorPoint } from '@/geo/operations';
 import { recolor } from '@/geo/palette';
 import { DEFAULT_GROWTH, growRealms, type LandPolygon, type RealmSeed } from '@/geo/realmGrowth';
@@ -646,6 +647,7 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
           name: realm.name,
           shortName: realm.short,
           politicalType: realm.type,
+          relationship: 'sovereign',
           parentId: null,
           liegeId: null,
           capitalId: null,
@@ -696,6 +698,7 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
       name: empire.name,
       shortName: empire.short,
       politicalType: empire.type,
+      relationship: 'sovereign',
       parentId: null,
       liegeId: null,
       capitalId,
@@ -720,23 +723,28 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
       style: nameStyle(whole, empire.name),
     });
 
-    empire.realms.forEach((realm, index) => {
+    empire.realms.forEach((realm) => {
       const shape = grown.shapes.get(realm.name);
       if (!shape) return;
       const realmId = newId();
+      // Held, not sovereign — and that one fact is now enough. The fill comes
+      // from the empire's colour through the vassal's own variation, the border
+      // class from the same table, and the label carries "Vassal of the ..."
+      // underneath its name. None of it is set here.
       project.territories[realmId] = {
         ...project.territories[empireId],
         id: realmId,
         name: realm.name,
         shortName: realm.short,
         politicalType: realm.type,
+        relationship: 'vassal',
         parentId: empireId,
         liegeId: empireId,
         capitalId: null,
         geometry: shape,
-        styleOverrides: { fillColor: vassalColor(empire.color, index, empire.realms.length) },
-        inheritParentColor: false,
-        borderKind: 'subordinate',
+        styleOverrides: {},
+        inheritParentColor: true,
+        borderKind: relationshipInfo('vassal').border,
         labelId: null,
       };
       attachLabel(project, realmId, 'territories', {
@@ -879,57 +887,6 @@ function addCapital(
     styleClassId: STYLE_IDS.textCapital,
     offset: [10, 0],
   });
-}
-
-/**
- * A realm's own colour: its liege's, shifted.
- *
- * Vassals could simply inherit, and §7 supports that — but then an empire is one
- * flat wash and its vassals are only visible as hairlines, which is not how a
- * political map of many small realms reads. Varying lightness and saturation
- * around the liege's colour keeps the family legible while giving each realm its
- * own tint, exactly as a hand-coloured atlas plate does.
- */
-function vassalColor(base: string, index: number, count: number): string {
-  const hex = base.replace('#', '');
-  const r = parseInt(hex.slice(0, 2), 16) / 255;
-  const g = parseInt(hex.slice(2, 4), 16) / 255;
-  const b = parseInt(hex.slice(4, 6), 16) / 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  const d = max - min;
-  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
-  let h = 0;
-  if (d !== 0) {
-    if (max === r) h = ((g - b) / d) % 6;
-    else if (max === g) h = (b - r) / d + 2;
-    else h = (r - g) / d + 4;
-    h *= 60;
-    if (h < 0) h += 360;
-  }
-
-  // Spread the vassals over a band around the liege rather than in one
-  // direction, so no empire ends up uniformly darker than its neighbours.
-  const t = count <= 1 ? 0 : index / (count - 1) - 0.5;
-  const hue = (h + t * 26 + 360) % 360;
-  const sat = Math.max(0.06, Math.min(0.62, s + t * 0.16));
-  const lum = Math.max(0.52, Math.min(0.87, l - t * 0.17));
-
-  const c = (1 - Math.abs(2 * lum - 1)) * sat;
-  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
-  const m = lum - c / 2;
-  const seg = Math.floor(hue / 60) % 6;
-  const rgb = [
-    [c, x, 0],
-    [x, c, 0],
-    [0, c, x],
-    [0, x, c],
-    [x, 0, c],
-    [c, 0, x],
-  ][seg];
-  const to255 = (v: number) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
-  return `#${to255(rgb[0])}${to255(rgb[1])}${to255(rgb[2])}`;
 }
 
 /** Every watercourse, as plain polylines. */

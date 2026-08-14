@@ -25,6 +25,7 @@ export type DocKey =
   | 'timeline'
   | 'basemap'
   | 'workingExtent'
+  | 'politicalCohesion'
   | 'oceanColor'
   | 'landColor'
   | 'legend'

@@ -3,9 +3,9 @@
  */
 
 import { newId } from './ids';
-import { createDefaultStyleSheet } from './defaults';
+import { createDefaultStyleSheet, inferRelationship } from './defaults';
 import { defaultProjection, findPreset } from '@/geo/projections';
-import type { LayerKind, MapLayer, MapProject, ProjectionSettings, StyleSheet, UUID } from './types';
+import type { LayerKind, MapLayer, MapProject, ProjectionSettings, StyleSheet, Territory, UUID } from './types';
 
 export const SCHEMA_VERSION = 1;
 
@@ -169,6 +169,9 @@ export function createProject(opts: NewProjectOptions = {}): MapProject {
       { sourceId: 'us-states', visible: false, opacity: 1 },
       { sourceId: 'us-counties', visible: false, opacity: 1 },
     ],
+    // Strong, not moderate: the reference atlases this is modelled on read as
+    // one realm first and a set of cantons second.
+    politicalCohesion: 'strong',
     oceanColor: '#cfe0ea',
     landColor: '#f0e8d5',
     // Both off by default and both derived when switched on, so a new map never
@@ -233,12 +236,35 @@ export function migrate(raw: unknown): MapProject {
     ...p,
     schemaVersion: SCHEMA_VERSION,
     styles,
-    territories: p.territories ?? {},
     settlements: p.settlements ?? {},
     linearFeatures: p.linearFeatures ?? {},
     labels: p.labels ?? {},
     basemap: migrateBasemap(p.basemap ?? []),
     legend: p.legend ?? createProject().legend,
     compass: p.compass ?? createProject().compass,
+    politicalCohesion: p.politicalCohesion ?? 'strong',
+    territories: migrateTerritories(p.territories ?? {}),
   };
+}
+
+/**
+ * Give every territory a constitutional status (spec §2).
+ *
+ * Status used to be folded into `politicalType`, so a file written before this
+ * has "vassal" or "occupied-territory" sitting in the rank field and nothing at
+ * all for the ordinary members of a realm. `inferRelationship` reads the status
+ * back out where the rank implies one and otherwise decides from whether the
+ * territory has a parent — which is the same answer the user would give.
+ *
+ * The rank is deliberately left alone. Rewriting "vassal" to a guessed rank
+ * would be inventing information the file never carried.
+ */
+function migrateTerritories(territories: Record<UUID, Territory>): Record<UUID, Territory> {
+  const out: Record<UUID, Territory> = {};
+  for (const [id, t] of Object.entries(territories)) {
+    out[id] = t.relationship
+      ? t
+      : { ...t, relationship: inferRelationship(t.politicalType, !!t.parentId) };
+  }
+  return out;
 }

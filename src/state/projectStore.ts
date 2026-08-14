@@ -175,7 +175,7 @@ export function commit(label: string, mutate: (r: Recorder) => void): boolean {
 // complete and serialisable.
 // ---------------------------------------------------------------------------
 
-import { STYLE_IDS, politicalTypeInfo, settlementTypeInfo } from '@/model/defaults';
+import { STYLE_IDS, inferRelationship, politicalTypeInfo, settlementTypeInfo } from '@/model/defaults';
 import type { LineString, MultiLineString, MultiPolygon, Point, Polygon } from 'geojson';
 
 export function makeTerritory(
@@ -201,6 +201,7 @@ export function makeTerritory(
     geometry,
     styleClassId: init.styleClassId ?? STYLE_IDS.territoryDefault,
     styleOverrides: init.styleOverrides ?? {},
+    relationship: init.relationship ?? inferRelationship(init.politicalType ?? 'province', !!init.parentId),
     inheritParentColor: init.inheritParentColor ?? false,
     borderKind: init.borderKind ?? politicalTypeInfo(politicalType)?.border ?? 'international',
     labelId: init.labelId ?? null,

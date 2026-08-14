@@ -8,6 +8,7 @@ import { commit, useProjectStore } from '@/state/projectStore';
 import { toast, useUIStore } from '@/state/uiStore';
 import { PROJECTION_PRESETS, registerCustomProjection } from '@/geo/projections';
 import { BASEMAP_SIZES, BUILTIN_BASEMAPS, allBasemapSources } from '@/geo/basemap';
+import { POLITICAL_COHESION } from '@/model/defaults';
 import { referenceImageForView, registerImportedBasemap } from '@/io/importers';
 import { deriveLegendEntries } from '@/export/legend';
 import { useMapController } from './MapContext';
@@ -98,6 +99,36 @@ export function ProjectPanel() {
           />
         </Field>
         <p className="hint">The ocean colour fills the map background and the exported page.</p>
+      </Section>
+
+      {/*
+        One control over the whole plate, because "how unified should realms
+        look" is a decision about the map, not about any one territory. It scales
+        the variation each constitutional status already asks for, so vassals
+        stay further from their realm's colour than ordinary members do at every
+        setting (spec §18).
+      */}
+      <Section title="Political cohesion">
+        <Field label="Members">
+          <select
+            className="select"
+            value={project.politicalCohesion}
+            onChange={(e) =>
+              commit('Political cohesion', (r) => r.setDoc('politicalCohesion', e.target.value as MapProject['politicalCohesion']))
+            }
+          >
+            {POLITICAL_COHESION.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <p className="hint">
+          {POLITICAL_COHESION.find((c) => c.value === project.politicalCohesion)?.hint}{' '}
+          Applies to every territory tinted from its parent; a realm that sets its own colour is
+          unaffected.
+        </p>
       </Section>
 
       <MapAreaSection />

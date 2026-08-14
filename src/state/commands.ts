@@ -8,9 +8,9 @@
 
 import type { LineString, Polygon, MultiPolygon } from 'geojson';
 import { newId } from '@/model/ids';
-import { STYLE_IDS, politicalTypeInfo } from '@/model/defaults';
-import { descendantsOf, wouldCreateCycle } from '@/model/hierarchy';
-import { resolveTerritoryStyle } from '@/model/resolveStyle';
+import { STYLE_IDS, politicalTypeInfo, relationshipInfo } from '@/model/defaults';
+import { descendantsOf, relationshipSubtitle, wouldCreateCycle } from '@/model/hierarchy';
+import { inheritedFill, resolveTerritoryStyle } from '@/model/resolveStyle';
 import {
   areaKm2,
   difference,
@@ -28,7 +28,8 @@ import type { Poly } from '@/geo/operations';
 import { propagateVertexEdit, repairTopology, type RepairOptions } from '@/geo/topology';
 import { boundaryFollows, reshapeBoundary } from '@/geo/reshape';
 import { recolor, type RecolorOptions } from '@/geo/palette';
-import type { MapLabel, MapLayer, MapProject, Settlement, Territory, UUID } from '@/model/types';
+import type { Recorder } from './history';
+import type { MapLabel, MapLayer, MapProject, PoliticalRelationship, Settlement, Territory, UUID } from '@/model/types';
 import {
   commit,
   getProject,
@@ -716,6 +717,89 @@ export function setParent(childId: UUID, parentId: UUID | null): void {
     return;
   }
   commit('Set parent', (r) => r.update<Territory>('territories', childId, { parentId }));
+}
+
+/**
+ * Change a territory's constitutional status, and everything that follows from
+ * it (spec §35).
+ *
+ * The whole argument for holding status as data is that this is one edit. Making
+ * Dubuque independent has to give it a sovereign frontier, take it out of the
+ * Confederation's colour family, drop the "Vassal of the M.C." line and remove
+ * it from the union the Confederation's outer border is derived from — and a
+ * user who had to do those five things by hand would get one of them wrong and
+ * have a map that lies about its own politics.
+ *
+ * The frontier and the union need no work here: `computeBorders` derives both
+ * from the parent chain every time it runs.
+ */
+export function setRelationship(id: UUID, relationship: PoliticalRelationship): void {
+  const project = getProject();
+  const t = project.territories[id];
+  if (!t) return;
+  const info = relationshipInfo(relationship);
+
+  commit('Change political status', (r) => {
+    const next: Partial<Territory> = {
+      relationship,
+      borderKind: info.border,
+      // A sovereign belongs to nobody, so it neither sits under a parent nor
+      // takes that parent's colour. Anything else joins its realm's family
+      // unless it is the kind of thing that keeps its own colour.
+      inheritParentColor: relationship !== 'sovereign' && !info.ownColor,
+    };
+    if (relationship === 'sovereign') {
+      next.parentId = null;
+      next.liegeId = null;
+      // It had no colour of its own while it was inheriting one; keep the shade
+      // it was actually drawn in rather than dropping back to the class default,
+      // which would flip it to a colour the map has never shown.
+      if (t.inheritParentColor && !t.styleOverrides.fillColor) {
+        const shown = inheritedFill(project, t);
+        if (shown) next.styleOverrides = { ...t.styleOverrides, fillColor: shown };
+      }
+    }
+    r.update<Territory>('territories', id, next);
+    syncRelationshipNote(r, { ...project, territories: { ...project.territories, [id]: { ...t, ...next } } }, id);
+  });
+}
+
+/**
+ * Create, update or remove the "Vassal of the M.C." line under a territory's
+ * name (spec §6, §12, §26).
+ *
+ * It is a real label rather than a second line baked into the name, so it can be
+ * dragged, restyled and deleted like anything else — and so the name above it
+ * stays the name, which is what search, the data table and the exporter all read.
+ */
+function syncRelationshipNote(r: Recorder, project: MapProject, id: UUID): void {
+  const t = project.territories[id];
+  if (!t) return;
+  const wanted = relationshipSubtitle(project, t);
+  const existing = Object.values(project.labels).find(
+    (l) => l.attachedToId === id && l.styleClassId === STYLE_IDS.textRelationship,
+  );
+
+  if (!wanted) {
+    if (existing) r.remove('labels', existing.id);
+    return;
+  }
+  if (existing) {
+    r.update<MapLabel>('labels', existing.id, { text: wanted, name: wanted });
+    return;
+  }
+  const name = t.labelId ? project.labels[t.labelId] : undefined;
+  const label = makeLabel(project, name?.anchor ?? { type: 'Point', coordinates: interiorPoint(t.geometry) }, {
+    kind: 'region',
+    text: wanted,
+    name: wanted,
+    attachedToId: id,
+    styleClassId: STYLE_IDS.textRelationship,
+    // Sits under the name it annotates. Screen px, so it stays put at any zoom.
+    offset: [name?.offset?.[0] ?? 0, (name?.offset?.[1] ?? 0) + 11],
+    layerId: name?.layerId,
+  });
+  r.set('labels', label);
 }
 
 export function setLockedFor(ids: UUID[], locked: boolean): void {
