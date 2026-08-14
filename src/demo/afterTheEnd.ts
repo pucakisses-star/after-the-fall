@@ -572,12 +572,18 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
   const cityLabels = Object.values(project.layers).find((l) => l.name === 'City Labels')!;
   const waterLabels = Object.values(project.layers).find((l) => l.name === 'Water Labels')!;
 
-  // Vassal and capital names start off. A hundred and fifty realm names and
-  // thirty capitals under thirty empire names is a mat rather than a map, and
-  // §11 never drops a label on its own. The map opens the way an atlas index
-  // plate does — sovereign names only, every realm drawn and coloured — and
-  // either layer is one click away.
-  project.layers[regionLabels.id] = { ...project.layers[regionLabels.id], visible: false };
+  // Every realm is named, vassals included. That layer used to start hidden,
+  // and with good reason: a hundred and fifty realm names under thirty empire
+  // names was a mat, and §11 never drops a label on its own. It is not that map
+  // any more — only fifty-seven realms are vassals now, the other hundred and
+  // thirty are sovereign and already carry their names, and a chiefdom inside
+  // an empire has as much right to be named as a duchy outside one. Hiding it
+  // meant a realm like the Chiefdom of Plymouth appeared on the map with no
+  // name at all.
+  //
+  // Capital names do still start off: thirty of them sit on top of the realm
+  // names, saying much the same thing twice, and the City Labels layer is one
+  // click away for whoever wants them.
   project.layers[cityLabels.id] = { ...project.layers[cityLabels.id], visible: false };
 
   let land: LandPolygon[];
@@ -657,12 +663,15 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
         attachLabel(project, id, 'territories', {
           layerId: countryLabels.id,
           kind: 'country',
-          text: realm.short,
+          // The realm's whole title, not its short form: a state on this map
+          // is the Factory of Detroit, and calling it Detroit throws away both
+          // what it is and half of what makes the setting worth mapping. The
+          // short form stays on the territory, for the places too tight for the
+          // full one.
+          text: realm.name,
           coords: interiorPoint(shape),
           styleClassId: STYLE_IDS.textCountry,
-          // Sized below, once the shape is known: a name belongs to its state
-          // and should look like it does.
-          style: stateNameStyle(shape),
+          style: nameStyle(shape, realm.name),
         });
       }
       if (seatStateId) {
@@ -700,13 +709,11 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
     attachLabel(project, empireId, 'territories', {
       layerId: countryLabels.id,
       kind: 'country',
-      text: empire.short,
+      text: empire.name,
       coords: empire.label ?? interiorPoint(whole),
       styleClassId: STYLE_IDS.textCountry,
       manualPosition: !!empire.label,
-      // Smaller and tighter than the default country style: that default is set
-      // for a plate showing one realm, and here thirty share two continents.
-      style: { fontSize: 10.5, tracking: 2 },
+      style: nameStyle(whole, empire.name),
     });
 
     empire.realms.forEach((realm, index) => {
@@ -731,9 +738,10 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
       attachLabel(project, realmId, 'territories', {
         layerId: regionLabels.id,
         kind: 'region',
-        text: realm.short,
+        text: realm.name,
         coords: interiorPoint(shape),
         styleClassId: STYLE_IDS.textRegion,
+        style: nameStyle(shape, realm.name),
       });
     });
 
@@ -770,21 +778,24 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
 }
 
 /**
- * How large to set a state's name: as large as the state.
+ * How large to set a realm's name: as large as the realm, and as long as the
+ * name.
  *
- * Every state is named, and none of them is named at the same size. That is how
- * an atlas plate of many small realms is drawn — a grand duchy's name is set
- * across it in wide capitals, a city-state's is four points and tucked inside —
- * and it is the only way a hundred and thirty names sit on two continents
- * without every one of them fighting its neighbours for the same ground.
+ * Every realm is named and none at the same size. That is how an atlas plate of
+ * many small states is drawn — a grand duchy's title set across it in wide
+ * capitals, a city-state's tucked inside at five points — and it is the only
+ * way a hundred and thirty names sit on two continents without every one of
+ * them fighting its neighbours for the same ground.
  *
- * The measure is the realm's own width, at the latitude it sits at, so a name
- * is scaled by the room it actually has rather than by an area that a long thin
- * realm and a round one can share. Logarithmic, because the largest realm here
- * is some four hundred times the smallest and a linear scale would set one of
- * them at a hundred points or the other at a quarter of one.
+ * Two measures, because a name has to fit in both directions. The realm's own
+ * width, at the latitude it sits at, gives the room available — width rather
+ * than area, since a long thin realm and a round one can share an area and not
+ * a line to write on. Logarithmic, because the largest realm here is some four
+ * hundred times the smallest. Then the length of the title itself: "Factory of
+ * Detroit" needs two and a half times the room "Detroit" does, so it is set
+ * proportionally smaller and comes out about as wide.
  */
-function stateNameStyle(shape: Polygon | MultiPolygon): { fontSize: number; tracking: number } {
+function nameStyle(shape: Polygon | MultiPolygon, text: string): { fontSize: number; tracking: number } {
   const rings = shape.type === 'Polygon' ? shape.coordinates : shape.coordinates.flat();
   let west = Infinity;
   let east = -Infinity;
@@ -798,7 +809,7 @@ function stateNameStyle(shape: Polygon | MultiPolygon): { fontSize: number; trac
       if (y > north) north = y;
     }
   }
-  if (!Number.isFinite(west)) return { fontSize: 6, tracking: 0.8 };
+  if (!Number.isFinite(west)) return { fontSize: 6, tracking: 0.9 };
   const km = Math.max(
     (east - west) * 111 * Math.max(0.2, Math.cos((((south + north) / 2) * Math.PI) / 180)),
     (north - south) * 111,
@@ -807,8 +818,22 @@ function stateNameStyle(shape: Polygon | MultiPolygon): { fontSize: number; trac
   // 300 km sets the floor, 2,600 km the ceiling: the span between a petty realm
   // and an empire on this map.
   const t = Math.min(1, Math.max(0, Math.log(km / 300) / Math.log(2600 / 300)));
-  const fontSize = Number((5 + t * 6.5).toFixed(2));
-  return { fontSize, tracking: Number((fontSize * 0.17).toFixed(2)) };
+  // Against a twelve-character title, which is about the middle of the table.
+  const forLength = Math.min(1.1, Math.max(0.6, 12 / Math.max(4, text.length)));
+
+  // Floored at seven points, and the floor matters more than the scale above
+  // it. A chiefdom of a hundred and thirty kilometres with a twenty-character
+  // title works out at four points on the two rules alone, which is not a small
+  // label but an absent one — the realm reads as nameless, which is the one
+  // thing it must not do. Below the floor a name simply outgrows its realm and
+  // overhangs the ground beside it, the way an atlas sets a name it cannot fit.
+  //
+  // The whole range is set for the scale a reader actually reads realm names
+  // at — a region on the screen, not both continents at once. Label text is a
+  // fixed pixel size rather than a fixed distance on the ground, so it cannot
+  // be right at both, and of the two this is the one worth being right at.
+  const fontSize = Number(Math.min(20, Math.max(7, (7 + t * 9) * forLength)).toFixed(2));
+  return { fontSize, tracking: Number((fontSize * 0.16).toFixed(2)) };
 }
 
 /**
