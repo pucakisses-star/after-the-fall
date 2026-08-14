@@ -25,7 +25,7 @@
 
 import { linesOf, loadBasemap, polygonsOf } from '@/geo/basemap';
 import { dissolve, interiorPoint } from '@/geo/operations';
-import { DEFAULT_GROWTH, growRealms, type RealmSeed } from '@/geo/realmGrowth';
+import { DEFAULT_GROWTH, growRealms, type LandPolygon, type RealmSeed } from '@/geo/realmGrowth';
 import { PALETTES, STYLE_IDS } from '@/model/defaults';
 import { createProject, findLayerByKind } from '@/model/project';
 import { newId } from '@/model/ids';
@@ -574,10 +574,10 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
   project.layers[regionLabels.id] = { ...project.layers[regionLabels.id], visible: false };
   project.layers[cityLabels.id] = { ...project.layers[cityLabels.id], visible: false };
 
-  let rings: Position[][];
+  let land: LandPolygon[];
   let rivers: Position[][] = [];
   try {
-    rings = coastlineRings(await loadBasemap('world-land-10m'));
+    land = coastlinePolygons(await loadBasemap('world-land-10m'));
     // Rivers are what a frontier settles on when it has the choice, so the
     // growth is given them; without them the borders ignore the one feature a
     // reader expects them to follow.
@@ -592,7 +592,7 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
       seeds.push({ id: realm.name, seeds: [realm.seat, ...(realm.also ?? [])], weight: realm.weight });
     }
   }
-  const grown = growRealms(rings, seeds, { extent: AMERICAS, ...DEFAULT_GROWTH }, rivers);
+  const grown = growRealms(land, seeds, { extent: AMERICAS, ...DEFAULT_GROWTH }, rivers);
 
   for (const empire of EMPIRES) {
     const parts: (Polygon | MultiPolygon)[] = [];
@@ -772,15 +772,20 @@ function riverLines(features: Awaited<ReturnType<typeof loadBasemap>>): Position
   return out;
 }
 
-/** Every ring of every land polygon, which is all the growth needs. */
-function coastlineRings(features: Awaited<ReturnType<typeof loadBasemap>>): Position[][] {
-  const rings: Position[][] = [];
+/**
+ * Every land polygon, each as its outer ring plus whatever it encloses.
+ *
+ * Kept as polygons rather than flattened to rings because the growth trims each
+ * realm to the coastline, and that needs to know which ring is a hole in which.
+ */
+function coastlinePolygons(features: Awaited<ReturnType<typeof loadBasemap>>): LandPolygon[] {
+  const out: LandPolygon[] = [];
   for (const f of polygonsOf(features)) {
     const g = f.geometry as Polygon | MultiPolygon;
     const polys = g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates];
-    for (const poly of polys) for (const ring of poly) rings.push(ring);
+    for (const poly of polys) out.push(poly);
   }
-  return rings;
+  return out;
 }
 
 function attachLabel(

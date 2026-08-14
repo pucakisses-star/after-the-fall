@@ -87,6 +87,35 @@ export function intersection(a: Poly, b: Poly): Poly | null {
   }
 }
 
+/**
+ * Cut a polygon down to a rectangle.
+ *
+ * Sutherland–Hodgman against an axis-aligned box, which is linear in the vertex
+ * count rather than the O(n log n) of a general boolean. Use it to reduce a
+ * large polygon to the neighbourhood of a small one *before* the real operation:
+ * intersecting a 200-vertex shape against North America's 66,000-vertex
+ * coastline directly costs two seconds, and against the same coastline trimmed
+ * to a box around the shape, ten milliseconds — for the same answer.
+ */
+export function clipToBox(g: Poly, box: [number, number, number, number]): Poly | null {
+  const ng = normalizePoly(g);
+  if (!ng) return null;
+  try {
+    // Concatenated rather than unioned: the pieces come from disjoint parts of
+    // one polygon set, so they are already disjoint, and a boolean union here
+    // would cost more than the operation this exists to make cheap.
+    const parts: Position[][][] = [];
+    for (const part of explode(ng)) {
+      const clipped = turf.bboxClip(part, box).geometry as Poly;
+      if (clipped.type === 'MultiPolygon') parts.push(...clipped.coordinates);
+      else if (clipped.coordinates.length) parts.push(clipped.coordinates);
+    }
+    return normalizePoly({ type: 'MultiPolygon', coordinates: parts });
+  } catch {
+    return null;
+  }
+}
+
 export function polygonsIntersect(a: Poly, b: Poly): boolean {
   try {
     return turf.booleanIntersects(feat(a), feat(b));

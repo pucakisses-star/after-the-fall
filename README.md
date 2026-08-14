@@ -64,8 +64,27 @@ realm's ring on its own pulls every neighbour apart, because Douglas–Peucker k
 depending on where in the ring it starts — the map grows a white seam along every frontier. So each
 ring is cut into arcs at the junctions where three regions meet, and each arc is simplified and
 rounded once with its endpoints pinned. Both simplification and corner-cutting give the same answer
-on a reversed polyline, so the two realms either side of an arc agree on it exactly. The whole New
-World grows in about a second, and the same inputs always give the same map.
+on a reversed polyline, so the two realms either side of an arc agree on it exactly — down to the
+tie-break, because a traced frontier is a staircase on which points tie constantly for "farthest from
+the chord", and keeping whichever was found first is an answer that depends on which end you started
+from. Ties go to the lexicographically smaller point, which does not.
+
+**A realm ends where the land does.** The lattice claims whole cells, so a coastal realm's outline
+runs up to half a cell — twenty kilometres — out to sea, and rounding it off pushes it further: a
+smooth blob lying across a coastline drawn at a thousand times its resolution. Each realm is
+therefore trimmed to the coast once it has grown, and its sea-facing edge is then the shoreline
+itself, at full 1:10m detail, bay for bay. Only the sea-facing edge changes; an inland frontier lies
+strictly inside the land, so the trim finds nothing to cut and neighbours still agree vertex for
+vertex.
+
+Trimming two hundred realms against a continent is the one part of this that had to be made fast.
+Natural Earth's Americas are 1,448 parts and 164,000 vertices, but two thirds of that is a single
+ring running from the Beaufort Sea to Cape Horn, and clipping against it costs two seconds however
+small the realm — six minutes for the map. So the large parts are diced on a coarse grid once, up
+front; the cuts run through the interior of the land and the pieces abut exactly, so their union is
+the original coastline to the last vertex. A realm then meets a handful of pieces of a few thousand
+vertices each and the trim costs milliseconds. The whole New World grows, trims and draws in about
+twelve seconds, and the same inputs always give the same map.
 
 Realm names, their tier and the empire each belongs to come from the setting's own realm list; where
 each sits is an informed placement, not a tracing of the mod's province map, which is not published

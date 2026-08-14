@@ -20,7 +20,11 @@
  * Nothing here knows about any particular continent or set of realms.
  */
 
+import { clipToBox, intersection, normalizePoly } from './operations';
 import type { MultiPolygon, Polygon, Position } from 'geojson';
+
+/** One land part: its outer ring, then any rings of inland water it encloses. */
+export type LandPolygon = Position[][];
 
 export interface RealmSeed {
   id: string;
@@ -67,6 +71,17 @@ export interface GrowthOptions {
   coastBonus: number;
   /** Rounds of corner-cutting applied to the traced outline. */
   smoothing: number;
+  /**
+   * Trim every realm to the coastline once it has been grown.
+   *
+   * On by default, and the only reason to turn it off is speed. A realm claims
+   * whole lattice cells, so its outline runs up to half a cell — twenty
+   * kilometres — out to sea, and rounding it off pushes it further; the result
+   * is a shape that ignores the very coastline it is supposed to sit on.
+   * Clipping puts the sea-facing edge of a realm exactly on the shore, at the
+   * full detail of whatever land data was passed in.
+   */
+  clipToCoast: boolean;
 }
 
 export const DEFAULT_GROWTH: Omit<GrowthOptions, 'extent'> = {
@@ -80,6 +95,7 @@ export const DEFAULT_GROWTH: Omit<GrowthOptions, 'extent'> = {
   riverCost: 1.4,
   coastBonus: 0.45,
   smoothing: 4,
+  clipToCoast: true,
 };
 
 /**
@@ -349,6 +365,142 @@ function cellFor(grid: Lattice, lon: number, lat: number): number | null {
   return null;
 }
 
+type Box = [number, number, number, number];
+
+function boxOf(ring: Position[]): Box {
+  let west = Infinity;
+  let south = Infinity;
+  let east = -Infinity;
+  let north = -Infinity;
+  for (const [x, y] of ring) {
+    if (x < west) west = x;
+    if (x > east) east = x;
+    if (y < south) south = y;
+    if (y > north) north = y;
+  }
+  return [west, south, east, north];
+}
+
+const overlaps = (a: Box, b: Box) => a[2] >= b[0] && a[0] <= b[2] && a[3] >= b[1] && a[1] <= b[3];
+
+/** Whether any vertex of a ring falls inside a box — the test to use when a bounding box lies. */
+function anyVertexInside(ring: Position[], box: Box): boolean {
+  for (const [x, y] of ring) {
+    if (x >= box[0] && x <= box[2] && y >= box[1] && y <= box[3]) return true;
+  }
+  return false;
+}
+
+const encloses = (outer: Box, inner: Box) =>
+  inner[0] >= outer[0] && inner[1] >= outer[1] && inner[2] <= outer[2] && inner[3] <= outer[3];
+
+/** The coastline as pieces small enough to clip against cheaply, with their boxes. */
+interface LandIndex {
+  parts: LandPolygon[];
+  boxes: Box[];
+}
+
+/** Side of the dicing grid, in degrees. */
+const LAND_TILE = 8;
+/** Parts smaller than this are left whole; dicing them would not pay. */
+const LAND_TILE_THRESHOLD = 2_000;
+
+/**
+ * Cut the coastline into pieces small enough to clip a realm against.
+ *
+ * Natural Earth ships the Americas as 1,448 parts and 164,000 vertices, but two
+ * thirds of that is a single ring: the mainland, from the Beaufort Sea to Cape
+ * Horn. Trimming a realm against that ring costs two seconds however small the
+ * realm is, because the cost is in the coastline, not the realm — and with two
+ * hundred realms to trim that is six minutes.
+ *
+ * So the big parts are diced on a coarse grid once, up front. Every piece is
+ * then a few thousand vertices at most, a realm overlaps a handful of them, and
+ * the trim costs milliseconds. The cuts run through the interior of the land and
+ * the pieces abut exactly along them, so the union of the pieces is the original
+ * coastline to the last vertex; nothing of the grid reaches a realm's outline.
+ */
+function indexLand(land: LandPolygon[], extent: Box): LandIndex {
+  const parts: LandPolygon[] = [];
+  for (const poly of land) {
+    if (!poly.length || poly[0].length < 4) continue;
+    const box = boxOf(poly[0]);
+    if (!overlaps(box, extent)) continue;
+    // A ring that steps across the antimeridian has a bounding box the width of
+    // the world, so every extent on Earth "overlaps" it: Afro-Eurasia is one
+    // such part, and taken at its box it would be diced across the Americas at
+    // 84,000 vertices a tile for a landmass that is not there. Ask its vertices
+    // instead. (Same reasoning, and the same test, as clipping reference
+    // geography to a projection's valid area.)
+    if (box[2] - box[0] > 180 && !anyVertexInside(poly[0], extent)) continue;
+
+    const size = poly.reduce((sum, ring) => sum + ring.length, 0);
+    if (size < LAND_TILE_THRESHOLD) {
+      parts.push(poly);
+      continue;
+    }
+    // Only over ground a realm could reach, so a landmass that merely reaches
+    // into the extent is not diced from end to end.
+    const c0 = Math.floor(Math.max(box[0], extent[0]) / LAND_TILE);
+    const c1 = Math.floor(Math.min(box[2], extent[2]) / LAND_TILE);
+    const r0 = Math.floor(Math.max(box[1], extent[1]) / LAND_TILE);
+    const r1 = Math.floor(Math.min(box[3], extent[3]) / LAND_TILE);
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        const tile: Box = [c * LAND_TILE, r * LAND_TILE, (c + 1) * LAND_TILE, (r + 1) * LAND_TILE];
+        const piece = clipToBox({ type: 'Polygon', coordinates: poly }, tile);
+        if (!piece) continue;
+        if (piece.type === 'MultiPolygon') parts.push(...piece.coordinates);
+        else parts.push(piece.coordinates);
+      }
+    }
+  }
+  return { parts, boxes: parts.map((p) => boxOf(p[0])) };
+}
+
+/**
+ * Trim one realm to the land beneath it.
+ *
+ * The realm's own neighbourhood is assembled first — the pieces of coastline
+ * that reach it, each trimmed to a box a little larger than the realm — and the
+ * boolean runs against that rather than against a continent.
+ *
+ * Shared borders survive this untouched (§6). An inland frontier lies strictly
+ * inside the land, so the trim finds nothing to cut there and the vertices come
+ * through unchanged; where a frontier reaches the sea, both realms cross the
+ * same coastline segment, and the crossing point is computed from the same two
+ * segments either way round. Neighbours therefore still agree on every border
+ * they share, down to the last vertex.
+ */
+function clipToLand(shape: Polygon | MultiPolygon, index: LandIndex): Polygon | MultiPolygon | null {
+  const rings = shape.type === 'Polygon' ? shape.coordinates : shape.coordinates.flat();
+  if (!rings.length) return null;
+  const outline = boxOf(rings.flat());
+  // A margin so the trimming box never grazes the realm itself: the box edges
+  // are Sutherland–Hodgman artefacts and must stay clear of the answer.
+  const pad = 0.5;
+  const box: Box = [outline[0] - pad, outline[1] - pad, outline[2] + pad, outline[3] + pad];
+
+  const local: Position[][][] = [];
+  for (let i = 0; i < index.parts.length; i++) {
+    if (!overlaps(index.boxes[i], box)) continue;
+    if (encloses(box, index.boxes[i])) {
+      local.push(index.parts[i]);
+      continue;
+    }
+    const piece = clipToBox({ type: 'Polygon', coordinates: index.parts[i] }, box);
+    if (!piece) continue;
+    if (piece.type === 'MultiPolygon') local.push(...piece.coordinates);
+    else local.push(piece.coordinates);
+  }
+  if (!local.length) return null;
+
+  const land = normalizePoly({ type: 'MultiPolygon', coordinates: local });
+  if (!land) return null;
+  const clipped = intersection(shape, land);
+  return clipped as Polygon | MultiPolygon | null;
+}
+
 export interface GrowthResult {
   /** Realm id → its outline, or absent when nothing could be grown for it. */
   shapes: Map<string, Polygon | MultiPolygon>;
@@ -359,12 +511,15 @@ export interface GrowthResult {
 }
 
 export function growRealms(
-  landRings: Position[][],
+  land: LandPolygon[],
   seeds: RealmSeed[],
   options: GrowthOptions,
   riverLines: Position[][] = [],
 ): GrowthResult {
-  const grid = rasterize(landRings, options.extent, options.cellSize);
+  // The lattice only cares which side of a line it is on, so it takes the rings
+  // flat; the clipping stage needs to know which ring is a hole in which, so it
+  // gets the polygons as they came.
+  const grid = rasterize(land.flat(), options.extent, options.cellSize);
   const owner = new Int32Array(grid.cols * grid.rows).fill(-1);
   const cost = costField(grid, options, riverLines);
 
@@ -418,10 +573,15 @@ export function growRealms(
 
   const shapes = new Map<string, Polygon | MultiPolygon>();
   const claimed = new Map<string, number>();
+  const coast = options.clipToCoast ? indexLand(land, options.extent) : null;
   seeds.forEach((seed, index) => {
     claimed.set(seed.id, taken[index]);
     const outline = traceRealm(grid, owner, index, options.smoothing);
-    if (outline) shapes.set(seed.id, outline);
+    if (!outline) return;
+    // A realm whose whole claim is trimmed away had nothing but the sea-side
+    // overhang of a cell or two, and is better absent than drawn as a slick.
+    const final = coast ? clipToLand(outline, coast) : outline;
+    if (final) shapes.set(seed.id, final);
   });
 
   const held = taken.reduce((a, b) => a + b, 0);
@@ -575,12 +735,22 @@ function smoothOpen(line: Position[], rounds: number): Position[] {
 /**
  * Ramer–Douglas–Peucker on an open polyline, endpoints always kept.
  *
+ * Exported because its reversal symmetry is not an implementation detail but the
+ * thing the shared-border guarantee rests on, and is worth a test of its own.
+ *
  * Iterative rather than recursive: a traced arc can be thousands of points and
  * the recursive form overflows the stack on exactly the shapes that need it.
+ *
  * Symmetric under reversal, which is what lets two neighbours simplify a shared
- * arc independently and still agree on it.
+ * arc independently and still agree on it — and the tie-break below is why. A
+ * traced frontier is a staircase, so two points are very often *exactly* the
+ * same distance from the chord, and "keep the first one found" resolves that
+ * differently depending on which end you start from. Two realms then keep
+ * different vertices along a border they share and their fills overlap. Picking
+ * the lexicographically smaller point instead depends on the points and not on
+ * the direction of travel, so both neighbours reach the same answer.
  */
-function simplifyOpen(line: Position[], tolerance: number): Position[] {
+export function simplifyOpen(line: Position[], tolerance: number): Position[] {
   if (line.length < 3) return line.slice();
   const keep = new Uint8Array(line.length);
   keep[0] = 1;
@@ -611,6 +781,8 @@ function simplifyOpen(line: Position[], tolerance: number): Position[] {
       if (d2 > farDist) {
         farDist = d2;
         far = i;
+      } else if (d2 === farDist && far !== -1 && before(line[i], line[far])) {
+        far = i;
       }
     }
     if (far === -1) continue;
@@ -622,6 +794,9 @@ function simplifyOpen(line: Position[], tolerance: number): Position[] {
   for (let i = 0; i < line.length; i++) if (keep[i]) out.push(line[i]);
   return out;
 }
+
+/** Lexicographic order on points; a tie-break that does not know which way it came. */
+const before = (a: Position, b: Position) => (a[0] !== b[0] ? a[0] < b[0] : a[1] < b[1]);
 
 /** Whole-ring simplify, for a ring with no junctions to pin. */
 function simplifyRing(ring: Position[], tolerance: number): Position[] {
