@@ -4,6 +4,7 @@ import { Field } from '../Inspector';
 import { PROJECTION_PRESETS } from '@/geo/projections';
 import { createProject } from '@/model/project';
 import { buildDemoProject } from '@/demo/demoProject';
+import { buildAfterTheEndProject } from '@/demo/afterTheEnd';
 import { useProjectStore } from '@/state/projectStore';
 import { toast, useUIStore } from '@/state/uiStore';
 import { writeSnapshot } from '@/persistence/db';
@@ -129,15 +130,19 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
     onClose();
   };
 
-  const loadDemo = async () => {
+  /** Both prebuilt maps come in through the same path; only the builder differs. */
+  const loadPrebuilt = async (
+    build: () => Promise<{ project: ReturnType<typeof createProject> }>,
+    what: string,
+  ) => {
     setBusy(true);
     try {
-      const { project } = await buildDemoProject();
+      const { project } = await build();
       useProjectStore.getState().loadProject(project, null);
-      toast('Loaded the demonstration map.', 'success');
+      toast(`Loaded ${what}.`, 'success');
       onClose();
     } catch (err) {
-      toast(`Could not build the demo map: ${(err as Error).message}`, 'error');
+      toast(`Could not build ${what}: ${(err as Error).message}`, 'error');
     } finally {
       setBusy(false);
     }
@@ -149,8 +154,19 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       footer={
         <>
-          <button className="btn" onClick={loadDemo} disabled={busy}>
-            {busy ? 'Building…' : 'Load demonstration map'}
+          <button
+            className="btn"
+            onClick={() => void loadPrebuilt(buildAfterTheEndProject, 'the After the End map')}
+            disabled={busy}
+          >
+            {busy ? 'Building…' : 'After the End map'}
+          </button>
+          <button
+            className="btn"
+            onClick={() => void loadPrebuilt(buildDemoProject, 'the demonstration map')}
+            disabled={busy}
+          >
+            Demo map
           </button>
           <span style={{ flex: 1 }} />
           <button className="btn" onClick={onClose}>

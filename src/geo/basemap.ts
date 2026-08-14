@@ -155,6 +155,22 @@ export const BUILTIN_BASEMAPS: BasemapSource[] = [
     role: 'places',
   },
   {
+    id: 'world-admin1-50m',
+    name: 'Provinces & states — world (coarse)',
+    url: 'data/world/admin1-50m.json',
+    format: 'topojson',
+    objectName: 'admin1',
+    role: 'states',
+  },
+  {
+    id: 'na-admin1-10m',
+    name: 'Provinces & states — N. America (detailed)',
+    url: 'data/world/admin1-na-10m.json',
+    format: 'topojson',
+    objectName: 'admin1',
+    role: 'states',
+  },
+  {
     id: 'us-states',
     name: 'US states (Census)',
     url: 'data/us/states-10m.json',
@@ -193,6 +209,8 @@ export const BASEMAP_SIZES: Record<string, string> = {
   'world-places-110m': '47 KB',
   'world-places-50m': '235 KB',
   'world-places-10m': '1.4 MB',
+  'world-admin1-50m': '440 KB',
+  'na-admin1-10m': '1.4 MB',
   'us-states': '110 KB',
   'us-counties': '820 KB',
 };

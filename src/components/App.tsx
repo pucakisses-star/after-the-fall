@@ -19,7 +19,7 @@ import { useKeyboard, useVertexToolRefresh } from './useKeyboard';
 import { useUIStore } from '@/state/uiStore';
 import { useProjectStore } from '@/state/projectStore';
 import { startAutosave } from '@/persistence/projectFile';
-import { buildDemoProject } from '@/demo/demoProject';
+import { buildAfterTheEndProject } from '@/demo/afterTheEnd';
 
 export function App() {
   const { value, hostRef } = useMapEngine();
@@ -57,8 +57,8 @@ export function App() {
 }
 
 /**
- * First run lands on the demonstration map rather than blank ocean, so the
- * feature set is immediately visible. Runs once, and only when the document is
+ * First run lands on the After the End map rather than blank ocean, so the
+ * feature set is immediately visible on a real subject. Runs once, and only when the document is
  * genuinely empty — a restored autosave is never overwritten.
  */
 function useFirstRunDemo(controller: ReturnType<typeof useMapEngine>['value']['controller']): void {
@@ -74,13 +74,13 @@ function useFirstRunDemo(controller: ReturnType<typeof useMapEngine>['value']['c
 
     void (async () => {
       try {
-        const { project: demo } = await buildDemoProject();
+        const { project: demo } = await buildAfterTheEndProject();
         // Bail out if the user started work while the demo was loading.
         const now = useProjectStore.getState().project;
         if (Object.keys(now.territories).length > 0) return;
         useProjectStore.getState().loadProject(demo, null);
         setTimeout(() => controller.fitAll(), 150);
-        useUIStore.getState().toast('Loaded the demonstration map. "New" starts a blank one.', 'info');
+        useUIStore.getState().toast('Loaded the After the End map. "New" starts a blank one.', 'info');
       } catch {
         useUIStore.getState().toast('Start by drawing a territory, or choose New.', 'info');
       }

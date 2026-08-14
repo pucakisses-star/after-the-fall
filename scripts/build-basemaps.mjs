@@ -35,6 +35,14 @@ const KEEP = [
   'NAME', 'FEATURECLA', 'SCALERANK', 'LABELRANK', 'POP_MAX', 'ADM0NAME', 'ADM1NAME',
 ];
 
+/**
+ * Extra properties for the admin-1 files: which country a province belongs to,
+ * and what that country calls the tier (state, province, territory,
+ * departamento…). Kept per-dataset rather than globally, because `admin` also
+ * exists on lakes and would quietly bloat every water file with it.
+ */
+const KEEP_ADMIN1 = ['iso_3166_2', 'adm0_a3', 'admin', 'type_en'];
+
 /** Coordinate precision. 4 dp is ~11 m — far finer than any of this data. */
 const PRECISION = 4;
 
@@ -48,6 +56,29 @@ const DATASETS = [
   { src: 'ne_110m_populated_places', out: 'places-110m.json', object: 'places', quantization: 1e5 },
   { src: 'ne_50m_populated_places', out: 'places-50m.json', object: 'places', quantization: 1e5 },
   { src: 'ne_10m_populated_places', out: 'places-10m.json', object: 'places', quantization: 1e6 },
+  // Provinces, states and territories — the only way to build a realm out of
+  // real administrative units anywhere but the United States, which is the one
+  // place the Census files already cover.
+  //
+  // Two files rather than one. The world at 1:10m is 4,596 subdivisions and
+  // close to 5 MB, which is too much to bundle for a map of one continent; the
+  // world at 1:50m is 294 subdivisions and almost nothing. So: coarse
+  // everywhere, detailed where a post-apocalyptic Americas map actually needs
+  // it. Anyone mapping provinces of somewhere else in detail can import the
+  // Natural Earth file directly.
+  { src: 'ne_50m_admin_1_states_provinces', out: 'admin1-50m.json', object: 'admin1', quantization: 1e4, admin1: true },
+  {
+    src: 'ne_10m_admin_1_states_provinces',
+    out: 'admin1-na-10m.json',
+    object: 'admin1',
+    quantization: 1e5,
+    admin1: true,
+    countries: [
+      'USA', 'CAN', 'MEX', 'GRL',
+      'GTM', 'BLZ', 'HND', 'SLV', 'NIC', 'CRI', 'PAN',
+      'CUB', 'DOM', 'HTI', 'JAM', 'BHS', 'PRI', 'TTO',
+    ],
+  },
 ];
 
 const round = (n) => Number(n.toFixed(PRECISION));
@@ -57,9 +88,9 @@ function roundCoords(c) {
   return c.map(roundCoords);
 }
 
-function trim(feature) {
+function trim(feature, keep) {
   const props = {};
-  for (const key of KEEP) {
+  for (const key of keep) {
     const v = feature.properties?.[key];
     if (v !== null && v !== undefined && v !== '') props[key.toLowerCase()] = v;
   }
@@ -74,15 +105,18 @@ function trim(feature) {
   };
 }
 
-async function build({ src, out, object, quantization }) {
+async function build({ src, out, object, quantization, countries, admin1 }) {
+  const keep = admin1 ? [...KEEP, ...KEEP_ADMIN1] : KEEP;
   const url = `${SOURCE}/${src}.geojson`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${src}: HTTP ${res.status}`);
   const raw = await res.json();
 
+  const wanted = countries ? new Set(countries) : null;
   const features = raw.features
     .filter((f) => f.geometry?.coordinates?.length)
-    .map(trim)
+    .filter((f) => !wanted || wanted.has(f.properties?.adm0_a3))
+    .map((f) => trim(f, keep))
     .filter(Boolean);
   const topo = topology({ [object]: { type: 'FeatureCollection', features } }, quantization);
 

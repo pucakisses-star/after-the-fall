@@ -25,13 +25,23 @@ npm run dev          # http://localhost:5173
 
 ```bash
 npm run build        # typecheck + production bundle into dist/
-npm run test         # 101 unit tests over the geometry, history and export code
+npm run test         # 134 unit tests over the geometry, history, export and map data
 npm run typecheck    # tsc, no emit
 ```
 
-The first launch loads a demonstration map (a fictional partition of the north-eastern United
-States) so the feature set is visible immediately. **New** starts a blank map or one seeded with
-real geography.
+The first launch loads the **After the End** map — a political atlas of the post-apocalyptic
+Americas of the Crusader Kings total conversion — so the feature set is visible immediately on a
+real subject. **New** starts a blank map, one seeded with real geography, or the smaller
+north-eastern demonstration map.
+
+Eighteen sovereign realms and about fifty vassals are built from real Natural Earth subdivisions by
+the same public API the UI uses: dissolved into territories, arranged into the empire → kingdom
+hierarchy, given the border tiers, and labelled by the ordinary label engine. Realm names and the
+empire each belongs to come from the mod's own realm list; the *shapes* do not — the mod's province
+map is not published as geodata, so each realm is approximated by the modern states, provinces and
+departments it most nearly covers. Treat every border as a starting point to redraw, which is the
+whole point of the application. Vassal names start hidden, because fifty of them under eighteen
+empire names is a mat rather than a map; the Region Labels layer turns them on.
 
 Reference geography ships in `public/data/` and is fetched lazily — only the datasets you switch on
 are ever loaded, and nothing is downloaded from the internet at runtime.
@@ -43,7 +53,13 @@ are ever loaded, and nothing is downloaded from the internet at runtime.
 | Lakes | 7 KB | 200 KB | 1.2 MB |
 | Rivers | 11 KB | 285 KB | 2.0 MB |
 | Cities & towns | 47 KB | 235 KB | 1.4 MB |
+| Provinces & states | — | 440 KB (world) | 1.4 MB (N. America) |
 | US states / counties (Census) | — | — | 110 / 820 KB |
+
+The subdivision files are the two-file compromise the same table implies: the world's provinces at
+1:10m is 4,596 features and close to 5 MB, too much to bundle for a map of one continent, so the
+world ships coarse and North America ships detailed. They are what makes a realm buildable out of
+real administrative units outside the United States, which is the only place the Census files cover.
 
 Pick the scale that matches your zoom: 1:110m for a world map, 1:10m for a region. 1:10m carries
 roughly seven times the vertex density of 1:50m and is the finest scale Natural Earth publishes.
@@ -93,9 +109,10 @@ For anything finer than 1:10m — a single bay, an estuary, a city shoreline —
 [GSHHG](https://www.soest.hawaii.edu/pwessel/gshhg/) has full-resolution global coastlines, and an
 OSM extract clipped to your area works too. Both come in as GeoJSON through **Import**.
 
-The lake and river files are built by `node scripts/build-basemaps.mjs`, which fetches Natural
-Earth, drops its ~60 localised name fields per feature and converts to quantized TopoJSON (a 3–4×
-reduction). The output is committed, so a clone needs no network.
+The lake, river, city and subdivision files are built by `node scripts/build-basemaps.mjs`, which
+fetches Natural Earth, drops its ~60 localised name fields per feature and converts to quantized
+TopoJSON (a 3–28× reduction depending on the file). The output is committed, so a clone needs no
+network.
 
 ### Deploying to GitHub Pages
 
@@ -127,6 +144,7 @@ handled:
 | Disputed-territory hatching | `render/patterns.ts`, one definition → `CanvasPattern` *and* `<pattern>` |
 | Latitude/longitude grid, frame, title, scale bar | `export/svgExport.ts` and the OpenLayers graticule layer |
 | A map that is about a region, not the globe | `workingExtent` crops the reference data and bounds the view |
+| A whole political world, built from real units | `demo/afterTheEnd.ts` — realm table in, dissolved territories out |
 | Large maps suitable for print | Export up to 12000 × 8000 raster, unbounded vector |
 
 ---
