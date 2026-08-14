@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { AFTER_THE_END_EMPIRES } from './afterTheEnd';
-import { DEFAULT_GROWTH, growRealms, simplifyOpen, type LandPolygon, type RealmSeed } from '@/geo/realmGrowth';
+import { DEFAULT_GROWTH, fillEnclaves, growRealms, simplifyOpen, type LandPolygon, type RealmSeed } from '@/geo/realmGrowth';
 import { areaKm2, intersection } from '@/geo/operations';
 import type { MultiPolygon, Polygon, Position } from 'geojson';
 
@@ -284,5 +284,90 @@ describe('realm growth', () => {
     const lons = JSON.stringify(west).match(/-?\d+\.?\d*/g)!.map(Number).filter((_, i) => i % 2 === 0);
     // Growth is four-connected across land cells, so open water is a wall.
     expect(Math.max(...lons)).toBeLessThan(11);
+  });
+});
+
+describe('fillEnclaves', () => {
+  /** A grid helper: '.' sea, ' ' unclaimed land, digits a realm's cells. */
+  function grid(rows: string[]) {
+    const h = rows.length;
+    const w = rows[0].length;
+    const land = new Uint8Array(w * h);
+    const owner = new Int32Array(w * h).fill(-1);
+    for (let r = 0; r < h; r++) {
+      for (let c = 0; c < w; c++) {
+        const ch = rows[r][c];
+        if (ch === '.') continue;
+        land[r * w + c] = 1;
+        if (ch !== ' ') owner[r * w + c] = Number(ch);
+      }
+    }
+    return { w, h, land, owner };
+  }
+  const show = (g: ReturnType<typeof grid>) => {
+    const out: string[] = [];
+    for (let r = 0; r < g.h; r++) {
+      let line = '';
+      for (let c = 0; c < g.w; c++) {
+        const i = r * g.w + c;
+        line += !g.land[i] ? '.' : g.owner[i] === -1 ? ' ' : String(g.owner[i]);
+      }
+      out.push(line);
+    }
+    return out;
+  };
+
+  it('gives a pocket ringed by one realm to that realm', () => {
+    const g = grid([
+      '.....',
+      '.000.',
+      '.0 0.',
+      '.000.',
+      '.....',
+    ]);
+    const result = fillEnclaves(g.w, g.h, g.land, g.owner);
+    expect(result).toEqual({ filled: 1, cells: 1 });
+    expect(show(g)[2]).toBe('.000.');
+  });
+
+  it('gives a pocket between two realms to whichever holds more of its edge', () => {
+    const g = grid([
+      '.......',
+      '.00011.',
+      '.00  1.',
+      '.00011.',
+      '.......',
+    ]);
+    fillEnclaves(g.w, g.h, g.land, g.owner);
+    // Realm 0 wraps three sides of the two-cell pocket, realm 1 only the right.
+    expect(show(g)[2]).toBe('.00001.');
+  });
+
+  it('leaves wilderness that reaches the sea alone', () => {
+    // Frontier, not a hole: it opens onto the water, so it stays nobody's.
+    const g = grid([
+      '.....',
+      '.000.',
+      '.0  .',
+      '.000.',
+      '.....',
+    ]);
+    expect(fillEnclaves(g.w, g.h, g.land, g.owner)).toEqual({ filled: 0, cells: 0 });
+    expect(show(g)[2]).toBe('.0  .');
+  });
+
+  it('leaves wilderness that runs off the edge of the map alone', () => {
+    const g = grid([
+      '000',
+      '0 0',
+      '0 0',
+    ]);
+    // The pocket reaches the bottom row, which is the edge of the lattice.
+    expect(fillEnclaves(g.w, g.h, g.land, g.owner).filled).toBe(0);
+  });
+
+  it('leaves a patch nobody borders alone', () => {
+    const g = grid(['   ', '   ']);
+    expect(fillEnclaves(g.w, g.h, g.land, g.owner).filled).toBe(0);
   });
 });

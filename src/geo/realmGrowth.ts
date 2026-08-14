@@ -409,6 +409,100 @@ function cellFor(grid: Lattice, lon: number, lat: number): number | null {
 }
 
 
+/** The four-connected neighbourhood the growth itself spreads through. */
+const NEIGHBOURS: [number, number][] = [
+  [-1, 0],
+  [1, 0],
+  [0, -1],
+  [0, 1],
+];
+
+/**
+ * Hand every landlocked pocket of unclaimed ground to the realm around it.
+ *
+ * Growth stops each realm at its quota, so the ground nobody reached stays
+ * wilderness — which is the point, and reads as the frontier zone it is when it
+ * runs between realms or out to the sea. What does not read as anything is a
+ * pocket left *inside* the settled country: a rounded hole in the middle of a
+ * realm, with a hard sovereign border round it and nothing on the other side.
+ * Nobody drawing this map by hand would leave one.
+ *
+ * So an unclaimed patch that touches neither open water nor the edge of the map
+ * — a patch entirely ringed by realms — is given to whichever of them holds the
+ * most of its perimeter. Wilderness that reaches the sea or runs off the map is
+ * untouched: that is frontier, not a hole.
+ *
+ * Exported for its own test; the lattice is otherwise private to this module.
+ */
+export function fillEnclaves(
+  cols: number,
+  rows: number,
+  land: Uint8Array,
+  owner: Int32Array,
+): { filled: number; cells: number } {
+  const seen = new Uint8Array(cols * rows);
+  const queue: number[] = [];
+  const patch: number[] = [];
+  let filled = 0;
+  let cells = 0;
+
+  for (let start = 0; start < owner.length; start++) {
+    if (!land[start] || owner[start] !== -1 || seen[start]) continue;
+
+    queue.length = 0;
+    patch.length = 0;
+    queue.push(start);
+    seen[start] = 1;
+    let open = false;
+    const perimeter = new Map<number, number>();
+
+    while (queue.length) {
+      const cell = queue.pop()!;
+      patch.push(cell);
+      const r = (cell / cols) | 0;
+      const c = cell - r * cols;
+      for (const [dr, dc] of NEIGHBOURS) {
+        const rr = r + dr;
+        const cc = c + dc;
+        if (rr < 0 || cc < 0 || rr >= rows || cc >= cols) {
+          open = true; // runs off the map
+          continue;
+        }
+        const next = rr * cols + cc;
+        if (!land[next]) {
+          open = true; // reaches the sea
+          continue;
+        }
+        if (owner[next] === -1) {
+          if (!seen[next]) {
+            seen[next] = 1;
+            queue.push(next);
+          }
+          continue;
+        }
+        perimeter.set(owner[next], (perimeter.get(owner[next]) ?? 0) + 1);
+      }
+    }
+
+    if (open || perimeter.size === 0) continue;
+    // Most of the perimeter takes it; ties go to the lower realm index, so the
+    // same inputs always give the same map.
+    let best = -1;
+    let bestCount = -1;
+    for (const [realm, count] of perimeter) {
+      if (count > bestCount || (count === bestCount && realm < best)) {
+        best = realm;
+        bestCount = count;
+      }
+    }
+    for (const cell of patch) owner[cell] = best;
+    filled++;
+    cells += patch.length;
+  }
+
+  return { filled, cells };
+}
+
 export interface GrowthResult {
   /** Realm id → its outline, or absent when nothing could be grown for it. */
   shapes: Map<string, Polygon | MultiPolygon>;
@@ -464,12 +558,7 @@ export function growRealms(
     // on where the frontier lies — along a river, around a mountain — rather
     // than meeting on the bisector between their seats.
     const reach = 1 / Math.max(0.05, seeds[realm].weight);
-    for (const [dr, dc] of [
-      [-1, 0],
-      [1, 0],
-      [0, -1],
-      [0, 1],
-    ] as [number, number][]) {
+    for (const [dr, dc] of NEIGHBOURS) {
       const rr = r + dr;
       const cc = c + dc;
       if (rr < 0 || cc < 0 || rr >= rows || cc >= cols) continue;
@@ -478,6 +567,12 @@ export function growRealms(
       frontier.push(top.cost + reach * cost[next], next, realm);
     }
   }
+
+  // Before anything is traced: no realm should be drawn with a hole in it that
+  // belongs to nobody.
+  fillEnclaves(cols, rows, grid.land, owner);
+  for (let i = 0; i < taken.length; i++) taken[i] = 0;
+  for (let i = 0; i < owner.length; i++) if (owner[i] >= 0) taken[owner[i]]++;
 
   const shapes = new Map<string, Polygon | MultiPolygon>();
   const claimed = new Map<string, number>();

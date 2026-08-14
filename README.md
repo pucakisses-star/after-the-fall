@@ -73,6 +73,13 @@ Area scales with the *square* of a realm's strength, so a few powers sprawl amon
 instead of every realm coming out the same size, and each stops once it has taken what its strength
 allows, which is what leaves genuine wilderness between them.
 
+Wilderness that runs between realms or out to the sea is frontier and stays. Wilderness left
+*inside* the settled country is not: a rounded pocket of no-man's-land in the middle of a realm, with
+a hard sovereign border round it and nothing on the other side, is not something anyone drawing this
+map by hand would leave. A patch touching neither open water nor the edge of the map goes to
+whichever realm holds the most of its perimeter, decided on the lattice before an outline is traced,
+so it costs nothing and leaves no seam.
+
 Turning the lattice back into outlines is where shared borders are won or lost. Simplifying each
 realm's ring on its own pulls every neighbour apart, because Douglas–Peucker keeps different vertices
 depending on where in the ring it starts — the map grows a white seam along every frontier. So each
