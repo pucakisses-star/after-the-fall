@@ -7,13 +7,14 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { effectiveFill, symbolPrimitives, symbolToSvg } from './symbols';
+import { SYMBOL_SHAPES, effectiveFill, symbolPrimitives, symbolToSvg } from './symbols';
 import { createDefaultStyleSheet } from '@/model/defaults';
 import type { SymbolShape, SymbolStyle } from '@/model/types';
 
 const SHAPES: SymbolShape[] = [
   'circle', 'filled-circle', 'double-circle', 'star', 'square', 'filled-square',
-  'diamond', 'triangle', 'cross', 'castle', 'anchor', 'custom-svg',
+  'diamond', 'triangle', 'cross', 'castle', 'anchor',
+  'battle', 'ruins', 'temple', 'mountain', 'factory', 'airfield', 'custom-svg',
 ];
 
 function style(over: Partial<SymbolStyle> = {}): SymbolStyle {
@@ -44,6 +45,34 @@ describe('symbolPrimitives', () => {
           expect(Math.abs(y), `${shape} reaches outside the unit box`).toBeLessThanOrEqual(1);
         }
       }
+    }
+  });
+
+  it('offers every drawable shape in the picker, and nothing undrawable', () => {
+    // The picker is the only way to reach a shape that no settlement type uses,
+    // so a shape missing from it is a shape nobody can choose. `custom-svg` is
+    // the one exclusion: it needs a path supplied, not a menu entry.
+    const offered = new Set(SYMBOL_SHAPES.map((x) => x.value));
+    for (const shape of SHAPES) {
+      if (shape === 'custom-svg') continue;
+      expect(offered.has(shape), `${shape} is drawable but not offered`).toBe(true);
+    }
+    expect(offered.has('custom-svg' as SymbolShape)).toBe(false);
+    // Every entry names a shape that draws something of its own, rather than
+    // falling through to the default circle.
+    for (const { value, label } of SYMBOL_SHAPES) {
+      expect(label.length, `${value} has no label`).toBeGreaterThan(0);
+      expect(symbolPrimitives(value).length, `${value} draws nothing`).toBeGreaterThan(0);
+    }
+    expect(new Set(SYMBOL_SHAPES.map((x) => x.label)).size).toBe(SYMBOL_SHAPES.length);
+  });
+
+  it('draws the pictorial marks as more than one stroke, or they are just blobs', () => {
+    // A castle, a temple and a ruin are told apart by their internal structure;
+    // if one of these collapsed to a single primitive it would have quietly
+    // become an unrecognisable lump at 9 px.
+    for (const shape of ['battle', 'ruins', 'temple', 'factory', 'anchor', 'temple'] as SymbolShape[]) {
+      expect(symbolPrimitives(shape).length, `${shape} is a single primitive`).toBeGreaterThan(1);
     }
   });
 

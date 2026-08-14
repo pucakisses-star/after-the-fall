@@ -36,11 +36,13 @@ import { formatArea } from '@/geo/topology';
 import { useMapController } from './MapContext';
 import { ProjectPanel } from './ProjectPanel';
 import { StylePanel } from './StylePanel';
+import { SYMBOL_SHAPES } from '@/render/symbols';
 import type {
   HatchKind,
   LinearFeature,
   MapLabel,
   Settlement,
+  SymbolShape,
   Territory,
   TerritoryStyle,
   TextStyle,
@@ -497,6 +499,27 @@ function SettlementInspector({ settlement: s }: { settlement: Settlement }) {
       </Section>
 
       <Section title="Symbol">
+        <Field label="Shape">
+          <select
+            className="select"
+            value={style.shape}
+            onChange={(e) =>
+              update(
+                { styleOverrides: { ...s.styleOverrides, shape: e.target.value as SymbolShape } },
+                'Symbol shape',
+              )
+            }
+          >
+            {SYMBOL_SHAPES.map((x) => (
+              <option key={x.value} value={x.value}>
+                {x.label}
+              </option>
+            ))}
+            {/* A symbol drawing a supplied path is not something you pick, but
+                the menu still has to be able to show what it currently is. */}
+            {style.shape === 'custom-svg' && <option value="custom-svg">Custom path</option>}
+          </select>
+        </Field>
         <Field label="Size">
           <Slider
             value={style.size}

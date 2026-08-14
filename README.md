@@ -605,7 +605,7 @@ visibility/lock/opacity/reorder/rename/duplicate/delete, named style classes wit
 overrides.
 
 **Cartography** — border hierarchy with derived borders, hatch patterns, the palette generator,
-settlements with ten symbol types, rivers and roads, labels with real tracking, halos, rotation,
+settlements with seventeen symbol shapes, rivers and roads, labels with real tracking, halos, rotation,
 manual placement and text-on-path, graticule, frames, title block, scale bar.
 
 **Data** — real world/US geography including lakes, rivers and cities, GeoJSON/TopoJSON/KML/GPX/CSV import,
@@ -622,7 +622,8 @@ Stated plainly rather than stubbed out:
 * **Legend creator (§26)** — the SVG export emits an empty `<g id="legend">` so the structure is
   there, but there is no legend editor.
 * **Compass rose (§28)** and **coordinate index (§29)**.
-* **Terrain (§18)** beyond importing polygons as territories — no mountain symbols or hillshading.
+* **Terrain (§18)** beyond importing polygons as territories and a mountain symbol — no hillshading,
+  contours or relief.
 * **PDF export (§48)** — SVG into a print pipeline is the current answer.
 * **Masking/clipping (§46)** and **border labels (§44)**.
 * **Shapefile import** — GeoJSON, TopoJSON, KML, GPX and CSV are supported instead.

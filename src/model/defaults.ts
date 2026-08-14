@@ -337,7 +337,7 @@ export function createDefaultStyleSheet(): StyleSheet {
   sym(STYLE_IDS.symbolFortress, 'Fortress', defaultSymbolStyle({ shape: 'castle', size: 9 }));
   sym(STYLE_IDS.symbolPort, 'Port', defaultSymbolStyle({ shape: 'anchor', size: 9 }));
   sym(STYLE_IDS.symbolMonastery, 'Monastery', defaultSymbolStyle({ shape: 'cross', size: 8 }));
-  sym(STYLE_IDS.symbolRuins, 'Ruins', defaultSymbolStyle({ shape: 'triangle', size: 7, fillColor: '#00000000' }));
+  sym(STYLE_IDS.symbolRuins, 'Ruins', defaultSymbolStyle({ shape: 'ruins', size: 8.5, fillColor: '#00000000' }));
 
   return sheet;
 }

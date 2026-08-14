@@ -157,6 +157,12 @@ export type SymbolShape =
   | 'cross'
   | 'castle'
   | 'anchor'
+  | 'battle'
+  | 'ruins'
+  | 'temple'
+  | 'mountain'
+  | 'factory'
+  | 'airfield'
   | 'custom-svg';
 
 export interface SymbolStyle {

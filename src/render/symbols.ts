@@ -122,10 +122,120 @@ export function symbolPrimitives(shape: SymbolShape): Primitive[] {
           ],
         },
       ];
+    case 'battle':
+      // Crossed swords: the one mark every historical atlas has and this had no
+      // way to draw. The short guards near the hilts are what stop it reading as
+      // a plain X at 9 px.
+      return [
+        { kind: 'polyline', points: [[-0.8, 0.85], [0.75, -0.8]] },
+        { kind: 'polyline', points: [[0.8, 0.85], [-0.75, -0.8]] },
+        { kind: 'polyline', points: [[-0.58, 0.24], [-0.2, 0.59]] },
+        { kind: 'polyline', points: [[0.58, 0.24], [0.2, 0.59]] },
+      ];
+    case 'ruins':
+      // Broken columns on a baseline. The Ruins settlement type used to borrow a
+      // hollow triangle, which reads as "some category" and not as a ruin; three
+      // stumps of unequal height read as one immediately.
+      return [
+        { kind: 'polyline', points: [[-0.95, 0.85], [0.95, 0.85]] },
+        { kind: 'polyline', points: [[-0.6, 0.85], [-0.6, -0.3]] },
+        { kind: 'polyline', points: [[-0.05, 0.85], [-0.05, -0.85]] },
+        { kind: 'polyline', points: [[0.55, 0.85], [0.55, 0.1]] },
+      ];
+    case 'temple':
+      // A classical pediment. The only religious mark here was a Latin cross,
+      // which is the wrong symbol for most of the world and most of history.
+      return [
+        { kind: 'polygon', points: [[-0.95, -0.2], [0, -0.9], [0.95, -0.2]], fill: true, stroke: true },
+        { kind: 'polyline', points: [[-0.95, 0.85], [0.95, 0.85]] },
+        { kind: 'polyline', points: [[-0.6, -0.2], [-0.6, 0.85]] },
+        { kind: 'polyline', points: [[0, -0.2], [0, 0.85]] },
+        { kind: 'polyline', points: [[0.6, -0.2], [0.6, 0.85]] },
+      ];
+    case 'mountain':
+      // Twin peaks, filled. `triangle` is a category marker; this is a landform.
+      return [
+        {
+          kind: 'polygon',
+          points: [
+            [-1, 0.75],
+            [-0.35, -0.55],
+            [-0.02, 0.05],
+            [0.42, -0.85],
+            [1, 0.75],
+          ],
+          fill: true,
+          stroke: true,
+        },
+      ];
+    case 'factory':
+      // Shed and chimney. This map's world runs on the Factory of Detroit and
+      // the Foundry of Pittsburgh; industry deserved a mark of its own.
+      return [
+        { kind: 'polygon', points: [[-0.72, -0.9], [-0.42, -0.9], [-0.42, 0.2], [-0.72, 0.2]], fill: true, stroke: true },
+        { kind: 'polygon', points: [[-0.95, 0.85], [-0.95, -0.15], [0.95, -0.15], [0.95, 0.85]], fill: true, stroke: true },
+      ];
+    case 'airfield':
+      // An aircraft silhouette rather than the crossed runways the symbol is
+      // often drawn as: this sheet already has crossed swords and a cross, and a
+      // third pair of crossed lines would be indistinguishable from both.
+      return [
+        {
+          kind: 'polygon',
+          points: [
+            [0, -0.95],
+            [0.12, -0.5],
+            [0.95, 0.15],
+            [0.95, 0.35],
+            [0.12, 0.05],
+            [0.12, 0.6],
+            [0.4, 0.85],
+            [0.4, 0.95],
+            [0, 0.75],
+            [-0.4, 0.95],
+            [-0.4, 0.85],
+            [-0.12, 0.6],
+            [-0.12, 0.05],
+            [-0.95, 0.35],
+            [-0.95, 0.15],
+            [-0.12, -0.5],
+          ],
+          fill: true,
+          stroke: true,
+        },
+      ];
     default:
       return [{ kind: 'circle', cx: 0, cy: 0, r: 1, fill: true, stroke: true }];
   }
 }
+
+/**
+ * Every shape a symbol can take, with the name the picker shows.
+ *
+ * Ordered as the list reads rather than alphabetically: the plain geometry
+ * first, because that is what most settlements use, then the pictorial marks.
+ * `custom-svg` is deliberately absent — it needs a path to draw and is set by
+ * supplying one, not by being chosen from a menu.
+ */
+export const SYMBOL_SHAPES: { value: SymbolShape; label: string }[] = [
+  { value: 'circle', label: 'Circle' },
+  { value: 'filled-circle', label: 'Filled circle' },
+  { value: 'double-circle', label: 'Double circle' },
+  { value: 'square', label: 'Square' },
+  { value: 'filled-square', label: 'Filled square' },
+  { value: 'diamond', label: 'Diamond' },
+  { value: 'triangle', label: 'Triangle' },
+  { value: 'star', label: 'Star' },
+  { value: 'cross', label: 'Cross' },
+  { value: 'castle', label: 'Castle' },
+  { value: 'anchor', label: 'Anchor' },
+  { value: 'battle', label: 'Battle' },
+  { value: 'ruins', label: 'Ruins' },
+  { value: 'temple', label: 'Temple' },
+  { value: 'mountain', label: 'Mountain' },
+  { value: 'factory', label: 'Factory' },
+  { value: 'airfield', label: 'Airfield' },
+];
 
 /** Solid-fill shapes take their fill from the stroke colour instead. */
 export function effectiveFill(style: SymbolStyle): string {
