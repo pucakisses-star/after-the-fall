@@ -9,8 +9,9 @@ import { useState } from 'react';
 import { useProjectStore } from '@/state/projectStore';
 import { createStyleClass, deleteStyleClass, updateStyleClass } from '@/state/commands';
 import { FONT_STACKS, defaultLineStyle, defaultTerritoryStyle, defaultTextStyle } from '@/model/defaults';
+import { effectiveFill, symbolPrimitives } from '@/render/symbols';
 import { Field, Section, Slider } from './Inspector';
-import type { DashKind, LineStyle, TerritoryStyle, TextStyle } from '@/model/types';
+import type { DashKind, LineStyle, SymbolStyle, TerritoryStyle, TextStyle } from '@/model/types';
 
 type Bucket = 'territory' | 'line' | 'text' | 'symbol';
 
@@ -28,6 +29,16 @@ export function StylePanel() {
 
   const classes = Object.values(project.styles[bucket]);
   const active = selected && project.styles[bucket][selected] ? project.styles[bucket][selected] : null;
+
+  // One scale for the whole list, set by its largest mark. Size is part of what
+  // a symbol class *is* — an imperial capital outranks a town by being bigger —
+  // so fitting each preview to its own box would throw away the thing the list
+  // is meant to show. Sized off the widest so nothing overflows the gutter,
+  // however large a symbol someone defines.
+  const symbolScale =
+    bucket === 'symbol'
+      ? Math.min(1.2, (PREVIEW_BOX - 4) / Math.max(1, ...classes.map((c) => (c.style as SymbolStyle).size ?? 1)))
+      : 1;
 
   return (
     <>
@@ -56,7 +67,7 @@ export function StylePanel() {
               style={{ paddingLeft: 7 }}
               onClick={() => setSelected(c.id)}
             >
-              <StylePreview bucket={bucket} style={c.style as never} />
+              <StylePreview bucket={bucket} style={c.style as never} scale={symbolScale} />
               <span className="tree-row__name">{c.name}</span>
               {!c.builtin && <span className="tree-row__badge">custom</span>}
             </div>
@@ -126,7 +137,15 @@ export function StylePanel() {
   );
 }
 
-function StylePreview({ bucket, style }: { bucket: Bucket; style: Record<string, unknown> }) {
+function StylePreview({
+  bucket,
+  style,
+  scale = 1,
+}: {
+  bucket: Bucket;
+  style: Record<string, unknown>;
+  scale?: number;
+}) {
   if (bucket === 'line') {
     const s = style as unknown as LineStyle;
     return (
@@ -154,7 +173,73 @@ function StylePreview({ bucket, style }: { bucket: Bucket; style: Record<string,
       <span style={{ width: 26, flex: 'none', textAlign: 'center', color: s.color, fontSize: 11 }}>Aa</span>
     );
   }
+  if (bucket === 'symbol') {
+    return <SymbolPreview style={style as unknown as SymbolStyle} scale={scale} />;
+  }
   return <span style={{ width: 26, flex: 'none' }} />;
+}
+
+/** Width of the preview gutter, and the box every symbol is drawn into. */
+const PREVIEW_BOX = 26;
+
+/**
+ * A symbol drawn from the same primitives the map and the export use, so what
+ * the list shows is the mark itself rather than an impression of it.
+ *
+ * Re-tinted, though, and it has to be. A symbol's palette is set for cream
+ * paper — a near-white fill inside a near-black outline — so drawn in its own
+ * colours on a dark panel it is an invisible outline around an invisible fill.
+ * The stroke becomes the panel's own foreground and the fill goes transparent,
+ * which keeps the distinction that actually matters in this list: a hollow
+ * circle stays hollow, and a solid one, whose fill comes from its stroke,
+ * stays solid. Following `currentColor` also means the mark brightens with the
+ * row when it is selected.
+ */
+function SymbolPreview({ style, scale }: { style: SymbolStyle; scale: number }) {
+  const half = PREVIEW_BOX / 2;
+  const r = (style.size / 2) * scale;
+  const fill = effectiveFill({ ...style, strokeColor: 'currentColor', fillColor: 'transparent' });
+  const width = Math.max(0.4, style.strokeWidth);
+  const at = ([x, y]: [number, number]) => `${half + x * r},${half + y * r}`;
+
+  return (
+    <span style={{ width: PREVIEW_BOX, flex: 'none', display: 'grid', placeItems: 'center', color: 'var(--text)' }}>
+      <svg width={PREVIEW_BOX} height={PREVIEW_BOX} viewBox={`0 0 ${PREVIEW_BOX} ${PREVIEW_BOX}`} aria-hidden>
+        {symbolPrimitives(style.shape).map((prim, i) =>
+          prim.kind === 'circle' ? (
+            <circle
+              key={i}
+              cx={half + prim.cx * r}
+              cy={half + prim.cy * r}
+              r={Math.max(0.4, prim.r * r)}
+              fill={prim.fill ? fill : 'none'}
+              stroke={prim.stroke ? 'currentColor' : 'none'}
+              strokeWidth={width}
+            />
+          ) : prim.kind === 'polygon' ? (
+            <polygon
+              key={i}
+              points={prim.points.map(at).join(' ')}
+              fill={prim.fill ? fill : 'none'}
+              stroke={prim.stroke ? 'currentColor' : 'none'}
+              strokeWidth={width}
+              strokeLinejoin="round"
+            />
+          ) : (
+            <polyline
+              key={i}
+              points={prim.points.map(at).join(' ')}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={width}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          ),
+        )}
+      </svg>
+    </span>
+  );
 }
 
 const DASH_KINDS: DashKind[] = ['solid', 'dashed', 'dotted', 'dash-dot', 'double', 'alternating'];
