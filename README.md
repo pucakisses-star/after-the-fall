@@ -120,6 +120,14 @@ network.
 branch, and can also be run by hand from the Actions tab. It needs Pages switched on once, by a repo
 admin: **Settings ▸ Pages ▸ Build and deployment ▸ Source: GitHub Actions**.
 
+That source setting is load-bearing, and getting it wrong fails in a way worth knowing about. With
+the source left on "Deploy from a branch", GitHub *also* runs its legacy builder, which publishes the
+branch root — the unbuilt `index.html` that asks for `/src/main.tsx`, and none of the bundled
+geography, which lives under `public/`. Both deployments target the same site and the last one to
+finish wins, so the page alternates between the real app and a blank screen with no failing workflow
+to show for it. `configure-pages` is therefore run with `enablement: true`, which sets the source to
+GitHub Actions and stops the legacy builder from running at all.
+
 Pages serves from a sub-path (`/<repo>/`), which is why `vite.config.ts` sets `base: './'` and the
 bundled geography is fetched with document-relative URLs. Both are load-bearing — changing either to
 an absolute path will break a sub-path deployment.

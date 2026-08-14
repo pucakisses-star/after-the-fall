@@ -45,7 +45,16 @@ jobs:
       - name: Build
         run: npm run build
 
+      # `enablement: true` switches the repository's Pages source to "GitHub
+      # Actions". Without it, a repository set to "Deploy from a branch" also
+      # runs GitHub's legacy builder, which publishes the branch *root* — the
+      # unbuilt index.html that asks for /src/main.tsx, and no bundled geography
+      # at all, because that lives under public/. Whichever deployment finishes
+      # last wins, so the site silently alternates between the real app and a
+      # blank page. Setting the source here makes that race impossible.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
