@@ -45,13 +45,23 @@ jobs:
       - name: Build
         run: npm run build
 
-      # `enablement: true` switches the repository's Pages source to "GitHub
-      # Actions". Without it, a repository set to "Deploy from a branch" also
-      # runs GitHub's legacy builder, which publishes the branch *root* — the
-      # unbuilt index.html that asks for /src/main.tsx, and no bundled geography
-      # at all, because that lives under public/. Whichever deployment finishes
-      # last wins, so the site silently alternates between the real app and a
-      # blank page. Setting the source here makes that race impossible.
+      # `enablement: true` asks GitHub to set the Pages source to "GitHub
+      # Actions". This matters because a repository left on "Deploy from a
+      # branch" *also* runs GitHub's Jekyll builder, which publishes the branch
+      # root — the unbuilt index.html that asks for /src/main.tsx, and no
+      # bundled geography at all, because that lives under public/. Both target
+      # the same site and the last to finish wins.
+      #
+      # Measured, not assumed: on this repository it does not take effect. The
+      # Jekyll run still appears for every push (jobs `build` → `Build with
+      # Jekyll` → `deploy`) and still publishes the root. What saves the site is
+      # only that it finishes in ~50 s while this workflow installs, typechecks,
+      # tests and builds first — so ours lands second and wins. That also means
+      # any failure here leaves the raw repository live.
+      #
+      # The reliable fix is one manual change: Settings ▸ Pages ▸ Build and
+      # deployment ▸ Source: GitHub Actions. This input is kept because it is
+      # the documented way and costs nothing where the permission does apply.
       - uses: actions/configure-pages@v5
         with:
           enablement: true

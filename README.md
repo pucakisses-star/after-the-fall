@@ -122,13 +122,18 @@ network.
 branch, and can also be run by hand from the Actions tab. It needs Pages switched on once, by a repo
 admin: **Settings ▸ Pages ▸ Build and deployment ▸ Source: GitHub Actions**.
 
-That source setting is load-bearing, and getting it wrong fails in a way worth knowing about. With
-the source left on "Deploy from a branch", GitHub *also* runs its legacy builder, which publishes the
-branch root — the unbuilt `index.html` that asks for `/src/main.tsx`, and none of the bundled
-geography, which lives under `public/`. Both deployments target the same site and the last one to
-finish wins, so the page alternates between the real app and a blank screen with no failing workflow
-to show for it. `configure-pages` is therefore run with `enablement: true`, which sets the source to
-GitHub Actions and stops the legacy builder from running at all.
+**That source setting is load-bearing, and it is not optional here.** With the source left on
+"Deploy from a branch", GitHub also runs its Jekyll builder, which publishes the branch root — the
+unbuilt `index.html` that asks for `/src/main.tsx`, and none of the bundled geography, which lives
+under `public/`. Both deployments target the same site and the last to finish wins, with no failing
+workflow to show for it.
+
+The workflow passes `enablement: true` to `configure-pages`, which is the documented way to set the
+source from CI, but on this repository it does not take effect: the Jekyll run still appears for
+every push and still publishes the root. The site is correct only because Jekyll finishes in about
+50 seconds while this workflow installs, typechecks, tests and builds first, so ours lands second.
+The corollary is worth stating plainly — **if this workflow ever fails, the raw repository stays
+live**. Set the source to GitHub Actions in the repository settings and the whole race disappears.
 
 Pages serves from a sub-path (`/<repo>/`), which is why `vite.config.ts` sets `base: './'` and the
 bundled geography is fetched with document-relative URLs. Both are load-bearing — changing either to
