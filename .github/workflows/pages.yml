@@ -1,0 +1,62 @@
+name: Deploy to GitHub Pages
+
+# Pages serves the site from a sub-path (/<repo>/), which is why vite.config.ts
+# sets `base: './'` and the bundled geography is fetched with document-relative
+# URLs. Both are load-bearing for this workflow — do not change them to absolute
+# paths without re-testing a sub-path deployment.
+
+on:
+  push:
+    branches:
+      - main
+      - claude/new-session-clmsm6
+  workflow_dispatch:
+
+# Allow one deployment at a time; let a run in progress finish rather than
+# cancelling it half-way through publishing.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Fail the deployment on a broken build rather than publishing it.
+      - name: Typecheck and test
+        run: |
+          npm run typecheck
+          npm run test
+
+      - name: Build
+        run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

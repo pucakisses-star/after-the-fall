@@ -36,6 +36,16 @@ real geography.
 Reference geography (Natural Earth coastlines and country outlines, US Census states and counties)
 ships in `public/data/` and is fetched lazily — nothing is downloaded at runtime.
 
+### Deploying to GitHub Pages
+
+`.github/workflows/pages.yml` typechecks, tests, builds and publishes on every push to the default
+branch, and can also be run by hand from the Actions tab. It needs Pages switched on once, by a repo
+admin: **Settings ▸ Pages ▸ Build and deployment ▸ Source: GitHub Actions**.
+
+Pages serves from a sub-path (`/<repo>/`), which is why `vite.config.ts` sets `base: './'` and the
+bundled geography is fetched with document-relative URLs. Both are load-bearing — changing either to
+an absolute path will break a sub-path deployment.
+
 ---
 
 ## What the recurring cartographic elements are, and where each one lives
