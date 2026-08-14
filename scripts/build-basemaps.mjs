@@ -43,6 +43,21 @@ const KEEP = [
  */
 const KEEP_ADMIN1 = ['iso_3166_2', 'adm0_a3', 'admin', 'type_en'];
 
+/**
+ * Extra properties for the roads file.
+ *
+ * `type` and `level` separate an interstate from a state route, which is the
+ * whole basis for drawing one heavier than the other. `prefix` plus the `name`
+ * already in KEEP is the route number a reader recognises: Natural Earth stores
+ * "I" and "95" apart, and its own `label` field is null for every road in the
+ * Americas, so the shield has to be assembled from the two. It also fills the
+ * prefix in on only 96 of the 1,352 interstates, which is why `sov_a3` is here
+ * — the country plus the level says "I" or "US" for the rest of them, and says
+ * nothing for a Mexican federal route, which is the correct answer there.
+ * `min_label` says how far in you have to be before the number is worth drawing.
+ */
+const KEEP_ROADS = ['type', 'level', 'prefix', 'sov_a3', 'min_label'];
+
 /** Coordinate precision. 4 dp is ~11 m — far finer than any of this data. */
 const PRECISION = 4;
 
@@ -57,6 +72,23 @@ const DATASETS = [
   { src: 'ne_10m_lakes', out: 'lakes-10m.json', object: 'lakes', quantization: 1e5 },
   { src: 'ne_10m_rivers_lake_centerlines', out: 'rivers-10m.json', object: 'rivers', quantization: 1e5 },
   { src: 'ne_10m_populated_places', out: 'places-10m.json', object: 'places', quantization: 1e6 },
+  // The highway network, cut to the trunk system of the Americas.
+  //
+  // Natural Earth's roads file is 56,600 features and 14 MB of TopoJSON, most of
+  // it Eurasia and most of the rest classed "Unknown" or plain "Road" — local
+  // lanes that no political map draws. Interstates, national highways, the
+  // beltways round the big cities and their equivalents in Canada, Mexico and
+  // South America come to a tenth of that, and are the level a map at this scale
+  // actually wants.
+  {
+    src: 'ne_10m_roads',
+    out: 'roads-10m.json',
+    object: 'roads',
+    quantization: 1e5,
+    roads: true,
+    continents: ['North America', 'North America x-fade', 'South America'],
+    types: ['Major Highway', 'Secondary Highway', 'Beltway', 'Bypass'],
+  },
   // Provinces, states and territories — the only way to build a realm out of
   // real administrative units anywhere but the United States, which is the one
   // place the Census files already cover. Filtered to the Americas: the whole
@@ -101,17 +133,21 @@ function trim(feature, keep) {
   };
 }
 
-async function build({ src, out, object, quantization, countries, admin1 }) {
-  const keep = admin1 ? [...KEEP, ...KEEP_ADMIN1] : KEEP;
+async function build({ src, out, object, quantization, countries, admin1, roads, continents, types }) {
+  const keep = [...KEEP, ...(admin1 ? KEEP_ADMIN1 : []), ...(roads ? KEEP_ROADS : [])];
   const url = `${SOURCE}/${src}.geojson`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${src}: HTTP ${res.status}`);
   const raw = await res.json();
 
   const wanted = countries ? new Set(countries) : null;
+  const onlyIn = continents ? new Set(continents) : null;
+  const onlyKind = types ? new Set(types) : null;
   const features = raw.features
     .filter((f) => f.geometry?.coordinates?.length)
     .filter((f) => !wanted || wanted.has(f.properties?.adm0_a3))
+    .filter((f) => !onlyIn || onlyIn.has(f.properties?.continent))
+    .filter((f) => !onlyKind || onlyKind.has(f.properties?.type))
     .map((f) => trim(f, keep))
     .filter(Boolean);
   const topo = topology({ [object]: { type: 'FeatureCollection', features } }, quantization);

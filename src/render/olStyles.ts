@@ -162,7 +162,7 @@ export function basemapStyle(fill: string, stroke: string, width = 0.5): Style {
 }
 
 export type BasemapRole =
-  | 'land' | 'countries' | 'states' | 'counties' | 'lakes' | 'rivers' | 'places' | 'custom';
+  | 'land' | 'countries' | 'states' | 'counties' | 'lakes' | 'rivers' | 'roads' | 'places' | 'custom';
 
 /**
  * Draw order for reference geography, interleaved with the document's own layers
@@ -185,6 +185,9 @@ export const BASEMAP_Z: Record<BasemapRole, number> = {
   custom: -70,
   lakes: 14,
   rivers: 16,
+  // Roads over water: a highway crosses a river on a bridge, and drawing the
+  // river on top of it says the opposite.
+  roads: 18,
   // Reference cities sit just under the document's own settlements, so your
   // placed capitals always read above the ones you are working from.
   places: 38,
@@ -207,11 +210,149 @@ export function basemapRoleStyle(
     case 'rivers':
       // A style *function*, not a fixed style: width follows importance.
       return basemapRiverStyle();
+    case 'roads':
+      return basemapRoadStyle(metersPerUnit(project.projection?.units));
     case 'places':
       return basemapPlaceStyle(metersPerUnit(project.projection?.units));
     default:
       return basemapStyle('rgba(0,0,0,0)', '#a89c86', 0.4);
   }
+}
+
+/**
+ * Reference highways, thinned and weighted by scale.
+ *
+ * Two problems, both of which a flat hairline for every road gets wrong. The
+ * first is hierarchy: an interstate and a two-lane state route read identically,
+ * which is not how any road map has ever been drawn — a trunk route carries the
+ * eye, a secondary stays quiet behind it. The second is quantity. All 9,364
+ * roads at continental scale is not a network, it is a smear that swallows the
+ * coastlines and borders underneath; Natural Earth's own `min_zoom` says which
+ * ones survive a zoomed-out view, and honouring it takes the continental view
+ * down to the ~1,300 that read as the trunk system.
+ *
+ * Warm brown rather than the rivers' blue, so the two networks never read as one
+ * at a glance, and route shields once you are close enough for a number to mean
+ * something.
+ */
+export function basemapRoadStyle(unitsInMeters = 1): StyleFunction {
+  const cache = new Map<string, Style>();
+  return (feature, resolution) => {
+    const props =
+      (feature.get('basemap') as { properties?: Record<string, unknown> } | undefined)?.properties ?? {};
+    const metersPerPixel = resolution * unitsInMeters;
+    if (!roadVisible(Number(props.min_zoom), metersPerPixel)) return undefined;
+
+    const kind = roadClass(props);
+    const shield = roadLabelVisible(Number(props.min_label), metersPerPixel) ? routeShield(props) : '';
+
+    const key = `${kind}|${shield}`;
+    let style = cache.get(key);
+    if (!style) {
+      const { width, color } = roadRankStyle(kind);
+      style = new Style({
+        stroke: new Stroke({ color, width, lineCap: 'round', lineJoin: 'round' }),
+        text: shield
+          ? new Text({
+              text: shield,
+              font: `600 9px 'Iowan Old Style', Palatino, Georgia, serif`,
+              placement: 'line',
+              textBaseline: 'middle',
+              fill: new Fill({ color: ROAD_TEXT_FILL }),
+              stroke: new Stroke({ color: ROAD_TEXT_HALO, width: 3 }),
+              declutterMode: 'declutter',
+            })
+          : undefined,
+      });
+      cache.set(key, style);
+    }
+    return style;
+  };
+}
+
+/** How a road is drawn: three weights, coarser than Natural Earth's own tiers. */
+export type RoadClass = 'trunk' | 'major' | 'minor';
+
+/**
+ * Which weight a road is drawn at.
+ *
+ * `level` is the more honest field where it exists — an Interstate is an
+ * interstate whatever `type` calls it — and `type` is the fallback for the two
+ * thirds of the Americas that Natural Earth never assigned a level to.
+ */
+export function roadClass(props: Record<string, unknown>): RoadClass {
+  const level = String(props.level ?? '');
+  const type = String(props.type ?? '');
+  if (level === 'Interstate' || level === 'Federal') return 'trunk';
+  if (type === 'Major Highway') return 'trunk';
+  if (type === 'Beltway' || type === 'Bypass') return 'major';
+  return 'minor';
+}
+
+/** Stroke width and colour for a road class, shared with the SVG exporter. */
+export function roadRankStyle(kind: RoadClass): { width: number; color: string } {
+  switch (kind) {
+    case 'trunk':
+      return { width: 1.5, color: 'rgba(158, 92, 48, 0.8)' };
+    case 'major':
+      return { width: 1.0, color: 'rgba(166, 110, 70, 0.7)' };
+    default:
+      return { width: 0.7, color: 'rgba(172, 132, 100, 0.55)' };
+  }
+}
+
+export const ROAD_TEXT_FILL = '#8a4f28';
+export const ROAD_TEXT_HALO = 'rgba(253,250,242,0.92)';
+
+/**
+ * The route number as a reader recognises it.
+ *
+ * Natural Earth stores the two halves apart — prefix "I", name "95" — and then
+ * fills the prefix in on only 96 of the 1,352 US interstates, so most of the
+ * network would read as a bare "95" without the fallback below. Country plus
+ * level recovers it: an American road levelled Interstate is an I route and one
+ * levelled Federal is a US route, which is exactly the rule the rows that *do*
+ * carry a prefix follow.
+ *
+ * Deliberately no equivalent elsewhere. A Mexican federal highway is not "US-15"
+ * and a state route belongs to a state this file does not name, so both keep the
+ * bare number they are signed with.
+ */
+export function routeShield(props: Record<string, unknown>): string {
+  const name = typeof props.name === 'string' ? props.name.trim() : '';
+  if (!name) return '';
+  const prefix = typeof props.prefix === 'string' ? props.prefix.trim() : '';
+  if (prefix) return `${prefix}-${name}`;
+  if (props.sov_a3 === 'USA') {
+    if (props.level === 'Interstate') return `I-${name}`;
+    if (props.level === 'Federal') return `US-${name}`;
+  }
+  return name;
+}
+
+/**
+ * Whether a road is worth drawing at this scale.
+ *
+ * Natural Earth's `min_zoom` is in web-map zoom levels, which run about 3.25
+ * ahead of the `zoomish` the places above are calibrated in; the offset here is
+ * that difference, rounded, so the answer is simply "what Natural Earth would
+ * have drawn at this scale". Roads with no hint are treated as minor.
+ */
+export function roadVisible(minZoom: number, metersPerPixel: number): boolean {
+  const zoomish = Math.max(0, 14 - Math.log2(Math.max(metersPerPixel, 1e-9)));
+  return (Number.isFinite(minZoom) ? minZoom : 7.5) <= zoomish + 3;
+}
+
+/**
+ * Whether a road's route number is worth drawing at this scale.
+ *
+ * Its own field, not a derivative of `min_zoom`: a road appears as a line well
+ * before there is room to write on it, which is the same order the places above
+ * earn their names in.
+ */
+export function roadLabelVisible(minLabel: number, metersPerPixel: number): boolean {
+  const zoomish = Math.max(0, 14 - Math.log2(Math.max(metersPerPixel, 1e-9)));
+  return (Number.isFinite(minLabel) ? minLabel : 9.6) <= zoomish + 3;
 }
 
 /**

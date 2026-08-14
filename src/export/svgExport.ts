@@ -28,7 +28,11 @@ import {
   placeLabelVisible,
   placeRankStyle,
   riverRankStyle,
+  roadClass,
+  roadRankStyle,
+  roadVisible,
 } from '@/render/olStyles';
+import type { RoadClass } from '@/render/olStyles';
 import { symbolToSvg } from '@/render/symbols';
 import { compassToSvg, legendToSvg } from './legend';
 import { toCss } from '@/model/color';
@@ -284,6 +288,7 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
   // --- basemap land ---------------------------------------------------------
   const terrain: string[] = [];
   const basemapRivers: string[] = [];
+  const basemapRoads: string[] = [];
   const basemapPlaces: string[] = [];
   const lakeLayers: string[] = [];
   if (opts.includeBasemap) {
@@ -335,6 +340,41 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
               })
               .join('');
             basemapRivers.push(
+              `<g id="basemap-${esc(entry.sourceId)}" fill="none" stroke-linecap="round" ` +
+                `stroke-linejoin="round" opacity="${entry.opacity}">${inner}</g>`,
+            );
+          }
+          continue;
+        }
+
+        if (role === 'roads') {
+          // Same shape as the rivers above, and the same two questions the screen
+          // asks: is this road worth drawing at this scale, and at what weight.
+          // A printed map that ignored `min_zoom` would carry every one of the
+          // nine thousand roads whatever the paper size.
+          const byClass = new Map<RoadClass, string[]>();
+          for (const f of features) {
+            if (isPolygonFeature(f)) continue;
+            const props = (f.properties ?? {}) as Record<string, unknown>;
+            if (!roadVisible(Number(props.min_zoom), metersPerPixel)) continue;
+            const d = lineToPath(f.geometry as LineString | MultiLineString, p);
+            if (!d) continue;
+            const kind = roadClass(props);
+            const bucket = byClass.get(kind);
+            if (bucket) bucket.push(`<path d="${d}"/>`);
+            else byClass.set(kind, [`<path d="${d}"/>`]);
+          }
+          if (byClass.size) {
+            // Minor first, so trunk routes land on top where they meet.
+            const order: RoadClass[] = ['minor', 'major', 'trunk'];
+            const inner = order
+              .filter((k) => byClass.has(k))
+              .map((k) => {
+                const { width, color } = roadRankStyle(k);
+                return `<g stroke="${color}" stroke-width="${num(width * scale)}">${byClass.get(k)!.join('')}</g>`;
+              })
+              .join('');
+            basemapRoads.push(
               `<g id="basemap-${esc(entry.sourceId)}" fill="none" stroke-linecap="round" ` +
                 `stroke-linejoin="round" opacity="${entry.opacity}">${inner}</g>`,
             );
@@ -471,7 +511,7 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
 
   // --- rivers and roads -----------------------------------------------------
   const rivers: string[] = [...basemapRivers];
-  const roads: string[] = [];
+  const roads: string[] = [...basemapRoads];
   for (const f of Object.values(project.linearFeatures)) {
     if (f.hidden || f.kind === 'label-path') continue;
     if (!layerEffective(project, f.layerId).visible) continue;

@@ -26,6 +26,7 @@ const START = {
     'world-land-10m',
     'world-lakes-10m',
     'world-rivers-10m',
+    'world-roads-10m',
     'world-countries-10m',
     'world-places-10m',
   ],

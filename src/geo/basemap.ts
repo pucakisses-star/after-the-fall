@@ -68,6 +68,14 @@ export const BUILTIN_BASEMAPS: BasemapSource[] = [
     role: 'rivers',
   },
   {
+    id: 'world-roads-10m',
+    name: 'Highways',
+    url: 'data/world/roads-10m.json',
+    format: 'topojson',
+    objectName: 'roads',
+    role: 'roads',
+  },
+  {
     id: 'world-places-10m',
     name: 'Cities & towns',
     url: 'data/world/places-10m.json',
@@ -111,6 +119,7 @@ export const BASEMAP_SIZES: Record<string, string> = {
   'world-countries-10m': '3.5 MB',
   'world-lakes-10m': '1.2 MB',
   'world-rivers-10m': '2.0 MB',
+  'world-roads-10m': '2.6 MB',
   'world-places-10m': '1.4 MB',
   'na-admin1-10m': '1.4 MB',
   'us-states': '110 KB',

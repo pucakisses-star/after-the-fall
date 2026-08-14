@@ -166,6 +166,7 @@ are ever loaded, and nothing is downloaded from the internet at runtime.
 | Country boundaries | Global | 3.5 MB |
 | Lakes | Global | 1.2 MB |
 | Rivers | Global | 2.0 MB |
+| Highways | The Americas | 2.6 MB |
 | Cities & towns | Global | 1.4 MB |
 | Provinces & states | The Americas | 1.4 MB |
 | US states / counties (Census) | United States | 110 / 820 KB |
@@ -234,6 +235,27 @@ Rivers are weighted by Natural Earth's `scalerank` on screen and in the export, 
 carry the eye and tributaries stay quiet rather than every watercourse drawing as the same hairline.
 Converted rivers keep that ranking (major rivers get the heavier line style) and their names run
 along the river itself via text-on-path.
+
+**The highway network** ships on the same terms, in warm brown so it never reads as water at a
+glance, and above the rivers because a highway crosses a river on a bridge. Natural Earth's roads
+file is 56,600 features and 14 MB, most of it Eurasia and most of the rest classed "Unknown" or plain
+"Road" — local lanes no political map draws. Cut to the trunk system of the Americas — interstates,
+national highways, the beltways round the big cities and their equivalents in Canada, Mexico and
+South America — it is 9,364 features and 2.6 MB.
+
+Even that is too many to draw at once: all of them on a continental view is not a network but a smear
+that swallows the coastlines underneath. Natural Earth's own `min_zoom` says which roads survive a
+zoomed-out view, so honouring it leaves about 1,300 trunk routes at hemisphere scale and lets the
+secondary network in as you zoom, the same way the cities thin. Route numbers appear later still, on
+their own `min_label`, since a road wants drawing well before there is room to write on it.
+
+Getting the shields right needed one repair. Natural Earth stores the prefix and the number in
+separate fields and then fills the prefix in on only 96 of the 1,352 US interstates, so most of the
+network would read as a bare "95". The country and the road's `level` recover it — an American road
+levelled Interstate is an I route, one levelled Federal is a US route — which is exactly the rule the
+rows that *do* carry a prefix follow. Nothing equivalent is invented elsewhere: a Mexican federal
+highway is not "US-15", and a state route belongs to a state the file does not name, so both keep the
+bare number they are signed with. Roads convert into editable road features, the same as rivers do.
 
 **Cities and towns** draw as quiet hollow dots with grey names, below the map's own settlements, so
 real places read as a backdrop you are placing your own against rather than competing with them.

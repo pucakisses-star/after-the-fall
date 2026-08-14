@@ -22,6 +22,7 @@ import {
   type BasemapFeature,
 } from '@/geo/basemap';
 import { convertBasemapToTerritories, territoryFromBasemapFeatures } from '@/io/importers';
+import { routeShield } from '@/render/olStyles';
 import { BORDER_HIERARCHY, POLITICAL_TYPES } from '@/model/defaults';
 import { toast } from '@/state/uiStore';
 import { useProjectStore } from '@/state/projectStore';
@@ -53,23 +54,28 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
   const isCounties = sourceId === 'us-counties';
   const role = findBasemapSource(sourceId)?.role;
   const isRivers = role === 'rivers';
+  const isRoads = role === 'roads';
   const isLakes = role === 'lakes';
   const isPlaces = role === 'places';
+  /** Both centreline datasets are listed and imported as lines, not areas. */
+  const isLines = isRivers || isRoads;
   /**
    * Trimming to the coast is only meaningful for land divisions. A lake is
-   * water by definition and would be trimmed out of existence; rivers and
-   * cities are not areas at all.
+   * water by definition and would be trimmed out of existence; rivers, roads
+   * and cities are not areas at all.
    */
-  const snapsToCoast = !isRivers && !isLakes && !isPlaces;
+  const snapsToCoast = !isLines && !isLakes && !isPlaces;
   /** Only areal datasets can be merged into a realm. */
-  const dissolvable = !isRivers && !isPlaces;
+  const dissolvable = !isLines && !isPlaces;
   const noun = isRivers
     ? { one: 'river', many: 'rivers' }
-    : isLakes
-      ? { one: 'lake', many: 'lakes' }
-      : isPlaces
-        ? { one: 'city', many: 'cities' }
-        : { one: 'territory', many: 'territories' };
+    : isRoads
+      ? { one: 'road', many: 'roads' }
+      : isLakes
+        ? { one: 'lake', many: 'lakes' }
+        : isPlaces
+          ? { one: 'city', many: 'cities' }
+          : { one: 'territory', many: 'territories' };
 
   // "Dissolve into one state" is meaningless for centrelines and city points.
   useEffect(() => {
@@ -97,13 +103,13 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
   const candidates = useMemo(
     () =>
       features
-        ? isRivers
+        ? isLines
           ? linesOf(features)
           : isPlaces
             ? pointsOf(features)
             : polygonsOf(features)
         : [],
-    [features, isRivers, isPlaces],
+    [features, isLines, isPlaces],
   );
 
   const unnamedCount = useMemo(
@@ -118,11 +124,16 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
         const props = (f.properties ?? {}) as Record<string, unknown>;
         return {
           index,
-          name: basemapFeatureName(f),
+          // Roads are listed by the route shield the map draws them with, so
+          // searching "I-95" finds the interstate; Natural Earth stores that as
+          // a bare "95", which is not what anyone would type.
+          name: (isRoads ? routeShield(props) : basemapFeatureName(f)) || 'Unnamed',
           fips: typeof f.id === 'number' || typeof f.id === 'string' ? String(f.id).padStart(5, '0').slice(0, 2) : '',
           // Cities carry their country, which is the only way to tell the
           // several dozen Springfields and Victorias apart in the list.
-          badge: isPlaces ? String(props.adm0name ?? '') : '',
+          // Roads carry what kind of road they are, which is the only way to
+          // tell one segment of a long route from another.
+          badge: isPlaces ? String(props.adm0name ?? '') : isRoads ? String(props.type ?? '') : '',
           rank: isPlaces ? Number(props.scalerank ?? 10) : 0,
         };
       })
@@ -131,10 +142,14 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
       .filter((r) => (isCounties && stateFilter ? r.fips === stateFilter : true));
     // Seven thousand cities sorted alphabetically buries every capital, so rank
     // them by Natural Earth's scalerank first — world cities, then the rest.
+    // Route numbers sort as numbers, or I-5 lands between I-40 and I-95.
+    const byName = isRoads
+      ? (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true })
+      : (a: string, b: string) => a.localeCompare(b);
     return isPlaces
-      ? listed.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name) || a.index - b.index)
-      : listed.sort((a, b) => a.name.localeCompare(b.name) || a.index - b.index);
-  }, [candidates, filter, stateFilter, isCounties, isPlaces, namedOnly]);
+      ? listed.sort((a, b) => a.rank - b.rank || byName(a.name, b.name) || a.index - b.index)
+      : listed.sort((a, b) => byName(a.name, b.name) || a.index - b.index);
+  }, [candidates, filter, stateFilter, isCounties, isPlaces, isRoads, namedOnly]);
 
   const toggle = (index: number) => {
     setChosen((prev) => {
@@ -274,7 +289,7 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
                 <input type="checkbox" readOnly checked={chosen.has(r.index)} style={{ accentColor: 'var(--accent)' }} />
                 <span className="tree-row__name">{r.name}</span>
                 {isCounties && <span className="tree-row__badge">{STATE_FIPS[r.fips] ?? ''}</span>}
-                {isPlaces && r.badge && <span className="tree-row__badge">{r.badge}</span>}
+                {(isPlaces || isRoads) && r.badge && <span className="tree-row__badge">{r.badge}</span>}
               </label>
             ))}
           </div>
@@ -302,21 +317,25 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
               <strong style={{ color: 'var(--text)' }}>
                 {isRivers
                   ? 'One river per feature'
-                  : isLakes
-                    ? 'One water body per lake'
-                    : isPlaces
-                      ? 'One settlement per city'
-                      : 'One territory per feature'}
+                  : isRoads
+                    ? 'One road per feature'
+                    : isLakes
+                      ? 'One water body per lake'
+                      : isPlaces
+                        ? 'One settlement per city'
+                        : 'One territory per feature'}
               </strong>
               <br />
               <span style={{ color: 'var(--text-faint)' }}>
                 {isRivers
                   ? 'Each becomes an editable river you can reshape, rename and relabel. Names run along the river automatically.'
-                  : isLakes
-                    ? 'Each lake becomes an editable water body using the Water style, with its name as a water label.'
-                    : isPlaces
-                      ? 'Each city becomes an editable settlement with its own symbol, population and label, owned by whichever territory it falls inside.'
-                      : 'Each state or county becomes its own editable division. Use the paint tool afterwards to group them into realms.'}
+                  : isRoads
+                    ? 'Each becomes an editable road you can reshape, rename and relabel, named for its route number and drawn at the Major or Minor road weight.'
+                    : isLakes
+                      ? 'Each lake becomes an editable water body using the Water style, with its name as a water label.'
+                      : isPlaces
+                        ? 'Each city becomes an editable settlement with its own symbol, population and label, owned by whichever territory it falls inside.'
+                        : 'Each state or county becomes its own editable division. Use the paint tool afterwards to group them into realms.'}
               </span>
             </span>
           </label>
@@ -374,13 +393,15 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
               </label>
             </>
           ) : (
-            isRivers || isLakes || isPlaces ? (
+            isLines || isLakes || isPlaces ? (
               <p className="hint">
                 {isRivers
                   ? 'Rivers come in ranked by Natural Earth\'s scalerank, so major rivers get the heavier line style.'
-                  : isLakes
-                    ? 'Lakes come in with the Water style class, so they match the ocean colour and update with it.'
-                    : 'Natural Earth marks which cities are national and regional capitals, so each one arrives with the right symbol; population and country come across too.'}
+                  : isRoads
+                    ? 'Roads come in split by level, so interstates and national routes get the Major road style and the rest the Minor one. Route numbers become the feature name — Natural Earth stores the prefix and the number apart, so they are reassembled into I-95 rather than a bare 95.'
+                    : isLakes
+                      ? 'Lakes come in with the Water style class, so they match the ocean colour and update with it.'
+                      : 'Natural Earth marks which cities are national and regional capitals, so each one arrives with the right symbol; population and country come across too.'}
               </p>
             ) : (
             <>

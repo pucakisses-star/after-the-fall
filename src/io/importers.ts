@@ -32,6 +32,7 @@ import {
   registerUserSource,
   type BasemapFeature,
 } from '@/geo/basemap';
+import { roadClass, routeShield } from '@/render/olStyles';
 import { commit, getProject, makeLabel, makeLinear, makeSettlement, makeTerritory } from '@/state/projectStore';
 import { territoryAt } from '@/state/commands';
 import { useUIStore, toast } from '@/state/uiStore';
@@ -429,6 +430,7 @@ export async function convertBasemapToTerritories(opts: ConvertOptions): Promise
   // Rivers are lines and places are points; send them down their own paths
   // instead of silently producing nothing.
   if (role === 'rivers') return convertBasemapToRivers(opts);
+  if (role === 'roads') return convertBasemapToRoads(opts);
   if (role === 'places') return convertBasemapToSettlements(opts);
 
   const features = polygonsOf(all);
@@ -529,6 +531,64 @@ export async function convertBasemapToRivers(opts: ConvertOptions): Promise<numb
   });
 
   return rivers.length;
+}
+
+/**
+ * Turn a road dataset into editable `LinearFeature`s (spec §3, §16).
+ *
+ * Deliberately not the river path with a different colour. A converted highway
+ * has to arrive as a *road*: the kinds and style classes for one already exist,
+ * and sending it down the river path would produce a blue watercourse named
+ * "95" that flows into things. The name is the route shield the renderer draws —
+ * I-95, not the bare number Natural Earth stores — so the imported feature is
+ * called what the map called it.
+ *
+ * No labels unless they are asked for, and no text-on-path at all — both of
+ * which the rivers do. Natural Earth splits I-95 into 71 segments that all carry
+ * the same number, so labelling each one the way a river is labelled puts 71
+ * copies of "I-95" down the eastern seaboard; and a route number is a marker
+ * repeated along a road rather than a name written down its length, so setting
+ * it as a path label would stretch "I-95" across five hundred miles. The name
+ * still comes across on the feature, where the inspector, the data table and
+ * search can all find it.
+ */
+export async function convertBasemapToRoads(opts: ConvertOptions): Promise<number> {
+  const all = await loadBasemap(opts.sourceId);
+  const roads = linesOf(all).filter((f, i) => {
+    if (opts.includeIndices?.size && !opts.includeIndices.has(i)) return false;
+    if (opts.includeNames?.size && !opts.includeNames.has(basemapFeatureName(f))) return false;
+    return true;
+  });
+  if (roads.length === 0) return 0;
+
+  const project = getProject();
+  const createLabels = opts.createLabels ?? false;
+
+  commit('Import roads', (r) => {
+    for (const f of roads) {
+      const props = (f.properties ?? {}) as Record<string, unknown>;
+      const name = routeShield(props);
+      const lf = makeLinear(project, f.geometry as LineString | MultiLineString, {
+        name: name || 'Unnamed',
+        // The same three-way split the renderer draws, collapsed onto the two
+        // road kinds the document has.
+        kind: roadClass(props) === 'minor' ? 'road-minor' : 'road-major',
+      });
+      if (createLabels && name) {
+        const label = makeLabel(project, { type: 'Point', coordinates: midpointOf(f) }, {
+          kind: 'region',
+          text: name,
+          attachedToId: lf.id,
+        });
+        r.set('linearFeatures', { ...lf, labelId: label.id });
+        r.set('labels', label);
+      } else {
+        r.set('linearFeatures', lf);
+      }
+    }
+  });
+
+  return roads.length;
 }
 
 /**

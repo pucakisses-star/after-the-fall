@@ -6,6 +6,7 @@ import { createProject } from '@/model/project';
 import { registerUserSource } from '@/geo/basemap';
 import { makeLabel, makeSettlement, makeTerritory } from '@/state/projectStore';
 import { DEFAULT_SVG_OPTIONS, exportSvg } from './svgExport';
+import { roadRankStyle } from '@/render/olStyles';
 import { STYLE_IDS } from '@/model/defaults';
 import type { MapProject } from '@/model/types';
 
@@ -279,6 +280,61 @@ describe('exportSvg', () => {
     });
     expect(close).toContain('id="basemap-test-places-minor"');
     expect(close).toContain('>Hamletton</text>');
+  });
+
+  it('exports reference highways weighted, and thinned by scale (§66)', async () => {
+    registerUserSource(
+      {
+        id: 'test-roads',
+        name: 'Test highways',
+        url: 'memory://test-roads',
+        format: 'geojson',
+        role: 'roads',
+      },
+      [
+        {
+          type: 'Feature',
+          // A trunk route: Natural Earth draws these from zoom 3 out.
+          properties: { name: '95', level: 'Interstate', sov_a3: 'USA', min_zoom: 3 },
+          geometry: { type: 'LineString', coordinates: [[14.8, 4.8], [15.2, 5.2]] },
+        },
+        {
+          type: 'Feature',
+          // A state route: not drawn until you are well in.
+          properties: { name: '9', level: 'State', sov_a3: 'USA', min_zoom: 7.1 },
+          geometry: { type: 'LineString', coordinates: [[14.9, 4.8], [14.9, 5.2]] },
+        },
+      ],
+    );
+    const project = sampleProject();
+    project.basemap = [{ sourceId: 'test-roads', visible: true, opacity: 1 }];
+
+    // A sheet forty kilometres across: both roads, and the trunk one heavier.
+    const close = await exportSvg(project, {
+      ...OPTIONS,
+      extent: [14.8, 4.8, 15.2, 5.2],
+      includeBasemap: true,
+    });
+    expect(close).toContain('id="basemap-test-roads"');
+    const roads = close.slice(close.indexOf('<g id="roads"'), close.indexOf('<g id="settlements"'));
+    const trunk = roadRankStyle('trunk');
+    const minor = roadRankStyle('minor');
+    expect(roads).toContain(`stroke="${trunk.color}"`);
+    expect(roads).toContain(`stroke="${minor.color}"`);
+    // Minor first, so trunk routes land on top where they meet.
+    expect(roads.indexOf(minor.color)).toBeLessThan(roads.indexOf(trunk.color));
+
+    // A whole hemisphere in 400 px: the interstate survives, the state route
+    // does not — otherwise a printed world map carries every road in the file.
+    const wide = await exportSvg(project, {
+      ...OPTIONS,
+      width: 400,
+      height: 300,
+      extent: [-180, -80, 0, 80],
+      includeBasemap: true,
+    });
+    expect(wide).toContain(`stroke="${trunk.color}"`);
+    expect(wide).not.toContain(`stroke="${minor.color}"`);
   });
 
   it('handles an empty project without throwing', async () => {

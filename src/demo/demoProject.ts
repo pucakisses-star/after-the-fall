@@ -178,6 +178,7 @@ export async function buildDemoProject(): Promise<DemoBuildResult> {
     { sourceId: 'world-land-10m', visible: true, opacity: 1 },
     { sourceId: 'world-lakes-10m', visible: true, opacity: 1 },
     { sourceId: 'world-rivers-10m', visible: false, opacity: 1 },
+    { sourceId: 'world-roads-10m', visible: false, opacity: 1 },
     // Real cities on, drawn under the map's own: quiet hollow dots with grey
     // names, ranked by Natural Earth's scalerank so only the ones that carry a
     // regional view appear at this zoom. Where the two atlases name the same
