@@ -263,10 +263,11 @@ export function basemapPlaceStyle(unitsInMeters = 1): StyleFunction {
     const labelRank = clampRank(Number(props.labelrank), 8);
     const name = typeof props.name === 'string' ? props.name : '';
 
-    // Show fewer names as you zoom out: at world scale only the majors survive.
-    // `resolution` is metres (or degrees) per pixel, so a log scale is the right
-    // shape here.
-    const showLabel = !!name && placeLabelVisible(labelRank, resolution * unitsInMeters);
+    // `resolution` is metres — or degrees — per pixel, hence the conversion; a
+    // log curve is the right shape for a scale.
+    const metersPerPixel = resolution * unitsInMeters;
+    if (!placeDotVisible(rank, metersPerPixel)) return undefined;
+    const showLabel = !!name && placeLabelVisible(labelRank, metersPerPixel);
 
     const key = `${rank}|${showLabel ? name : ''}`;
     let style = cache.get(key);
@@ -325,6 +326,19 @@ export function placeRankStyle(rank: number): { radius: number; fontSize: number
  */
 export function metersPerUnit(units: string | undefined): number {
   return units === 'degrees' ? 111319.49079327358 : 1;
+}
+
+/**
+ * Whether a place is worth marking at all at this scale.
+ *
+ * Names are not the only thing that piles up: 7,300 dots at continental scale is
+ * a stipple, not a map. Dots survive two ranks longer than names do, so a city
+ * appears as a mark first and earns its name a little further in — which is the
+ * order an atlas reveals things in.
+ */
+export function placeDotVisible(rank: number, metersPerPixel: number): boolean {
+  const zoomish = Math.max(0, 14 - Math.log2(Math.max(metersPerPixel, 1e-9)));
+  return clampRank(rank, 8) <= zoomish + 3;
 }
 
 /**

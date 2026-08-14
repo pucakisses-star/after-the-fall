@@ -118,6 +118,8 @@ export interface NewProjectOptions {
   projectionId?: string;
   center?: [number, number];
   zoom?: number;
+  /** WGS84 [w, s, e, n] the map is about; null or omitted means the whole world. */
+  workingExtent?: [number, number, number, number] | null;
 }
 
 export function createProject(opts: NewProjectOptions = {}): MapProject {
@@ -143,6 +145,7 @@ export function createProject(opts: NewProjectOptions = {}): MapProject {
       zoom: opts.zoom ?? 5,
       rotation: 0,
     },
+    workingExtent: opts.workingExtent ?? null,
     layers,
     territories: {},
     settlements: {},

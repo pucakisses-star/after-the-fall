@@ -231,6 +231,72 @@ export function validAreaFor(id: string): [number, number, number, number] {
   return findPreset(id)?.validArea ?? WHOLE_WORLD;
 }
 
+/**
+ * The window reference geography is clipped to: the projection's own domain of
+ * validity, narrowed by the map's working extent when it has one.
+ *
+ * Both constraints exist for the same reason — geometry that cannot usefully be
+ * drawn should never reach the renderer — so they are applied as one box.
+ */
+export function renderExtentFor(
+  projectionId: string,
+  workingExtent: [number, number, number, number] | null | undefined,
+): [number, number, number, number] {
+  const valid = validAreaFor(projectionId);
+  if (!workingExtent) return valid;
+  return [
+    Math.max(valid[0], workingExtent[0]),
+    Math.max(valid[1], workingExtent[1]),
+    Math.min(valid[2], workingExtent[2]),
+    Math.min(valid[3], workingExtent[3]),
+  ];
+}
+
+/**
+ * Project a WGS84 box into a projection's own units.
+ *
+ * The edges are sampled rather than just the corners: most projections curve the
+ * parallels, so a box's projected bounds are wider than its four corners suggest
+ * and using only those would clip the region the box was meant to contain.
+ */
+export function projectExtent(
+  projectionId: string,
+  lonLat: [number, number, number, number],
+): [number, number, number, number] | null {
+  registerProjections();
+  if (projectionId === 'EPSG:4326') return [...lonLat];
+  const to = proj4('EPSG:4326', projectionId);
+  const [west, south, east, north] = lonLat;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const steps = 48;
+  for (let i = 0; i <= steps; i++) {
+    const f = i / steps;
+    const lon = west + (east - west) * f;
+    const lat = south + (north - south) * f;
+    for (const [x0, y0] of [
+      [lon, south],
+      [lon, north],
+      [west, lat],
+      [east, lat],
+    ] as [number, number][]) {
+      try {
+        const [x, y] = to.forward([x0, y0]) as [number, number];
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      } catch {
+        /* outside the projection's domain; simply does not contribute */
+      }
+    }
+  }
+  return Number.isFinite(minX) ? [minX, minY, maxX, maxY] : null;
+}
+
 export function findPreset(id: string): ProjectionPreset | undefined {
   return PROJECTION_PRESETS.find((p) => p.id === id);
 }

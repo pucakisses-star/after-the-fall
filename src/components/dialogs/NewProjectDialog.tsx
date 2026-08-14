@@ -8,7 +8,24 @@ import { useProjectStore } from '@/state/projectStore';
 import { toast, useUIStore } from '@/state/uiStore';
 import { writeSnapshot } from '@/persistence/db';
 
-const STARTING_POINTS: { id: string; label: string; description: string; basemaps: string[]; center: [number, number]; zoom: number }[] = [
+interface StartingPoint {
+  id: string;
+  label: string;
+  description: string;
+  basemaps: string[];
+  center: [number, number];
+  zoom: number;
+  /**
+   * WGS84 [w, s, e, n] the map is about, for the regional starting points.
+   *
+   * Reference geography outside it is never loaded into the renderer and the
+   * view cannot pan or zoom past it. Clear it under Project → Map area to go
+   * global; nothing about it is baked into the document beyond this one field.
+   */
+  extent?: [number, number, number, number];
+}
+
+const STARTING_POINTS: StartingPoint[] = [
   {
     id: 'blank',
     label: 'Blank map',
@@ -34,10 +51,10 @@ const STARTING_POINTS: { id: string; label: string; description: string; basemap
     zoom: 2.4,
   },
   {
-    id: 'world-detailed',
-    label: 'World — detailed coastlines (1:10m)',
+    id: 'americas-detailed',
+    label: 'The Americas — detailed (1:10m)',
     description:
-      'Natural Earth at its finest published scale: coastlines, lakes, rivers and 7,000 cities, ~7× the detail of 1:50m. Around 12 MB, so use it when mapping a region rather than the globe.',
+      'Natural Earth at its finest published scale — coastlines, lakes, rivers, boundaries and cities, ~7× the detail of 1:50m — cropped to the western hemisphere so nothing off-continent is drawn and the view stays on the subject.',
     basemaps: [
       'world-land-10m',
       'world-lakes-10m',
@@ -45,8 +62,11 @@ const STARTING_POINTS: { id: string; label: string; description: string; basemap
       'world-countries-10m',
       'world-places-10m',
     ],
-    center: [0, 20],
-    zoom: 2.4,
+    center: [-80, 10],
+    zoom: 2.8,
+    // Cape Horn to the Arctic, Alaska to the eastern seaboard, with enough water
+    // either side that the coasts are not flush against the frame.
+    extent: [-172, -58, -28, 74],
   },
   {
     id: 'us-states',
@@ -58,6 +78,9 @@ const STARTING_POINTS: { id: string; label: string; description: string; basemap
     basemaps: ['world-land-10m', 'us-states', 'world-lakes-10m', 'world-rivers-10m', 'world-places-10m'],
     center: [-96, 39],
     zoom: 4.2,
+    // The lower 48 plus Alaska, Hawaii and the near neighbours a US map needs
+    // to make sense of its own borders.
+    extent: [-172, 10, -52, 74],
   },
   {
     id: 'us-counties',
@@ -73,6 +96,7 @@ const STARTING_POINTS: { id: string; label: string; description: string; basemap
     ],
     center: [-96, 39],
     zoom: 4.2,
+    extent: [-172, 10, -52, 74],
   },
 ];
 
@@ -100,6 +124,7 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
     };
     project.basemap = chosen.basemaps.map((sourceId) => ({ sourceId, visible: true, opacity: 1 }));
     project.view = { center: chosen.center, zoom: chosen.zoom, rotation: 0 };
+    project.workingExtent = chosen.extent ?? null;
     useProjectStore.getState().loadProject(project, null);
     onClose();
   };

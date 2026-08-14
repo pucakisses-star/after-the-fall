@@ -19,7 +19,9 @@ import type {
   MultiPolygon,
   Point,
   Polygon,
+  Position,
 } from 'geojson';
+import { intersection } from './operations';
 import type { BasemapSource } from '@/model/types';
 
 /**
@@ -277,7 +279,79 @@ function isDrawableFeature(f: Feature): f is BasemapFeature {
 }
 
 /**
- * Drop the parts of a feature that fall outside a projection's domain of validity.
+ * A part with this many vertices is cut at the bounding box instead of clipped
+ * geometrically. Eurasia is around 60,000 points in the 1:10m file, and putting
+ * that through a polygon-clipping pass on every load costs more than the tidier
+ * edge is worth. Cutting it whole is the behaviour that shipped before clipping
+ * existed, so the fallback is never worse than what it replaced.
+ */
+const CLIP_VERTEX_LIMIT = 40_000;
+
+interface PartInfo {
+  box: [number, number, number, number];
+  vertices: number;
+  /** True when a ring steps across the antimeridian, making `box` meaningless. */
+  wraps: boolean;
+  /** Whether any vertex falls inside the window — the fallback test when it does. */
+  anyInside: boolean;
+}
+
+/**
+ * Measure a part against a window in one pass: bounding box, size, whether it
+ * crosses the antimeridian, and whether any of it is actually inside.
+ *
+ * The wrap matters. Afro-Eurasia is one part of Natural Earth's 1:10m land file
+ * with a ring that steps from +180° to −180°, so its plain bounding box is the
+ * entire globe and every window on Earth "intersects" it. That is how the whole
+ * of Eurasia turns up in a map of the Americas.
+ */
+function describePart(coords: unknown, valid: [number, number, number, number]): PartInfo {
+  let w = Infinity;
+  let s = Infinity;
+  let e = -Infinity;
+  let n = -Infinity;
+  let vertices = 0;
+  let wraps = false;
+  let anyInside = false;
+  const walkRing = (ring: unknown[]): void => {
+    let prev: number | null = null;
+    for (const c of ring) {
+      if (!Array.isArray(c) || typeof c[0] !== 'number') {
+        walk(c);
+        continue;
+      }
+      const [x, y] = c as number[];
+      vertices++;
+      if (x < w) w = x;
+      if (x > e) e = x;
+      if (y < s) s = y;
+      if (y > n) n = y;
+      if (prev !== null && Math.abs(x - prev) > 180) wraps = true;
+      prev = x;
+      if (!anyInside && x >= valid[0] && x <= valid[2] && y >= valid[1] && y <= valid[3]) {
+        anyInside = true;
+      }
+    }
+  };
+  const walk = (c: unknown): void => {
+    if (!Array.isArray(c)) return;
+    if (Array.isArray(c[0]) && typeof (c[0] as unknown[])[0] === 'number') {
+      walkRing(c);
+      return;
+    }
+    for (const v of c) walk(v);
+  };
+  if (Array.isArray(coords) && typeof (coords as unknown[])[0] === 'number') {
+    walkRing([coords]);
+  } else {
+    walk(coords);
+  }
+  return { box: [w, s, e, n], vertices, wraps, anyInside };
+}
+
+/**
+ * Restrict a reference feature to a geographic window — the projection's domain
+ * of validity, narrowed by the map's working extent.
  *
  * This has to work at *part* level, not feature level: Natural Earth's land file
  * is a single Feature holding a MultiPolygon of four thousand landmasses, so
@@ -286,50 +360,102 @@ function isDrawableFeature(f: Feature): f is BasemapFeature {
  * conic it projects to a ring 66,000 km across that fills the canvas with land
  * colour — which is why the ocean disappears unless the part is removed first.
  *
+ * Parts fully inside are passed through untouched, parts fully outside are
+ * dropped, and a polygon straddling the edge is genuinely cut to it. That last
+ * case matters once a map has a working extent: Russia's bounding box reaches
+ * −180° because of Chukotka, so a bounding-box test alone admits the whole of
+ * Eurasia into a map of the Americas — visible the moment you zoom out far
+ * enough to see past the crop.
+ *
  * Returns `null` when nothing survives.
  */
 export function clipToValidArea(
   f: BasemapFeature,
   valid: [number, number, number, number],
 ): BasemapFeature | null {
-  const intersects = (box: [number, number, number, number]) =>
-    !(box[2] < valid[0] || box[0] > valid[2] || box[3] < valid[1] || box[1] > valid[3]);
-
-  const bboxOf = (coords: unknown): [number, number, number, number] => {
-    let w = Infinity;
-    let s = Infinity;
-    let e = -Infinity;
-    let n = -Infinity;
-    const walk = (c: unknown): void => {
-      if (!Array.isArray(c)) return;
-      if (typeof c[0] === 'number') {
-        const [x, y] = c as number[];
-        if (x < w) w = x;
-        if (x > e) e = x;
-        if (y < s) s = y;
-        if (y > n) n = y;
-        return;
-      }
-      for (const v of c) walk(v);
-    };
-    walk(coords);
-    return [w, s, e, n];
-  };
+  /**
+   * A part reaches the window if its box overlaps — unless the part wraps the
+   * antimeridian, in which case its box spans the globe and says nothing, and
+   * the only trustworthy answer is whether any of its vertices are in there.
+   */
+  const reaches = (p: PartInfo) =>
+    p.wraps
+      ? p.anyInside
+      : !(p.box[2] < valid[0] || p.box[0] > valid[2] || p.box[3] < valid[1] || p.box[1] > valid[3]);
+  const contained = (box: [number, number, number, number]) =>
+    box[0] >= valid[0] && box[1] >= valid[1] && box[2] <= valid[2] && box[3] <= valid[3];
 
   const g = f.geometry;
 
-  // Single-part geometry: keep or drop whole.
-  if (g.type === 'Polygon' || g.type === 'LineString' || g.type === 'Point') {
-    return intersects(bboxOf(g.coordinates)) ? f : null;
+  // Points and lines are kept or dropped whole. A point is exact either way, and
+  // cutting a river at the frame gains nothing a viewport clip does not already
+  // do — the cost of the wrong answer is a few strokes of ink, not a continent
+  // of fill.
+  if (g.type === 'Point' || g.type === 'LineString') {
+    return reaches(describePart(g.coordinates, valid)) ? f : null;
+  }
+  if (g.type === 'MultiPoint' || g.type === 'MultiLineString') {
+    const parts = (g.coordinates as unknown[]).filter((part) => reaches(describePart(part, valid)));
+    if (parts.length === 0) return null;
+    if (parts.length === (g.coordinates as unknown[]).length) return f;
+    return { ...f, geometry: { ...g, coordinates: parts } } as BasemapFeature;
   }
 
-  const kept = (g.coordinates as unknown[]).filter((part) => intersects(bboxOf(part)));
-  if (kept.length === 0) return null;
-  if (kept.length === (g.coordinates as unknown[]).length) return f; // untouched
+  const window: Polygon = {
+    type: 'Polygon',
+    coordinates: [
+      [
+        [valid[0], valid[1]],
+        [valid[2], valid[1]],
+        [valid[2], valid[3]],
+        [valid[0], valid[3]],
+        [valid[0], valid[1]],
+      ],
+    ],
+  };
 
+  const source = g.type === 'Polygon' ? [g.coordinates] : (g.coordinates as Position[][][]);
+  const kept: Position[][][] = [];
+  let changed = false;
+
+  for (const part of source) {
+    const info = describePart(part, valid);
+    if (!reaches(info)) {
+      changed = true;
+      continue;
+    }
+    // A wrapping part is never cut: the clipper works in the plane, so a ring
+    // that steps across the antimeridian would come back as a band smeared
+    // across the whole window.
+    if (contained(info.box) || info.wraps || info.vertices > CLIP_VERTEX_LIMIT) {
+      kept.push(part);
+      continue;
+    }
+    let cut: ReturnType<typeof intersection> = null;
+    try {
+      cut = intersection({ type: 'Polygon', coordinates: part }, window);
+    } catch {
+      cut = null;
+    }
+    if (!cut) {
+      // The clip failed or came back empty. Empty is the common case — a part
+      // whose box overlaps the window but whose land does not — so drop it.
+      changed = true;
+      continue;
+    }
+    changed = true;
+    if (cut.type === 'Polygon') kept.push(cut.coordinates);
+    else for (const p of cut.coordinates) kept.push(p);
+  }
+
+  if (kept.length === 0) return null;
+  if (!changed) return f;
   return {
     ...f,
-    geometry: { ...g, coordinates: kept },
+    geometry:
+      kept.length === 1
+        ? { type: 'Polygon', coordinates: kept[0] }
+        : { type: 'MultiPolygon', coordinates: kept },
   } as BasemapFeature;
 }
 

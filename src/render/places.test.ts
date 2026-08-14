@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { metersPerUnit, placeLabelVisible, placeRankStyle } from './olStyles';
+import { metersPerUnit, placeDotVisible, placeLabelVisible, placeRankStyle } from './olStyles';
 import { settlementTypeFromNaturalEarth } from '@/io/importers';
 
 describe('placeRankStyle', () => {
@@ -60,6 +60,34 @@ describe('placeLabelVisible', () => {
     const zoomingIn = [20000, 5000, 1000, 200, 40, 8];
     for (let i = 1; i < zoomingIn.length; i++) {
       expect(count(zoomingIn[i])).toBeGreaterThanOrEqual(count(zoomingIn[i - 1]));
+    }
+  });
+});
+
+describe('placeDotVisible', () => {
+  it('marks only major cities at continental scale', () => {
+    const continental = 27_000; // metres per pixel: the Americas on a screen
+    expect(placeDotVisible(1, continental)).toBe(true);
+    expect(placeDotVisible(8, continental)).toBe(false);
+  });
+
+  it('marks everything once you are looking at a region', () => {
+    const regional = 100; // metres per pixel: roughly a county on a screen
+    // 0–10 is the range Natural Earth actually uses in the bundled file.
+    for (let rank = 0; rank <= 10; rank++) {
+      expect(placeDotVisible(rank, regional)).toBe(true);
+    }
+  });
+
+  it('always shows a place before it shows its name', () => {
+    // A named dot that is not drawn would be a floating label; the dot rule has
+    // to be the more permissive of the two at every scale.
+    for (const resolution of [1, 10, 100, 1000, 5000, 20000, 40000]) {
+      for (let rank = 0; rank <= 11; rank++) {
+        if (placeLabelVisible(rank, resolution)) {
+          expect(placeDotVisible(rank, resolution)).toBe(true);
+        }
+      }
     }
   });
 });

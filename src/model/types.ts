@@ -455,6 +455,22 @@ export interface MapProject {
   meta: ProjectMeta;
   projection: ProjectionSettings;
   view: SavedView;
+  /**
+   * The area of the world this map is about, as WGS84 [w, s, e, n] — or null
+   * for "everywhere", which is the default.
+   *
+   * A map of the Americas has no use for Asian coastlines or seven thousand
+   * European cities: they cost time to project and draw, they widen the view so
+   * far that the subject is a thumbnail, and they are visual noise in every
+   * export. Setting this crops the reference geography, and stops the view
+   * panning or zooming out past the region — the map behaves like a sheet of
+   * paper of a definite size rather than a window onto the whole globe.
+   *
+   * It bounds nothing about the *document*: territories, labels and settlements
+   * outside it are still drawn, still exported and still editable. This is a
+   * statement about what the reference data is for, not a fence around your work.
+   */
+  workingExtent: [number, number, number, number] | null;
   layers: Record<UUID, MapLayer>;
   territories: Record<UUID, Territory>;
   settlements: Record<UUID, Settlement>;

@@ -18,7 +18,15 @@ import type { MapProject, UUID } from '@/model/types';
 export type EntityKey = 'territories' | 'settlements' | 'linearFeatures' | 'labels' | 'layers';
 
 /** Top-level document fields replaced wholesale. */
-export type DocKey = 'styles' | 'meta' | 'projection' | 'timeline' | 'basemap' | 'oceanColor' | 'landColor';
+export type DocKey =
+  | 'styles'
+  | 'meta'
+  | 'projection'
+  | 'timeline'
+  | 'basemap'
+  | 'workingExtent'
+  | 'oceanColor'
+  | 'landColor';
 
 export interface EntityPatch {
   key: EntityKey;

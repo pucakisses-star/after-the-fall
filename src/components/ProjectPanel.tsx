@@ -99,6 +99,7 @@ export function ProjectPanel() {
         <p className="hint">The ocean colour fills the map background and the exported page.</p>
       </Section>
 
+      <MapAreaSection />
       <BasemapSection />
       <ReferenceImageSection />
 
@@ -177,6 +178,83 @@ function CustomProjection() {
         </button>
       </div>
     </div>
+  );
+}
+
+/** Formats a WGS84 bound the way an atlas index would: 74°W, 42°N. */
+function bearing(value: number, axis: 'lon' | 'lat'): string {
+  const suffix = axis === 'lon' ? (value < 0 ? 'W' : 'E') : value < 0 ? 'S' : 'N';
+  return `${Math.abs(value).toFixed(0)}°${suffix}`;
+}
+
+/**
+ * The area of the world the map is about (§4).
+ *
+ * Cropping is not cosmetic: reference geography outside the box is never
+ * projected or drawn, and the view cannot pan or zoom past it, so a regional map
+ * both draws faster and stops behaving like a window onto the whole globe.
+ */
+function MapAreaSection() {
+  const project = useProjectStore((s) => s.project);
+  const controller = useMapController();
+  const extent = project.workingExtent;
+
+  const setExtent = (next: [number, number, number, number] | null, label: string) =>
+    commit(label, (r) => r.setDoc('workingExtent', next));
+
+  return (
+    <Section title="Map area">
+      <p className="hint" style={{ marginTop: 0 }}>
+        {extent
+          ? `Cropped to ${bearing(extent[0], 'lon')}–${bearing(extent[2], 'lon')}, ` +
+            `${bearing(extent[1], 'lat')}–${bearing(extent[3], 'lat')}.`
+          : 'The whole world. Reference geography is loaded and drawn everywhere.'}
+      </p>
+      <div className="btn-row">
+        <button
+          className="btn"
+          onClick={() => {
+            const visible = controller?.visibleExtentLonLat();
+            if (!visible) {
+              toast('Could not read the current view.', 'error');
+              return;
+            }
+            // A margin, not the exact box: cropping to precisely what is on
+            // screen leaves a map that cannot be panned at all, so the first
+            // thing you would want to do is undo it.
+            const padX = (visible[2] - visible[0]) * 0.08;
+            const padY = (visible[3] - visible[1]) * 0.08;
+            setExtent(
+              [
+                Math.max(-180, visible[0] - padX),
+                Math.max(-90, visible[1] - padY),
+                Math.min(180, visible[2] + padX),
+                Math.min(90, visible[3] + padY),
+              ],
+              'Crop map area',
+            );
+            toast('Cropped the map to the current view.', 'success');
+          }}
+        >
+          Crop to current view
+        </button>
+        <button
+          className="btn"
+          disabled={!extent}
+          onClick={() => {
+            setExtent(null, 'Uncrop map area');
+            toast('The map covers the whole world again.', 'success');
+          }}
+        >
+          Whole world
+        </button>
+      </div>
+      <p className="hint">
+        Cropping keeps a small margin around what you can see. It bounds the reference data and the
+        view, never the document — territories, cities and labels you have drawn outside it stay put,
+        stay editable and still export.
+      </p>
+    </Section>
   );
 }
 

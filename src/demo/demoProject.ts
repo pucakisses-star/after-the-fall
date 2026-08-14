@@ -163,6 +163,11 @@ export async function buildDemoProject(): Promise<DemoBuildResult> {
   project.meta.author = 'After the Fall — demonstration map';
   project.oceanColor = '#cddfe9';
   project.landColor = '#e8e0cf';
+  // This map is about North America, so it says so: Eurasian coastlines and
+  // cities are never projected or drawn, and the view stays on the subject
+  // instead of letting you zoom out to a thumbnail in the Atlantic. Project →
+  // Map area clears it if you want to extend the alternate history elsewhere.
+  project.workingExtent = [-130, 12, -50, 62];
   // Land and lakes together, never lakes alone: a lake is filled with the water
   // colour, so without land beneath it there is nothing for it to be a hole in
   // and it vanishes into the sea. With both on, the neighbouring land reads as

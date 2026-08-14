@@ -48,6 +48,20 @@ are ever loaded, and nothing is downloaded from the internet at runtime.
 Pick the scale that matches your zoom: 1:110m for a world map, 1:10m for a region. 1:10m carries
 roughly seven times the vertex density of 1:50m and is the finest scale Natural Earth publishes.
 
+**Most maps are about somewhere, not everywhere.** Project → Map area crops the map to a region:
+reference geography outside it is never projected or drawn, and the view cannot pan or zoom past it,
+so a map of the Americas behaves like a sheet of paper of a definite size rather than a window onto
+the globe that happens to be pointed at Brazil. The regional starting points come cropped; **Crop to
+current view** and **Whole world** set it by hand at any time. Cropping bounds the reference data and
+the view, never the document — anything you have drawn outside it stays put, stays editable and still
+exports.
+
+Cropping is what makes the antimeridian matter. Afro-Eurasia is a single part of Natural Earth's
+1:10m land file whose ring steps from +180° to −180°, so its bounding box is the entire globe and
+every window on Earth "overlaps" it — which is how the whole of Eurasia turns up in a map of the
+Americas. Parts that wrap are therefore tested vertex by vertex instead, parts that straddle the edge
+are genuinely cut to it, and parts fully inside are passed through untouched.
+
 Reference geography is clipped to the projection's **domain of validity** before it is drawn, per
 polygon part rather than per feature. This matters more than it sounds: Natural Earth ships all land
 as a single feature holding a MultiPolygon of four thousand landmasses, and in a conic projection
@@ -67,8 +81,9 @@ along the river itself via text-on-path.
 
 **Cities and towns** draw as quiet hollow dots with grey names, below the map's own settlements, so
 real places read as a backdrop you are placing your own against rather than competing with them.
-Names thin out as you zoom out — 7,300 cities would otherwise pile into an unreadable mat — and the
-layer is decluttered so a name is dropped rather than overprinted. The screen and the SVG exporter
+Both the dots and the names thin out as you zoom out — 7,300 of either is a stipple, not a map — with
+dots surviving a few ranks longer than names, so a city appears as a mark first and earns its name
+further in. The layer is decluttered, so a name is dropped rather than overprinted. The screen and the SVG exporter
 ask the same function which names survive at a given scale, so a printed map names the cities the
 editor showed. Converting them makes each one an editable settlement: Natural Earth marks national
 and regional capitals, so each arrives with the right symbol, and population, country and region
@@ -111,6 +126,7 @@ handled:
 | City circles, larger capital symbols | `render/symbols.ts`, one definition drawn to canvas *and* SVG |
 | Disputed-territory hatching | `render/patterns.ts`, one definition → `CanvasPattern` *and* `<pattern>` |
 | Latitude/longitude grid, frame, title, scale bar | `export/svgExport.ts` and the OpenLayers graticule layer |
+| A map that is about a region, not the globe | `workingExtent` crops the reference data and bounds the view |
 | Large maps suitable for print | Export up to 12000 × 8000 raster, unbounded vector |
 
 ---

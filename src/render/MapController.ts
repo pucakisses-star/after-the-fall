@@ -27,10 +27,16 @@ import Stroke from 'ol/style/Stroke';
 import { defaults as defaultInteractions } from 'ol/interaction';
 import { defaults as defaultControls, ScaleLine } from 'ol/control';
 import type { Coordinate } from 'ol/coordinate';
+import type Projection from 'ol/proj/Projection';
 import type { Pixel } from 'ol/pixel';
 import type { Geometry, Point as OlPoint } from 'ol/geom';
 
-import { olProjectionFor, registerProjections, validAreaFor } from '@/geo/projections';
+import {
+  olProjectionFor,
+  projectExtent,
+  registerProjections,
+  renderExtentFor,
+} from '@/geo/projections';
 import { clipToValidArea, findBasemapSource, loadBasemap } from '@/geo/basemap';
 import {
   resolveLinearStyle,
@@ -50,6 +56,41 @@ import { useUIStore } from '@/state/uiStore';
 import type { MapLabel, MapProject, ProjectionSettings, TimelineRange, UUID } from '@/model/types';
 
 const geojson = new GeoJSON();
+
+/** Comparable form of a working extent, for spotting a change cheaply. */
+function extentKey(e: [number, number, number, number] | null | undefined): string {
+  return e ? e.join(',') : '';
+}
+
+/**
+ * The map view, honouring the project's working extent when it has one.
+ *
+ * A working extent is a hard boundary for the view, not a hint: OpenLayers keeps
+ * the viewport inside it, which caps how far out you can zoom as well as how far
+ * you can pan. That is exactly what makes a regional map feel like a sheet of
+ * paper — a map of the Americas should not be able to shrink itself into a
+ * corner of the Pacific. `showFullExtent` keeps the whole region reachable when
+ * its shape does not match the window's.
+ */
+function buildView(
+  project: MapProject,
+  projection: Projection,
+  seed: { center: Coordinate; zoom: number; rotation: number },
+): View {
+  const bounds = project.workingExtent
+    ? projectExtent(projection.getCode(), project.workingExtent)
+    : null;
+  return new View({
+    projection,
+    center: seed.center,
+    zoom: seed.zoom,
+    rotation: seed.rotation,
+    constrainResolution: false,
+    multiWorld: false,
+    showFullExtent: true,
+    ...(bounds ? { extent: bounds } : {}),
+  });
+}
 
 export interface HitResult {
   id: UUID;
@@ -94,6 +135,7 @@ export class MapController {
   private lastOceanColor: string | null = null;
   private lastWaterLandKey: string | null = null;
   private lastProjectionId: string | null = null;
+  private lastWorkingExtent: string | null = null;
   private lastStyles: unknown = null;
   private lastLayers: unknown = null;
 
@@ -167,14 +209,10 @@ export class MapController {
         this.labelLayer,
         this.overlayLayer,
       ],
-      view: new View({
-        projection,
-        center: this.toView(project.view.center, projection.getCode()),
+      view: buildView(project, projection, {
+        center: transformCoord(project.view.center, 'EPSG:4326', projection.getCode()),
         zoom: project.view.zoom,
         rotation: project.view.rotation,
-        constrainResolution: false,
-        multiWorld: false,
-        showFullExtent: true,
       }),
       controls: defaultControls({ attribution: false, rotate: false, zoom: false }).extend([
         new ScaleLine({ units: 'metric', bar: true, steps: 4, text: false, minWidth: 90 }),
@@ -183,6 +221,7 @@ export class MapController {
     });
 
     this.lastProjectionId = project.projection.id;
+    this.lastWorkingExtent = extentKey(project.workingExtent);
     this.attachStore();
     this.attachPointer();
     this.syncAll(project, true);
@@ -273,18 +312,15 @@ export class MapController {
   }
 
   setProjection(settings: ProjectionSettings): void {
+    const project = useProjectStore.getState().project;
     const projection = olProjectionFor(settings);
     const old = this.map.getView();
     const centreLonLat = this.toLonLat(old.getCenter() ?? [0, 0]);
 
-    const extent = projection.getExtent();
-    const view = new View({
-      projection,
+    const view = buildView(project, projection, {
       center: transformCoord(centreLonLat, 'EPSG:4326', projection.getCode()),
       zoom: old.getZoom() ?? 4,
       rotation: old.getRotation(),
-      multiWorld: false,
-      showFullExtent: true,
     });
     this.map.setView(view);
     this.lastProjectionId = settings.id;
@@ -292,9 +328,45 @@ export class MapController {
     // Geometry is stored in WGS84, so every source has to be rebuilt in the new
     // projected space. Cheaper and far less error-prone than transforming in place.
     this.invalidateAll();
-    this.syncAll(useProjectStore.getState().project, true);
-    if (extent && !this.territorySource.getFeatures().length) {
-      view.fit(extent, { size: this.map.getSize(), padding: [20, 20, 20, 20] });
+    this.syncAll(project, true);
+    // With nothing drawn yet, frame the region the map is about — or the whole
+    // projection when it is about everywhere.
+    const frame = project.workingExtent
+      ? projectExtent(projection.getCode(), project.workingExtent)
+      : projection.getExtent();
+    if (frame && !this.territorySource.getFeatures().length) {
+      view.fit(frame, { size: this.map.getSize(), padding: [20, 20, 20, 20] });
+    }
+    this.attachPointer();
+  }
+
+  /**
+   * Rebuild the view and reload reference geography after the working extent
+   * changes. Both depend on it: the view for its bounds, the reference layers
+   * for what was clipped away before they were ever projected.
+   */
+  private applyWorkingExtent(project: MapProject): void {
+    const old = this.map.getView();
+    const projection = old.getProjection();
+    const view = buildView(project, projection, {
+      center: old.getCenter() ?? [0, 0],
+      zoom: old.getZoom() ?? 4,
+      rotation: old.getRotation(),
+    });
+    this.map.setView(view);
+
+    // Dropped rather than restyled: what was clipped away is not in the source
+    // at all. `syncAll` refills them on the way past.
+    for (const layer of this.basemapLayers.values()) this.map.removeLayer(layer);
+    this.basemapLayers.clear();
+
+    // Frame the new region when one is set. Clearing the crop deliberately does
+    // not move the view: "the map now covers the world" is not a request to be
+    // thrown out to the far edge of the projection, which for a conic is a cone
+    // tens of thousands of kilometres wide.
+    if (project.workingExtent) {
+      const frame = projectExtent(projection.getCode(), project.workingExtent);
+      if (frame) view.fit(frame, { size: this.map.getSize(), padding: [20, 20, 20, 20] });
     }
     this.attachPointer();
   }
@@ -320,8 +392,14 @@ export class MapController {
 
   syncAll(project: MapProject, force: boolean): void {
     if (project.projection.id !== this.lastProjectionId) {
+      this.lastWorkingExtent = extentKey(project.workingExtent);
       this.setProjection(project.projection);
       return;
+    }
+    if (extentKey(project.workingExtent) !== this.lastWorkingExtent) {
+      this.lastWorkingExtent = extentKey(project.workingExtent);
+      this.applyWorkingExtent(project);
+      // Falls through: everything below is independent of the extent.
     }
     if (force || this.lastStyles !== project.styles) {
       clearStyleCaches();
@@ -515,10 +593,13 @@ export class MapController {
           if (this.basemapLayers.has(entry.sourceId)) return;
 
           const proj = this.projection();
-          // Drop anything outside the projection's domain of validity. Without
-          // this, Antarctica in a North-America conic projects to a ring tens of
-          // thousands of kilometres across and floods the map with land colour.
-          const valid = validAreaFor(proj);
+          // Drop anything outside the projection's domain of validity, and
+          // outside the map's working extent when it has one. Without the first,
+          // Antarctica in a North-America conic projects to a ring tens of
+          // thousands of kilometres across and floods the map with land colour;
+          // without the second, a map of the Americas pays to project and draw
+          // every Eurasian coastline and city it will never show.
+          const valid = renderExtentFor(proj, project.workingExtent);
           const olFeatures: Feature<Geometry>[] = [];
           for (let i = 0; i < features.length; i++) {
             const clipped = clipToValidArea(features[i], valid);
@@ -914,6 +995,59 @@ export class MapController {
       padding: [paddingPx, paddingPx, paddingPx, paddingPx],
       duration: 350,
     });
+  }
+
+  /**
+   * What the window currently shows, as WGS84 [w, s, e, n].
+   *
+   * The interior is sampled on a grid, not just the corners. Two things make the
+   * corners insufficient. A projection that curves the parallels bulges the
+   * visible area past them, so a corner-only box cuts off geography the user can
+   * plainly see. And a conic's inverse is only meaningful inside its cone: a
+   * viewport wider than the cone contains coordinates that invert to a longitude
+   * on the far side of the world, which would silently report the visible area
+   * as the entire globe. Each sample is therefore projected back and discarded
+   * unless it lands where it started.
+   */
+  visibleExtentLonLat(): [number, number, number, number] | null {
+    const view = this.map.getView();
+    const size = this.map.getSize();
+    if (!size) return null;
+    const code = view.getProjection().getCode();
+    const [minX, minY, maxX, maxY] = view.calculateExtent(size);
+    const tolerance = Math.max(maxX - minX, maxY - minY) * 1e-6;
+
+    let west = Infinity;
+    let south = Infinity;
+    let east = -Infinity;
+    let north = -Infinity;
+    const steps = 16;
+    for (let i = 0; i <= steps; i++) {
+      for (let j = 0; j <= steps; j++) {
+        const x = minX + ((maxX - minX) * i) / steps;
+        const y = minY + ((maxY - minY) * j) / steps;
+        try {
+          const [lon, lat] = transformCoord([x, y], code, 'EPSG:4326');
+          if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+          if (Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+          const back = transformCoord([lon, lat], 'EPSG:4326', code);
+          if (Math.abs(back[0] - x) > tolerance || Math.abs(back[1] - y) > tolerance) continue;
+          west = Math.min(west, lon);
+          east = Math.max(east, lon);
+          south = Math.min(south, lat);
+          north = Math.max(north, lat);
+        } catch {
+          /* off the edge of the projection; contributes nothing */
+        }
+      }
+    }
+    if (!Number.isFinite(west) || east <= west || north <= south) return null;
+    return [
+      Math.max(-180, west),
+      Math.max(-90, south),
+      Math.min(180, east),
+      Math.min(90, north),
+    ];
   }
 
   /** Fit everything that exists in the document. */

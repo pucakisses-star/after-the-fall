@@ -250,23 +250,35 @@ describe('exportSvg', () => {
       [
         {
           type: 'Feature',
-          properties: { name: 'Hamletton', scalerank: 10, labelrank: 10 },
+          // Well down Natural Earth's hierarchy: scaleranks run 0–10 in the
+          // bundled file and labelranks 0–8, so this is a small regional town.
+          properties: { name: 'Hamletton', scalerank: 10, labelrank: 5 },
           geometry: { type: 'Point', coordinates: [15, 5] },
         },
       ],
     );
     const project = sampleProject();
     project.basemap = [{ sourceId: 'test-places-minor', visible: true, opacity: 1 }];
-    // A whole hemisphere in 400 px: nothing this minor earns a name.
-    const svg = await exportSvg(project, {
+    // A whole hemisphere in 400 px: nothing this minor earns a name — or, at
+    // this scale, a mark at all.
+    const wide = await exportSvg(project, {
       ...OPTIONS,
       width: 400,
       height: 300,
       extent: [-180, -80, 0, 80],
       includeBasemap: true,
     });
-    expect(svg).toContain('<circle'); // the dot still marks the place
-    expect(svg).not.toContain('Hamletton');
+    expect(wide).not.toContain('Hamletton');
+    expect(wide).not.toContain('id="basemap-test-places-minor"');
+
+    // The same town on a sheet forty kilometres across: marked, and named.
+    const close = await exportSvg(project, {
+      ...OPTIONS,
+      extent: [14.8, 4.8, 15.2, 5.2],
+      includeBasemap: true,
+    });
+    expect(close).toContain('id="basemap-test-places-minor"');
+    expect(close).toContain('>Hamletton</text>');
   });
 
   it('handles an empty project without throwing', async () => {
