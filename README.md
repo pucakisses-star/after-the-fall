@@ -12,7 +12,9 @@ following the river, graticule, frame, title block and scale bar — is produced
 
 ![The editor](docs/editor.png)
 
-*The editor itself: tool palette, layer/hierarchy tree, map, and object inspector.*
+*The editor on first launch: the realms of the post-apocalyptic Americas, with the tool palette,
+layer/hierarchy tree, map and object inspector. Every realm is an ordinary territory — dissolved from
+real subdivisions, arranged in an empire → vassal hierarchy, and editable like anything you draw.*
 
 ---
 
