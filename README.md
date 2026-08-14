@@ -52,6 +52,11 @@ drawn on top of its colour or it disappears underneath, which is both how atlase
 only way the layer is usable for tracing. Lakes convert into water-styled territories and rivers
 into editable river features, so reference water can become part of the document in one step.
 
+Rivers are weighted by Natural Earth's `scalerank` on screen and in the export, so trunk rivers
+carry the eye and tributaries stay quiet rather than every watercourse drawing as the same hairline.
+Converted rivers keep that ranking (major rivers get the heavier line style) and their names run
+along the river itself via text-on-path.
+
 For anything finer than 1:10m — a single bay, an estuary, a city shoreline — import your own:
 [GSHHG](https://www.soest.hawaii.edu/pwessel/gshhg/) has full-resolution global coastlines, and an
 OSM extract clipped to your area works too. Both come in as GeoJSON through **Import**.

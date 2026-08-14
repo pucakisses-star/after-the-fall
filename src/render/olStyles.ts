@@ -13,6 +13,7 @@ import Stroke from 'ol/style/Stroke';
 import CircleStyle from 'ol/style/Circle';
 import { toCss } from '@/model/color';
 import { canvasPattern, dashArray, doubleLineWidths, isDoubleLine } from './patterns';
+import type { StyleFunction } from 'ol/style/Style';
 import type { LineStyle, TerritoryStyle } from '@/model/types';
 
 const territoryCache = new Map<string, Style[]>();
@@ -192,18 +193,58 @@ export const BASEMAP_Z: Record<BasemapRole, number> = {
 export function basemapRoleStyle(
   role: BasemapRole,
   project: { landColor: string; oceanColor: string },
-): Style {
+): Style | StyleFunction {
   switch (role) {
     case 'land':
       return basemapStyle(project.landColor, '#8b7f6a', 0.8);
     case 'lakes':
       return basemapStyle(project.oceanColor, '#7d9bad', 0.6);
     case 'rivers':
-      // No fill: these are centrelines, not areas.
-      return new Style({ stroke: new Stroke({ color: '#8fb0c4', width: 1, lineCap: 'round', lineJoin: 'round' }) });
+      // A style *function*, not a fixed style: width follows importance.
+      return basemapRiverStyle();
     default:
       return basemapStyle('rgba(0,0,0,0)', '#a89c86', 0.4);
   }
+}
+
+/**
+ * Reference rivers, weighted by Natural Earth's `scalerank`.
+ *
+ * A flat hairline for every watercourse is close to useless: the Mississippi and
+ * an unnamed creek read identically, and at 1 px in pale blue neither reads at
+ * all over land. Ranking them restores the hierarchy a drawn map has — trunk
+ * rivers carry the eye, tributaries stay quiet.
+ *
+ * Natural Earth's rank runs roughly 0 (major) to 11 (minor); anything missing is
+ * treated as minor.
+ */
+export function basemapRiverStyle(): StyleFunction {
+  const cache = new Map<number, Style>();
+  return (feature) => {
+    const source = feature.get('basemap') as { properties?: Record<string, unknown> } | undefined;
+    const raw = Number(source?.properties?.scalerank);
+    const rank = Number.isFinite(raw) ? Math.max(0, Math.min(11, Math.round(raw))) : 9;
+
+    let style = cache.get(rank);
+    if (!style) {
+      const width = rank <= 2 ? 1.9 : rank <= 4 ? 1.4 : rank <= 6 ? 1.0 : rank <= 8 ? 0.75 : 0.55;
+      // Minor watercourses also fade, so the hierarchy reads by weight and tone
+      // rather than by weight alone.
+      const color = rank <= 4 ? '#6f9cb8' : rank <= 8 ? '#87abc2' : '#9dbccd';
+      style = new Style({ stroke: new Stroke({ color, width, lineCap: 'round', lineJoin: 'round' }) });
+      cache.set(rank, style);
+    }
+    return style;
+  };
+}
+
+/** Stroke width and colour for a river rank, shared with the SVG exporter. */
+export function riverRankStyle(rank: number): { width: number; color: string } {
+  const r = Number.isFinite(rank) ? Math.max(0, Math.min(11, Math.round(rank))) : 9;
+  return {
+    width: r <= 2 ? 1.9 : r <= 4 ? 1.4 : r <= 6 ? 1.0 : r <= 8 ? 0.75 : 0.55,
+    color: r <= 4 ? '#6f9cb8' : r <= 8 ? '#87abc2' : '#9dbccd',
+  };
 }
 
 /** Vertex handles shown by the vertex-edit tool. */

@@ -18,6 +18,7 @@ import { findBasemapSource, isPolygonFeature, loadBasemap } from '@/geo/basemap'
 import { registerProjections } from '@/geo/projections';
 import { computeBorders } from '@/render/borders';
 import { svgPatternDef, svgPatternId, dashArray, doubleLineWidths, isDoubleLine } from '@/render/patterns';
+import { riverRankStyle } from '@/render/olStyles';
 import { symbolToSvg } from '@/render/symbols';
 import { toCss } from '@/model/color';
 import { STYLE_IDS } from '@/model/defaults';
@@ -268,17 +269,34 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
         const role = findBasemapSource(entry.sourceId)?.role ?? 'custom';
 
         if (role === 'rivers') {
-          const paths: string[] = [];
+          // Bucket by importance so trunk rivers export heavier than tributaries,
+          // exactly as they render on screen. Grouping by rank also keeps the
+          // markup small: one <g> per weight instead of per river.
+          const byRank = new Map<number, string[]>();
           for (const f of features) {
             if (isPolygonFeature(f)) continue;
             const d = lineToPath(f.geometry as LineString | MultiLineString, p);
-            if (d) paths.push(`<path d="${d}"/>`);
+            if (!d) continue;
+            const raw = Number((f.properties as Record<string, unknown> | undefined)?.scalerank);
+            const rank = Number.isFinite(raw) ? Math.max(0, Math.min(11, Math.round(raw))) : 9;
+            const bucket = byRank.get(rank);
+            if (bucket) bucket.push(`<path d="${d}"/>`);
+            else byRank.set(rank, [`<path d="${d}"/>`]);
           }
-          if (paths.length) {
+          if (byRank.size) {
+            // Minor first, so major rivers land on top where they cross.
+            const inner = [...byRank.entries()]
+              .sort((a, b) => b[0] - a[0])
+              .map(([rank, paths]) => {
+                const { width, color } = riverRankStyle(rank);
+                return (
+                  `<g stroke="${color}" stroke-width="${num(width * scale)}">${paths.join('')}</g>`
+                );
+              })
+              .join('');
             basemapRivers.push(
-              `<g id="basemap-${esc(entry.sourceId)}" fill="none" stroke="#8fb0c4" ` +
-                `stroke-width="${num(1 * scale)}" stroke-linecap="round" stroke-linejoin="round" ` +
-                `opacity="${entry.opacity}">${paths.join('')}</g>`,
+              `<g id="basemap-${esc(entry.sourceId)}" fill="none" stroke-linecap="round" ` +
+                `stroke-linejoin="round" opacity="${entry.opacity}">${inner}</g>`,
             );
           }
           continue;
