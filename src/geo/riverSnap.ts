@@ -206,7 +206,23 @@ function courseBetween(line: Position[], from: Hit, to: Hit): Position[] {
  * and a self-crossing ring resolves differently for the realm on each side,
  * which tore unclaimed slivers along every snapped river.
  */
-export function snapToRivers(arc: Position[], index: RiverIndex, tolerance: number): Position[] {
+export function snapToRivers(
+  arc: Position[],
+  index: RiverIndex,
+  tolerance: number,
+  /**
+   * Whether the frontier may pass over a point at all.
+   *
+   * A frontier belongs to the two realms either side of it, and those two are
+   * the only ones that move when it moves. A course that strays over a third
+   * realm's ground takes both of them with it — the third realm's own outline
+   * has no idea any of this happened, so the two arrive on top of it and the
+   * map tears. This is what actually went wrong the first time; the corridor
+   * below narrows how far a course may wander, but narrow is not the same as
+   * "not onto somebody else's land".
+   */
+  allowed?: (p: Position) => boolean,
+): Position[] {
   if (arc.length < 4 || tolerance <= 0) return arc;
 
   const hits = arc.map((p) => nearestRiver(index, p, tolerance));
@@ -238,7 +254,8 @@ export function snapToRivers(arc: Position[], index: RiverIndex, tolerance: numb
       const stretch = arc.slice(i, j + 1);
       const course = courseBetween(index.lines[hit.line], hits[i]!, hits[j]!);
       const strays = course.some((p) => distanceToLine(p, stretch) > tolerance * CORRIDOR);
-      if (!strays && lengthOf(course) >= lengthOf(stretch) * ALONG_SHARE) {
+      const trespasses = allowed ? course.some((p) => !allowed(p)) : false;
+      if (!strays && !trespasses && lengthOf(course) >= lengthOf(stretch) * ALONG_SHARE) {
         if (i === 0) out.push(arc[0]);
         for (const p of course) out.push(p);
         if (j === arc.length - 1) out.push(arc[arc.length - 1]);

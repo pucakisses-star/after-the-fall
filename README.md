@@ -104,14 +104,26 @@ replaces any stretch running within about a cell of a river with that river's ow
 right — the Ohio from Evansville past Louisville, the Mississippi from Memphis to Natchez, meander for
 meander — and it is wrong, because it snaps per realm rather than per border.
 
-Two realms hold the same frontier only when it is a single unbroken run in *both* their rings. Where a
-ring visits the same neighbour twice, one side snaps two short arcs and the other one long one, and
-they disagree by however far the river is. Simplifying and rounding survive that split because they
-move a line by at most a cell; snapping moves it as far as the river, so it does not. Measured over
-the whole map: 114 neighbouring pairs overlapping and 15,331 km² of torn ground, against 6 pairs and
-2,735 km² with it off — unclaimed slivers strung along every snapped river, which is exactly what it
-looked like. `riverSnap: 0` is therefore the default. Doing it properly means deriving the shared
-borders first, snapping each one once, and rebuilding both realms from the result.
+It tears the map two ways, and only one of them can be fixed from inside the snap. A course can
+stray onto a *third* realm's ground, which takes the two realms either side of the frontier with it
+while the third stands still; that one is fixed, by refusing any course that leaves the ground those
+two hold between them. And two realms are handed the *same* arc only when the frontier between them
+is a single unbroken run in both their rings — where it is not, one side snaps two short arcs and the
+other one long one, and they part company by however far the river is. Simplifying and rounding
+survive that split because they move a line by at most a cell; snapping moves it as far as the river.
+
+Measured over the whole map, growing it three ways:
+
+| | neighbouring pairs overlapping | torn ground |
+|---|---|---|
+| off | 4 | 2,211 km² |
+| on, unguarded | 114 | 15,331 km² |
+| on, guarded | 79 | 18,785 km² |
+
+So the guard is worth having and nowhere near enough. `riverSnap: 0` stays the default until the
+frontier is snapped once per *border* rather than once per realm — derive the shared chains from the
+lattice first, snap each one, rebuild both realms from the result. A straight border is wrong; a torn
+one is broken.
 
 **A realm ends where the land does.** The lattice claims whole cells, so a coastal realm's outline
 runs up to half a cell — twenty kilometres — out to sea, and rounding it off pushes it further: a

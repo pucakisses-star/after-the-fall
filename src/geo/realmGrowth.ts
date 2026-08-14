@@ -22,6 +22,14 @@
 
 import { clipToLand, indexLand, type LandPolygon } from './coastline';
 import { indexRivers, snapToRivers, type RiverIndex } from './riverSnap';
+
+/** Everything the frontier dressing needs to put a border on a river. */
+interface RiverBorders {
+  index: RiverIndex;
+  tolerance: number;
+  /** Who holds the ground under a point: a realm index, or -1 for nobody. */
+  ownerAt: (p: Position) => number;
+}
 import type { MultiPolygon, Polygon, Position } from 'geojson';
 
 // Re-exported because it is part of this module's own signature: callers pass
@@ -102,24 +110,29 @@ export const DEFAULT_GROWTH: Omit<GrowthOptions, 'extent'> = {
   riverCost: 1.4,
   coastBonus: 0.45,
   smoothing: 4,
-  // Off, and it has to stay off until the frontier is snapped once per border
-  // rather than once per realm.
+  // Still off, and now for a measured reason rather than a guessed one.
   //
-  // Putting a frontier onto the river it runs beside is right, and looks it —
-  // the Ohio and the Mississippi come out as real river borders. But snapping
-  // happens per realm, on that realm's own arc, and two realms only hold the
-  // *same* arc when the frontier between them is a single unbroken run in both
-  // their rings. Where a ring visits the same neighbour twice, one side snaps
-  // two short arcs and the other one long one, and they disagree by however far
-  // the river is. Measured over the whole map: 114 neighbouring pairs
-  // overlapping and 15,331 km2 of torn ground, against 6 pairs and 2,735 km2
-  // before it — unclaimed slivers strung along every snapped river.
+  // Snapping a frontier onto its river tears the map two ways, and only one of
+  // them can be fixed from inside the snap. A course can stray onto a third
+  // realm's ground, which takes the two realms either side of the frontier with
+  // it while the third stands still — that one is fixed, by refusing any course
+  // that leaves the ground the two of them hold. And two realms are only handed
+  // the *same* arc when the frontier between them is a single unbroken run in
+  // both their rings, which is not always true; where it is not, one side snaps
+  // two short arcs and the other one long one and they part company by however
+  // far the river is.
   //
-  // Simplifying and rounding survive the same split because they move a line by
-  // at most a cell; snapping moves it as far as the river, so it does not.
-  // The fix is to derive the shared borders first, snap each one once, and
-  // rebuild both realms from the result — not to snap each realm separately and
-  // hope the two agree.
+  // Measured over the whole map, growing it both ways:
+  //
+  //   off              4 neighbouring pairs overlapping,  2,211 km2
+  //   on, unguarded  114 pairs,                          15,331 km2
+  //   on, guarded     79 pairs,                          18,785 km2
+  //
+  // So the guard is worth having and is nowhere near enough. The rest needs the
+  // frontier snapped once per *border* rather than once per realm: derive the
+  // shared chains from the lattice first, snap each one, and rebuild both
+  // realms from the result. Until that exists this stays at 0, because a
+  // straight border is wrong and a torn one is broken.
   riverSnap: 0,
   clipToCoast: true,
 };
@@ -580,9 +593,18 @@ export function growRealms(
   // Rivers are indexed at the snapping tolerance, so a frontier vertex only
   // ever meets the handful of segments that could possibly be near it.
   const tolerance = Math.max(0, options.riverSnap) * options.cellSize;
-  const riverBorders =
+  const riverBorders: RiverBorders | null =
     tolerance > 0 && riverLines.length
-      ? { index: indexRivers(riverLines, tolerance), tolerance }
+      ? {
+          index: indexRivers(riverLines, tolerance),
+          tolerance,
+          ownerAt: ([x, y]) => {
+            const c = Math.floor((x - grid.west) / grid.cell);
+            const r = Math.floor((y - grid.south) / grid.cell);
+            if (c < 0 || r < 0 || c >= grid.cols || r >= grid.rows) return -1;
+            return owner[r * grid.cols + c];
+          },
+        }
       : null;
   seeds.forEach((seed, index) => {
     claimed.set(seed.id, taken[index]);
@@ -610,7 +632,7 @@ function traceRealm(
   owner: Int32Array,
   realm: number,
   smoothing: number,
-  rivers: { index: RiverIndex; tolerance: number } | null,
+  rivers: RiverBorders | null,
 ): Polygon | MultiPolygon | null {
   const { cols, rows, cell, west, south } = grid;
   // Edges keyed by their start corner, each carrying who is on the *other* side.
@@ -668,7 +690,7 @@ function traceRealm(
     // hairline across the map with no territory behind it.
     const closed = closeRing(ring);
     if (closed.length >= 4 && Math.abs(signedArea(closed)) > cell * cell * 0.25) {
-      rings.push(dressRing(closed, neighbours, cell, smoothing, rivers));
+      rings.push(dressRing(closed, neighbours, cell, smoothing, rivers, realm));
     }
   }
   if (rings.length === 0) return null;
@@ -697,15 +719,24 @@ function dressRing(
   neighbours: number[],
   cell: number,
   smoothing: number,
-  rivers: { index: RiverIndex; tolerance: number } | null,
+  rivers: RiverBorders | null,
+  realmIndex: number,
 ): Position[] {
-  const dress = (arc: Position[]): Position[] => {
+  const dress = (arc: Position[], neighbour: number): Position[] => {
     const smoothed = smoothOpen(simplifyOpen(arc, cell * 1.3), smoothing);
-    return rivers ? snapToRivers(smoothed, rivers.index, rivers.tolerance) : smoothed;
+    if (!rivers) return smoothed;
+    // The frontier may only be moved over ground the two realms either side of
+    // it hold between them, or over nobody's. Anywhere else and both of them
+    // walk onto a third realm that is not moving with them.
+    const ours = (p: Position) => {
+      const owner = rivers.ownerAt(p);
+      return owner === -1 || owner === realmIndex || owner === neighbour;
+    };
+    return snapToRivers(smoothed, rivers.index, rivers.tolerance, ours);
   };
   if (neighbours.length !== ring.length - 1) {
     // A ring that did not close cleanly; treat it as one arc rather than guess.
-    return dress(ring);
+    return dress(ring, neighbours[0] ?? -1);
   }
 
   // Cut points: where the neighbouring region changes between one edge and the
@@ -724,7 +755,7 @@ function dressRing(
   // it closed while the rest is free to find a river.
   if (cuts.length === 0) {
     const smoothed = smoothRing(simplifyRing(ring, cell * 1.3), smoothing);
-    return rivers ? closeRing(snapToRivers(smoothed, rivers.index, rivers.tolerance)) : smoothed;
+    return rivers ? closeRing(dress(smoothed, neighbours[0] ?? -1)) : smoothed;
   }
 
   const out: Position[] = [];
@@ -736,7 +767,7 @@ function dressRing(
       arc.push(ring[i]);
       if (i === to) break;
     }
-    const dressed = dress(arc);
+    const dressed = dress(arc, neighbours[from]);
     // Drop the shared endpoint so arcs join without a duplicate vertex.
     out.push(...(k === 0 ? dressed : dressed.slice(1)));
   }
