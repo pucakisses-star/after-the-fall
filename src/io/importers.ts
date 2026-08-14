@@ -19,8 +19,17 @@ import type {
 } from 'geojson';
 
 import { newId } from '@/model/ids';
+import { STYLE_IDS } from '@/model/defaults';
 import { dissolve, interiorPoint } from '@/geo/operations';
-import { basemapFeatureName, loadBasemap, registerUserSource, type PolyFeature } from '@/geo/basemap';
+import {
+  basemapFeatureName,
+  findBasemapSource,
+  linesOf,
+  loadBasemap,
+  polygonsOf,
+  registerUserSource,
+  type BasemapFeature,
+} from '@/geo/basemap';
 import { commit, getProject, makeLabel, makeLinear, makeSettlement, makeTerritory } from '@/state/projectStore';
 import { useUIStore, toast } from '@/state/uiStore';
 import type { BorderStyleKind, PoliticalType, Settlement, Territory, UUID } from '@/model/types';
@@ -357,6 +366,12 @@ export interface ConvertOptions {
   sourceId: string;
   /** Restrict to features whose name is in this set. Empty = everything. */
   includeNames?: Set<string>;
+  /**
+   * Restrict by position in the dataset. Preferred over `includeNames` for
+   * datasets with duplicate names — Natural Earth's lakes include hundreds of
+   * unnamed ones and several genuine "Trout Lake"s, so a name is not an id.
+   */
+  includeIndices?: Set<number>;
   /** Restrict US counties to these two-digit state FIPS codes. */
   includeStateFips?: Set<string>;
   politicalType?: PoliticalType;
@@ -373,8 +388,16 @@ export interface ConvertOptions {
  * selected feature becomes a `Territory` with full geometry and its own record.
  */
 export async function convertBasemapToTerritories(opts: ConvertOptions): Promise<number> {
-  const features = await loadBasemap(opts.sourceId);
-  const filtered = features.filter((f) => {
+  const all = await loadBasemap(opts.sourceId);
+  const role = findBasemapSource(opts.sourceId)?.role;
+
+  // Rivers are lines; send them down the linear path instead of silently
+  // producing nothing.
+  if (role === 'rivers') return convertBasemapToRivers(opts);
+
+  const features = polygonsOf(all);
+  const filtered = features.filter((f, i) => {
+    if (opts.includeIndices?.size && !opts.includeIndices.has(i)) return false;
     if (opts.includeNames?.size && !opts.includeNames.has(basemapFeatureName(f))) return false;
     if (opts.includeStateFips?.size) {
       const id = typeof f.id === 'number' ? String(f.id) : String(f.id ?? '');
@@ -388,19 +411,23 @@ export async function convertBasemapToTerritories(opts: ConvertOptions): Promise
 
   const project = getProject();
   const createLabels = opts.createLabels ?? true;
+  const isWater = role === 'lakes';
 
   commit('Import reference geography', (r) => {
     for (const f of filtered) {
       const name = basemapFeatureName(f);
       const t = makeTerritory(project, f.geometry as Polygon | MultiPolygon, {
         name,
-        politicalType: opts.politicalType ?? 'province',
-        borderKind: opts.borderKind ?? 'provincial',
-        parentId: opts.parentId ?? null,
+        // A lake is a water body, not a polity — give it the water style class
+        // and a quiet shoreline rather than a political border weight.
+        politicalType: isWater ? 'lake' : (opts.politicalType ?? 'province'),
+        borderKind: isWater ? 'historical' : (opts.borderKind ?? 'provincial'),
+        styleClassId: isWater ? STYLE_IDS.territoryWater : undefined,
+        parentId: isWater ? null : (opts.parentId ?? null),
       });
-      if (createLabels) {
+      if (createLabels && name && name !== 'Unnamed') {
         const label = makeLabel(project, { type: 'Point', coordinates: interiorPoint(t.geometry) }, {
-          kind: 'region',
+          kind: isWater ? 'water' : 'region',
           text: name,
           attachedToId: t.id,
         });
@@ -416,6 +443,66 @@ export async function convertBasemapToTerritories(opts: ConvertOptions): Promise
 }
 
 /**
+ * Turn a river dataset into editable `LinearFeature`s (spec §3, §16: "it should
+ * be easy to import existing river datasets").
+ *
+ * Natural Earth splits long rivers into several named segments, so each one
+ * arrives as its own feature; merging them is left to the user because which
+ * segments count as "the same river" is an editorial decision.
+ */
+export async function convertBasemapToRivers(opts: ConvertOptions): Promise<number> {
+  const all = await loadBasemap(opts.sourceId);
+  const rivers = linesOf(all).filter((f, i) => {
+    if (opts.includeIndices?.size && !opts.includeIndices.has(i)) return false;
+    if (opts.includeNames?.size && !opts.includeNames.has(basemapFeatureName(f))) return false;
+    return true;
+  });
+  if (rivers.length === 0) return 0;
+
+  const project = getProject();
+  const createLabels = opts.createLabels ?? true;
+
+  commit('Import rivers', (r) => {
+    for (const f of rivers) {
+      const name = basemapFeatureName(f);
+      // Natural Earth's scalerank doubles as a rough importance ranking, so the
+      // major rivers come in heavier than the minor ones.
+      const rank = Number((f.properties as Record<string, unknown>)?.scalerank ?? 8);
+      const lf = makeLinear(project, f.geometry as LineString | MultiLineString, {
+        name,
+        kind: rank <= 5 ? 'river-major' : 'river',
+      });
+      if (createLabels && name && name !== 'Unnamed') {
+        const label = makeLabel(project, { type: 'Point', coordinates: midpointOf(f) }, {
+          kind: 'river',
+          text: name,
+          attachedToId: lf.id,
+          pathId: lf.id, // run the name along the river itself (§12, §16)
+        });
+        r.set('linearFeatures', { ...lf, labelId: label.id });
+        r.set('labels', label);
+      } else {
+        r.set('linearFeatures', lf);
+      }
+    }
+  });
+
+  return rivers.length;
+}
+
+/** A point roughly halfway along a line, used to anchor its label. */
+function midpointOf(f: BasemapFeature): [number, number] {
+  const g = f.geometry;
+  const line =
+    g.type === 'LineString' ? g.coordinates
+    : g.type === 'MultiLineString' ? g.coordinates[Math.floor(g.coordinates.length / 2)]
+    : null;
+  if (!line || line.length === 0) return [0, 0];
+  const c = line[Math.floor(line.length / 2)];
+  return [c[0], c[1]];
+}
+
+/**
  * Build one dissolved territory from a set of reference features — the fast path
  * behind the demo map and behind "select several counties → make a kingdom" (§55).
  */
@@ -425,7 +512,7 @@ export async function territoryFromBasemapFeatures(
   init: Partial<Territory>,
   keepSubdivisions = true,
 ): Promise<UUID | null> {
-  const features = await loadBasemap(sourceId);
+  const features = polygonsOf(await loadBasemap(sourceId));
   const wanted = new Set(names.map((n) => n.toLowerCase()));
   const matched = features.filter((f) => wanted.has(basemapFeatureName(f).toLowerCase()));
   if (matched.length === 0) return null;
@@ -467,14 +554,26 @@ export async function territoryFromBasemapFeatures(
 
 export function registerImportedBasemap(filename: string, text: string): string {
   const fc = parseVectorFile(filename, text);
-  const polygons = fc.features.filter(
-    (f): f is PolyFeature => !!f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'),
-  );
-  if (polygons.length === 0) throw new Error('That file contains no polygons to use as a basemap.');
+  const usable = fc.features.filter((f): f is BasemapFeature => {
+    const t = f.geometry?.type;
+    return t === 'Polygon' || t === 'MultiPolygon' || t === 'LineString' || t === 'MultiLineString';
+  });
+  if (usable.length === 0) {
+    throw new Error('That file contains no polygons or lines to use as reference geography.');
+  }
+  // Lines-only files are almost always rivers or roads; treat them as such so
+  // they render as strokes rather than as empty fills.
+  const allLines = usable.every((f) => f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString');
   const id = `user-${newId()}`;
   registerUserSource(
-    { id, name: filename.replace(/\.[^.]+$/, ''), url: '', format: 'geojson', role: 'custom' },
-    polygons,
+    {
+      id,
+      name: filename.replace(/\.[^.]+$/, ''),
+      url: '',
+      format: 'geojson',
+      role: allLines ? 'rivers' : 'custom',
+    },
+    usable,
   );
   return id;
 }

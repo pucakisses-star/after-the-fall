@@ -25,7 +25,7 @@ npm run dev          # http://localhost:5173
 
 ```bash
 npm run build        # typecheck + production bundle into dist/
-npm run test         # 88 unit tests over the geometry, history and export code
+npm run test         # 96 unit tests over the geometry, history and export code
 npm run typecheck    # tsc, no emit
 ```
 
@@ -36,17 +36,29 @@ real geography.
 Reference geography ships in `public/data/` and is fetched lazily — only the datasets you switch on
 are ever loaded, and nothing is downloaded from the internet at runtime.
 
-| Dataset | Scale | Size | Good for |
+| Dataset | 1:110m | 1:50m | 1:10m |
 |---|---|---|---|
-| World coastlines / countries | 1:110m | 55–105 KB | the whole globe at a glance |
-| World coastlines / countries | 1:50m | 530–740 KB | continents and large countries |
-| World coastlines / countries | 1:10m | 2.9–3.5 MB | regions — ~7× the vertex density of 1:50m |
-| US states / counties (Census) | — | 110–820 KB | North America, finer than Natural Earth there |
+| World coastlines | 55 KB | 530 KB | 2.9 MB |
+| Country boundaries | 105 KB | 740 KB | 3.5 MB |
+| Lakes | 7 KB | 200 KB | 1.2 MB |
+| Rivers | 11 KB | 285 KB | 2.0 MB |
+| US states / counties (Census) | — | — | 110 / 820 KB |
 
-1:10m is the finest scale Natural Earth publishes. For anything more detailed than that — a single
-bay, an estuary, a city shoreline — import your own: [GSHHG](https://www.soest.hawaii.edu/pwessel/gshhg/)
-has full-resolution global coastlines, and an OSM extract clipped to your area works too. Both come
-in as GeoJSON through **Import**.
+Pick the scale that matches your zoom: 1:110m for a world map, 1:10m for a region. 1:10m carries
+roughly seven times the vertex density of 1:50m and is the finest scale Natural Earth publishes.
+
+**Lakes render over the political fills, rivers over those** — a lake inside a country has to be
+drawn on top of its colour or it disappears underneath, which is both how atlases set water and the
+only way the layer is usable for tracing. Lakes convert into water-styled territories and rivers
+into editable river features, so reference water can become part of the document in one step.
+
+For anything finer than 1:10m — a single bay, an estuary, a city shoreline — import your own:
+[GSHHG](https://www.soest.hawaii.edu/pwessel/gshhg/) has full-resolution global coastlines, and an
+OSM extract clipped to your area works too. Both come in as GeoJSON through **Import**.
+
+The lake and river files are built by `node scripts/build-basemaps.mjs`, which fetches Natural
+Earth, drops its ~60 localised name fields per feature and converts to quantized TopoJSON (a 3–4×
+reduction). The output is committed, so a clone needs no network.
 
 ### Deploying to GitHub Pages
 
@@ -70,6 +82,7 @@ handled:
 | Pastel political fills | `TerritoryStyle.fillColor` + the palette generator (`geo/palette.ts`) |
 | Thin internal boundaries, heavy sovereign ones | Borders are **derived**, not drawn — `render/borders.ts` |
 | Detailed coastline geometry | Natural Earth 1:110m/1:50m/1:10m and US Census data, convertible to editable territories |
+| Lakes and rivers | Natural Earth water at three scales, drawn over the political fills |
 | Widely-spaced country names | Per-glyph text rendering with real tracking — `render/textRenderer.ts` |
 | Sea labels on broad curves, river labels along rivers | Text-on-path, same module |
 | City circles, larger capital symbols | `render/symbols.ts`, one definition drawn to canvas *and* SVG |
@@ -330,9 +343,9 @@ overrides.
 settlements with ten symbol types, rivers and roads, labels with real tracking, halos, rotation,
 manual placement and text-on-path, graticule, frames, title block, scale bar.
 
-**Data** — real world/US geography, GeoJSON/TopoJSON/KML/GPX/CSV import, basemap→territory
-conversion, reference-image tracing, spreadsheet data table, search, GeoJSON/CSV/SVG/PNG export,
-IndexedDB storage with autosave and recovery snapshots.
+**Data** — real world/US geography including lakes and rivers, GeoJSON/TopoJSON/KML/GPX/CSV import,
+basemap→territory conversion, reference-image tracing, spreadsheet data table, search,
+GeoJSON/CSV/SVG/PNG export, IndexedDB storage with autosave and recovery snapshots.
 
 **Timeline** — start/end years on every feature, and the slider filters territories, subdivisions,
 borders, settlements, lines and labels on both the screen and the export.
@@ -356,7 +369,7 @@ Stated plainly rather than stubbed out:
 
 ## Tests (§64)
 
-88 tests covering the parts where a silent regression would be expensive:
+96 tests covering the parts where a silent regression would be expensive:
 
 * `geo/operations.test.ts` — union, difference, intersection, dissolve, polygon splitting along
   straight and bent lines, simplification, interior-point placement for concave shapes.
@@ -371,6 +384,8 @@ Stated plainly rather than stubbed out:
   scaling, XML escaping, timeline filtering.
 * `geo/winkelTripel.test.ts` — forward/inverse round-trips for all four numerically-inverted
   projections, plus the symmetry and pseudocylindrical properties each one should have.
+* `geo/basemap.test.ts` — area/line discrimination for the water datasets, dataset registration and
+  the state-name lookup.
 
 ---
 

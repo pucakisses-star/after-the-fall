@@ -10,7 +10,14 @@
 
 import { feature as topoFeature } from 'topojson-client';
 import type { Topology, GeometryCollection } from 'topojson-specification';
-import type { Feature, FeatureCollection, MultiPolygon, Polygon } from 'geojson';
+import type {
+  Feature,
+  FeatureCollection,
+  LineString,
+  MultiLineString,
+  MultiPolygon,
+  Polygon,
+} from 'geojson';
 import type { BasemapSource } from '@/model/types';
 
 /**
@@ -72,6 +79,54 @@ export const BUILTIN_BASEMAPS: BasemapSource[] = [
     role: 'countries',
   },
   {
+    id: 'world-lakes-110m',
+    name: 'Lakes — 1:110m (coarse)',
+    url: 'data/world/lakes-110m.json',
+    format: 'topojson',
+    objectName: 'lakes',
+    role: 'lakes',
+  },
+  {
+    id: 'world-lakes-50m',
+    name: 'Lakes — 1:50m (medium)',
+    url: 'data/world/lakes-50m.json',
+    format: 'topojson',
+    objectName: 'lakes',
+    role: 'lakes',
+  },
+  {
+    id: 'world-lakes-10m',
+    name: 'Lakes — 1:10m (detailed)',
+    url: 'data/world/lakes-10m.json',
+    format: 'topojson',
+    objectName: 'lakes',
+    role: 'lakes',
+  },
+  {
+    id: 'world-rivers-110m',
+    name: 'Rivers — 1:110m (coarse)',
+    url: 'data/world/rivers-110m.json',
+    format: 'topojson',
+    objectName: 'rivers',
+    role: 'rivers',
+  },
+  {
+    id: 'world-rivers-50m',
+    name: 'Rivers — 1:50m (medium)',
+    url: 'data/world/rivers-50m.json',
+    format: 'topojson',
+    objectName: 'rivers',
+    role: 'rivers',
+  },
+  {
+    id: 'world-rivers-10m',
+    name: 'Rivers — 1:10m (detailed)',
+    url: 'data/world/rivers-10m.json',
+    format: 'topojson',
+    objectName: 'rivers',
+    role: 'rivers',
+  },
+  {
     id: 'us-states',
     name: 'US states (Census)',
     url: 'data/us/states-10m.json',
@@ -101,14 +156,23 @@ export const BASEMAP_SIZES: Record<string, string> = {
   'world-countries-110m': '105 KB',
   'world-countries-50m': '740 KB',
   'world-countries-10m': '3.5 MB',
+  'world-lakes-110m': '7 KB',
+  'world-lakes-50m': '200 KB',
+  'world-lakes-10m': '1.2 MB',
+  'world-rivers-110m': '11 KB',
+  'world-rivers-50m': '285 KB',
+  'world-rivers-10m': '2.0 MB',
   'us-states': '110 KB',
   'us-counties': '820 KB',
 };
 
 export type PolyFeature = Feature<Polygon | MultiPolygon, Record<string, unknown>>;
+export type LineFeature = Feature<LineString | MultiLineString, Record<string, unknown>>;
+/** Anything a reference dataset can hold. Lakes are polygons, rivers are lines. */
+export type BasemapFeature = PolyFeature | LineFeature;
 
-const cache = new Map<string, PolyFeature[]>();
-const inflight = new Map<string, Promise<PolyFeature[]>>();
+const cache = new Map<string, BasemapFeature[]>();
+const inflight = new Map<string, Promise<BasemapFeature[]>>();
 
 export function findBasemapSource(id: string): BasemapSource | undefined {
   return BUILTIN_BASEMAPS.find((b) => b.id === id) ?? userSources.get(id);
@@ -117,7 +181,7 @@ export function findBasemapSource(id: string): BasemapSource | undefined {
 /** Sources added at runtime by importing a file (spec §47). */
 const userSources = new Map<string, BasemapSource>();
 
-export function registerUserSource(source: BasemapSource, features: PolyFeature[]): void {
+export function registerUserSource(source: BasemapSource, features: BasemapFeature[]): void {
   userSources.set(source.id, source);
   cache.set(source.id, features);
 }
@@ -127,7 +191,7 @@ export function allBasemapSources(): BasemapSource[] {
 }
 
 /** Load (and memoise) a basemap dataset as WGS84 GeoJSON features. */
-export async function loadBasemap(id: string): Promise<PolyFeature[]> {
+export async function loadBasemap(id: string): Promise<BasemapFeature[]> {
   const hit = cache.get(id);
   if (hit) return hit;
   const pending = inflight.get(id);
@@ -141,17 +205,17 @@ export async function loadBasemap(id: string): Promise<PolyFeature[]> {
     if (!res.ok) throw new Error(`Could not load ${source.name} (${res.status})`);
     const json = await res.json();
 
-    let features: PolyFeature[];
+    let features: BasemapFeature[];
     if (source.format === 'topojson') {
       const topo = json as Topology;
       const objectName = source.objectName ?? Object.keys(topo.objects)[0];
       const obj = topo.objects[objectName];
       if (!obj) throw new Error(`TopoJSON object "${objectName}" not found in ${source.name}`);
       const collection = topoFeature(topo, obj as GeometryCollection) as unknown as FeatureCollection;
-      features = collection.features.filter(isPolygonFeature);
+      features = collection.features.filter(isDrawableFeature);
     } else {
       const collection = json as FeatureCollection;
-      features = (collection.features ?? []).filter(isPolygonFeature);
+      features = (collection.features ?? []).filter(isDrawableFeature);
     }
 
     cache.set(id, features);
@@ -163,15 +227,32 @@ export async function loadBasemap(id: string): Promise<PolyFeature[]> {
   return promise;
 }
 
-function isPolygonFeature(f: Feature): f is PolyFeature {
+export function isPolygonFeature(f: Feature): f is PolyFeature {
   return !!f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon');
+}
+
+export function isLineFeature(f: Feature): f is LineFeature {
+  return !!f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString');
+}
+
+function isDrawableFeature(f: Feature): f is BasemapFeature {
+  return isPolygonFeature(f) || isLineFeature(f);
+}
+
+/** Polygon-only view of a dataset, for the operations that need areas. */
+export function polygonsOf(features: BasemapFeature[]): PolyFeature[] {
+  return features.filter(isPolygonFeature);
+}
+
+export function linesOf(features: BasemapFeature[]): LineFeature[] {
+  return features.filter(isLineFeature);
 }
 
 /**
  * Best-effort display name for a basemap feature. Every dataset labels its rows
  * differently; check the usual suspects in order.
  */
-export function basemapFeatureName(f: PolyFeature): string {
+export function basemapFeatureName(f: BasemapFeature): string {
   const p = (f.properties ?? {}) as Record<string, unknown>;
   for (const key of ['name', 'NAME', 'NAME_EN', 'admin', 'ADMIN', 'title', 'Name']) {
     const v = p[key];
@@ -182,7 +263,7 @@ export function basemapFeatureName(f: PolyFeature): string {
 }
 
 /** US county FIPS codes start with the two-digit state code. */
-export function basemapFeatureStateFips(f: PolyFeature): string | null {
+export function basemapFeatureStateFips(f: BasemapFeature): string | null {
   const id = f.id;
   if (typeof id === 'string' && /^\d{4,5}$/.test(id)) return id.padStart(5, '0').slice(0, 2);
   if (typeof id === 'number') return String(id).padStart(5, '0').slice(0, 2);

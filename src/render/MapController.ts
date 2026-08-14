@@ -31,7 +31,7 @@ import type { Pixel } from 'ol/pixel';
 import type { Geometry, Point as OlPoint } from 'ol/geom';
 
 import { olProjectionFor, registerProjections } from '@/geo/projections';
-import { loadBasemap } from '@/geo/basemap';
+import { findBasemapSource, loadBasemap } from '@/geo/basemap';
 import {
   resolveLinearStyle,
   resolveSymbolStyle,
@@ -41,7 +41,7 @@ import {
 import { layerEffective } from '@/model/hierarchy';
 import { visibleInTime } from '@/model/timeline';
 import { computeBorders } from './borders';
-import { basemapStyle, clearStyleCaches, lineStyle, territoryStyle } from './olStyles';
+import { basemapRoleStyle, BASEMAP_Z, clearStyleCaches, lineStyle, territoryStyle } from './olStyles';
 import { drawSymbol } from './symbols';
 import { drawText, drawTextOnPath, boxContains, type TextBox } from './textRenderer';
 import { useProjectStore } from '@/state/projectStore';
@@ -91,6 +91,7 @@ export class MapController {
   private lastBorderKey: unknown = null;
   private lastBorderTimeKey: string | null = null;
   private lastOceanColor: string | null = null;
+  private lastLandColor: string | null = null;
   private lastProjectionId: string | null = null;
   private lastStyles: unknown = null;
   private lastLayers: unknown = null;
@@ -137,6 +138,13 @@ export class MapController {
     });
 
     this.overlayLayer = new VectorLayer({ source: this.overlaySource, zIndex: 1000 });
+
+    // One explicit stack, so nothing depends on insertion order.
+    this.territoryLayer.setZIndex(10);
+    this.borderLayer.setZIndex(20);
+    this.linearLayer.setZIndex(30);
+    this.settlementLayer.setZIndex(40);
+    this.labelLayer.setZIndex(50);
 
     // Label boxes are collected during the layer's render pass and swapped in
     // when it finishes, so hit-testing never sees a half-built frame.
@@ -323,6 +331,12 @@ export class MapController {
       this.syncLayerVisibility(project);
     }
     this.syncOcean(project);
+    if (force || this.lastLandColor !== project.landColor) {
+      this.lastLandColor = project.landColor;
+      for (const [id, layer] of this.basemapLayers) {
+        layer.setStyle(basemapRoleStyle(findBasemapSource(id)?.role ?? 'custom', project));
+      }
+    }
 
     this.syncTerritories(project);
     this.syncBorders(project);
@@ -467,20 +481,19 @@ export class MapController {
       }
       // Reserve the slot immediately so a slow fetch cannot queue twice.
       const source = new VectorSource({ wrapX: false });
-      const isLand = entry.sourceId.includes('land');
+      const role = findBasemapSource(entry.sourceId)?.role ?? 'custom';
       const layer = new VectorLayer({
         source,
         opacity: entry.opacity,
-        style: basemapStyle(
-          isLand ? project.landColor : 'rgba(0,0,0,0)',
-          isLand ? '#8b7f6a' : '#a89c86',
-          isLand ? 0.8 : 0.4,
-        ),
+        style: basemapRoleStyle(role, project),
         renderBuffer: 200,
+        // Explicit z so land sits under lakes, lakes under rivers, and every
+        // reference layer stays below the document's own features regardless of
+        // the order the user switches them on.
+        zIndex: BASEMAP_Z[role],
       });
       this.basemapLayers.set(entry.sourceId, layer);
-      // Basemaps go underneath everything else.
-      this.map.getLayers().insertAt(0, layer);
+      this.map.addLayer(layer);
 
       try {
         const features = await loadBasemap(entry.sourceId);

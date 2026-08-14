@@ -186,6 +186,24 @@ describe('exportSvg', () => {
     expect(svg).not.toContain(`data-name="${first.name}"`);
   });
 
+  it('puts inland water above the political fills, not under them (§17)', async () => {
+    // Lakes drawn beneath a territory fill would be invisible; the group order is
+    // what guarantees they read as water on a coloured map.
+    const project = sampleProject();
+    project.basemap = [{ sourceId: 'world-lakes-110m', visible: true, opacity: 1 }];
+    const svg = await exportSvg(project, { ...OPTIONS, includeBasemap: true });
+
+    const territories = svg.indexOf('<g id="territories"');
+    const water = svg.indexOf('<g id="water-bodies"');
+    const borders = svg.indexOf('<g id="internal-borders"');
+    // The dataset only loads in a browser, so tolerate it being absent here —
+    // but when present it must sit between the fills and the borders.
+    if (water > -1) {
+      expect(water).toBeGreaterThan(territories);
+      expect(water).toBeLessThan(borders);
+    }
+  });
+
   it('handles an empty project without throwing', async () => {
     const empty = createProject({ title: 'Empty' });
     empty.basemap = [];

@@ -159,6 +159,53 @@ export function basemapStyle(fill: string, stroke: string, width = 0.5): Style {
   });
 }
 
+export type BasemapRole = 'land' | 'countries' | 'states' | 'counties' | 'lakes' | 'rivers' | 'custom';
+
+/**
+ * Draw order for reference geography, interleaved with the document's own layers
+ * (territories 10, borders 20, lines 30, settlements 40, labels 50).
+ *
+ * Outlines used for tracing — land, countries, states, counties — sit at the
+ * bottom, underneath everything.
+ *
+ * Water is the exception. A lake inside a country has to be drawn *over* the
+ * political fill or it disappears under it, which is both how atlases set water
+ * and the only way the layer is usable as a reference at all. So lakes and
+ * rivers sit just above the territory fills and just below the borders, where a
+ * printed map would put them.
+ */
+export const BASEMAP_Z: Record<BasemapRole, number> = {
+  land: -100,
+  countries: -80,
+  states: -78,
+  counties: -76,
+  custom: -70,
+  lakes: 14,
+  rivers: 16,
+};
+
+/**
+ * Appearance per role. Lakes take the project's ocean colour so inland water
+ * matches the sea, which is what makes a lake read as water rather than as an
+ * oddly-coloured territory.
+ */
+export function basemapRoleStyle(
+  role: BasemapRole,
+  project: { landColor: string; oceanColor: string },
+): Style {
+  switch (role) {
+    case 'land':
+      return basemapStyle(project.landColor, '#8b7f6a', 0.8);
+    case 'lakes':
+      return basemapStyle(project.oceanColor, '#7d9bad', 0.6);
+    case 'rivers':
+      // No fill: these are centrelines, not areas.
+      return new Style({ stroke: new Stroke({ color: '#8fb0c4', width: 1, lineCap: 'round', lineJoin: 'round' }) });
+    default:
+      return basemapStyle('rgba(0,0,0,0)', '#a89c86', 0.4);
+  }
+}
+
 /** Vertex handles shown by the vertex-edit tool. */
 export function vertexStyle(): Style {
   return new Style({

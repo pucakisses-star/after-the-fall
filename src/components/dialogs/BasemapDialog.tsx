@@ -14,8 +14,11 @@ import {
   STATE_FIPS,
   allBasemapSources,
   basemapFeatureName,
+  findBasemapSource,
+  linesOf,
   loadBasemap,
-  type PolyFeature,
+  polygonsOf,
+  type BasemapFeature,
 } from '@/geo/basemap';
 import { convertBasemapToTerritories, territoryFromBasemapFeatures } from '@/io/importers';
 import { BORDER_HIERARCHY, POLITICAL_TYPES } from '@/model/defaults';
@@ -31,11 +34,12 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
   const project = useProjectStore((s) => s.project);
   const sources = allBasemapSources();
   const [sourceId, setSourceId] = useState(BUILTIN_BASEMAPS[4].id); // us-states
-  const [features, setFeatures] = useState<PolyFeature[] | null>(null);
+  const [features, setFeatures] = useState<BasemapFeature[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [stateFilter, setStateFilter] = useState('');
-  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [chosen, setChosen] = useState<Set<number>>(new Set());
+  const [namedOnly, setNamedOnly] = useState(true);
   const [mode, setMode] = useState<Mode>('divisions');
   const [name, setName] = useState('New Kingdom');
   const [politicalType, setPoliticalType] = useState<PoliticalType>('kingdom');
@@ -45,6 +49,14 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
 
   const isCounties = sourceId === 'us-counties';
+  const role = findBasemapSource(sourceId)?.role;
+  const isRivers = role === 'rivers';
+  const isLakes = role === 'lakes';
+
+  // "Dissolve into one state" is meaningless for river centrelines.
+  useEffect(() => {
+    if (isRivers && mode === 'single-state') setMode('divisions');
+  }, [isRivers, mode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,24 +71,40 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
     };
   }, [sourceId]);
 
+  /**
+   * The converter filters by position within the dataset's own kind, so index
+   * here means "nth polygon" or "nth line" — never the raw feature index, which
+   * would be wrong for a mixed file.
+   */
+  const candidates = useMemo(
+    () => (features ? (isRivers ? linesOf(features) : polygonsOf(features)) : []),
+    [features, isRivers],
+  );
+
+  const unnamedCount = useMemo(
+    () => candidates.filter((f) => basemapFeatureName(f) === 'Unnamed').length,
+    [candidates],
+  );
+
   const rows = useMemo(() => {
-    if (!features) return [];
     const q = filter.trim().toLowerCase();
-    return features
-      .map((f) => ({
+    return candidates
+      .map((f, index) => ({
+        index,
         name: basemapFeatureName(f),
         fips: typeof f.id === 'number' || typeof f.id === 'string' ? String(f.id).padStart(5, '0').slice(0, 2) : '',
       }))
+      .filter((r) => (namedOnly ? r.name !== 'Unnamed' : true))
       .filter((r) => (q ? r.name.toLowerCase().includes(q) : true))
       .filter((r) => (isCounties && stateFilter ? r.fips === stateFilter : true))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [features, filter, stateFilter, isCounties]);
+      .sort((a, b) => a.name.localeCompare(b.name) || a.index - b.index);
+  }, [candidates, filter, stateFilter, isCounties, namedOnly]);
 
-  const toggle = (n: string) => {
+  const toggle = (index: number) => {
     setChosen((prev) => {
       const next = new Set(prev);
-      if (next.has(n)) next.delete(n);
-      else next.add(n);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
       return next;
     });
   };
@@ -85,7 +113,7 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     try {
       if (mode === 'single-state') {
-        const names = chosen.size ? [...chosen] : rows.map((r) => r.name);
+        const names = (chosen.size ? rows.filter((r) => chosen.has(r.index)) : rows).map((r) => r.name);
         const id = await territoryFromBasemapFeatures(
           sourceId,
           names,
@@ -102,14 +130,22 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
       } else {
         const count = await convertBasemapToTerritories({
           sourceId,
-          includeNames: chosen.size ? chosen : undefined,
+          // Selecting nothing means "everything currently listed", which is what
+          // the button label promises.
+          includeIndices: new Set((chosen.size ? rows.filter((r) => chosen.has(r.index)) : rows).map((r) => r.index)),
           includeStateFips: isCounties && stateFilter ? new Set([stateFilter]) : undefined,
           politicalType: divisionType,
           borderKind,
         });
         if (count === 0) toast('Nothing matched that filter.', 'warn');
         else {
-          toast(`Imported ${count} editable territories.`, 'success');
+          const noun = isRivers ? 'river' : isLakes ? 'lake' : 'editable territory';
+          const plural = isRivers ? 'rivers' : isLakes ? 'lakes' : 'editable territories';
+          toast(
+            `Imported ${count} ${count === 1 ? noun : plural}` +
+              (isLakes ? ' as water bodies.' : '.'),
+            'success',
+          );
           controller?.fitAll();
           onClose();
         }
@@ -141,7 +177,11 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
               ? 'Working…'
               : mode === 'single-state'
                 ? `Create "${name}"`
-                : `Import ${selectionCount} territories`}
+                : `Import ${selectionCount} ${
+                    selectionCount === 1
+                      ? isRivers ? 'river' : isLakes ? 'lake' : 'territory'
+                      : isRivers ? 'rivers' : isLakes ? 'lakes' : 'territories'
+                  }`}
           </button>
         </>
       }
@@ -188,22 +228,31 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
             {!features && !error && <div className="empty">Loading…</div>}
             {rows.map((r) => (
               <label
-                key={r.name + r.fips}
+                // Keyed by dataset index: names are not unique — Natural Earth has
+                // hundreds of "Unnamed" lakes and several real "Trout Lake"s, and
+                // duplicate React keys leave stale rows behind.
+                key={r.index}
                 className="tree-row"
                 style={{ paddingLeft: 7, cursor: 'pointer' }}
                 onClick={(e) => {
                   e.preventDefault();
-                  toggle(r.name);
+                  toggle(r.index);
                 }}
               >
-                <input type="checkbox" readOnly checked={chosen.has(r.name)} style={{ accentColor: 'var(--accent)' }} />
+                <input type="checkbox" readOnly checked={chosen.has(r.index)} style={{ accentColor: 'var(--accent)' }} />
                 <span className="tree-row__name">{r.name}</span>
                 {isCounties && <span className="tree-row__badge">{STATE_FIPS[r.fips] ?? ''}</span>}
               </label>
             ))}
           </div>
+          {unnamedCount > 0 && (
+            <label className="checkbox" style={{ marginTop: 6 }}>
+              <input type="checkbox" checked={namedOnly} onChange={(e) => setNamedOnly(e.target.checked)} />
+              Hide unnamed features ({unnamedCount.toLocaleString()})
+            </label>
+          )}
           <div className="btn-row" style={{ marginTop: 5 }}>
-            <button className="btn" onClick={() => setChosen(new Set(rows.map((r) => r.name)))}>
+            <button className="btn" onClick={() => setChosen(new Set(rows.map((r) => r.index)))}>
               Select all listed
             </button>
             <button className="btn" onClick={() => setChosen(new Set())}>
@@ -217,24 +266,31 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
           <label className="checkbox" style={{ alignItems: 'flex-start' }}>
             <input type="radio" checked={mode === 'divisions'} onChange={() => setMode('divisions')} style={{ marginTop: 2 }} />
             <span>
-              <strong style={{ color: 'var(--text)' }}>One territory per feature</strong>
+              <strong style={{ color: 'var(--text)' }}>
+                {isRivers ? 'One river per feature' : isLakes ? 'One water body per lake' : 'One territory per feature'}
+              </strong>
               <br />
               <span style={{ color: 'var(--text-faint)' }}>
-                Each state or county becomes its own editable division. Use the paint tool afterwards
-                to group them into realms.
+                {isRivers
+                  ? 'Each becomes an editable river you can reshape, rename and relabel. Names run along the river automatically.'
+                  : isLakes
+                    ? 'Each lake becomes an editable water body using the Water style, with its name as a water label.'
+                    : 'Each state or county becomes its own editable division. Use the paint tool afterwards to group them into realms.'}
               </span>
             </span>
           </label>
-          <label className="checkbox" style={{ alignItems: 'flex-start' }}>
-            <input type="radio" checked={mode === 'single-state'} onChange={() => setMode('single-state')} style={{ marginTop: 2 }} />
-            <span>
-              <strong style={{ color: 'var(--text)' }}>One dissolved state</strong>
-              <br />
-              <span style={{ color: 'var(--text-faint)' }}>
-                Merge the selected features into a single realm, erasing their internal borders.
+          {!isRivers && (
+            <label className="checkbox" style={{ alignItems: 'flex-start' }}>
+              <input type="radio" checked={mode === 'single-state'} onChange={() => setMode('single-state')} style={{ marginTop: 2 }} />
+              <span>
+                <strong style={{ color: 'var(--text)' }}>One dissolved state</strong>
+                <br />
+                <span style={{ color: 'var(--text-faint)' }}>
+                  Merge the selected features into a single realm, erasing their internal borders.
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+          )}
 
           {mode === 'single-state' ? (
             <>
@@ -256,6 +312,13 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
               </label>
             </>
           ) : (
+            isRivers || isLakes ? (
+              <p className="hint">
+                {isRivers
+                  ? 'Rivers come in ranked by Natural Earth\'s scalerank, so major rivers get the heavier line style.'
+                  : 'Lakes come in with the Water style class, so they match the ocean colour and update with it.'}
+              </p>
+            ) : (
             <>
               <Field label="Type">
                 <select className="select" value={String(divisionType)} onChange={(e) => setDivisionType(e.target.value)}>
@@ -276,6 +339,7 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
                 </select>
               </Field>
             </>
+            )
           )}
 
           <p className="hint">

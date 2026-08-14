@@ -14,7 +14,7 @@
  */
 
 import proj4 from 'proj4';
-import { loadBasemap } from '@/geo/basemap';
+import { findBasemapSource, isPolygonFeature, loadBasemap } from '@/geo/basemap';
 import { registerProjections } from '@/geo/projections';
 import { computeBorders } from '@/render/borders';
 import { svgPatternDef, svgPatternId, dashArray, doubleLineWidths, isDoubleLine } from '@/render/patterns';
@@ -248,30 +248,68 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
 
   // --- basemap land ---------------------------------------------------------
   const terrain: string[] = [];
+  const basemapRivers: string[] = [];
+  const lakeLayers: string[] = [];
   if (opts.includeBasemap) {
-    for (const entry of project.basemap) {
-      if (!entry.visible) continue;
+    // Match the screen's draw order: land, then lakes, then everything else.
+    // Rivers are collected separately so they land in the §66 "rivers" group
+    // rather than being buried in "terrain".
+    const ordered = [...project.basemap].filter((b) => b.visible).sort((a, b) => {
+      const rank = (id: string) => {
+        const role = findBasemapSource(id)?.role;
+        return role === 'land' ? 0 : role === 'lakes' ? 1 : 2;
+      };
+      return rank(a.sourceId) - rank(b.sourceId);
+    });
+
+    for (const entry of ordered) {
       try {
         const features = await loadBasemap(entry.sourceId);
-        const isLand = entry.sourceId.includes('land');
-        const fill = isLand ? project.landColor : 'none';
-        const stroke = isLand ? '#8b7f6a' : '#a89c86';
-        const width = (isLand ? 0.8 : 0.4) * scale;
+        const role = findBasemapSource(entry.sourceId)?.role ?? 'custom';
+
+        if (role === 'rivers') {
+          const paths: string[] = [];
+          for (const f of features) {
+            if (isPolygonFeature(f)) continue;
+            const d = lineToPath(f.geometry as LineString | MultiLineString, p);
+            if (d) paths.push(`<path d="${d}"/>`);
+          }
+          if (paths.length) {
+            basemapRivers.push(
+              `<g id="basemap-${esc(entry.sourceId)}" fill="none" stroke="#8fb0c4" ` +
+                `stroke-width="${num(1 * scale)}" stroke-linecap="round" stroke-linejoin="round" ` +
+                `opacity="${entry.opacity}">${paths.join('')}</g>`,
+            );
+          }
+          continue;
+        }
+
+        const fill =
+          role === 'land' ? project.landColor : role === 'lakes' ? project.oceanColor : 'none';
+        const stroke = role === 'land' ? '#8b7f6a' : role === 'lakes' ? '#7d9bad' : '#a89c86';
+        const width = (role === 'land' ? 0.8 : role === 'lakes' ? 0.6 : 0.4) * scale;
+
         const paths: string[] = [];
         for (const f of features) {
+          if (!isPolygonFeature(f)) continue;
           const d = polygonToPath(f.geometry as Polygon | MultiPolygon, p);
           if (d) paths.push(`<path d="${d}"/>`);
         }
-        terrain.push(
-          `<g id="basemap-${esc(entry.sourceId)}" fill="${fill}" stroke="${stroke}" ` +
-            `stroke-width="${num(width)}" fill-rule="evenodd" opacity="${entry.opacity}">${paths.join('')}</g>`,
-        );
+        if (paths.length) {
+          const markup =
+            `<g id="basemap-${esc(entry.sourceId)}" fill="${fill}" stroke="${stroke}" ` +
+            `stroke-width="${num(width)}" fill-rule="evenodd" opacity="${entry.opacity}">${paths.join('')}</g>`;
+          (role === 'lakes' ? lakeLayers : terrain).push(markup);
+        }
       } catch {
         /* a basemap that will not load simply does not appear in the export */
       }
     }
   }
   groups.push(group('terrain', terrain));
+  // `waterOverlay` holds the lakes that belong above the political fills; it is
+  // emitted after the territories group below, mirroring the screen.
+  const waterOverlay = lakeLayers;
 
   // --- territories ----------------------------------------------------------
   const territories: string[] = [];
@@ -305,6 +343,8 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
     );
   }
   groups.push(group('territories', territories));
+  // Inland water over the political fills, as on screen and as in print.
+  if (waterOverlay.length) groups.push(group('water-bodies', waterOverlay));
 
   // --- borders, split into internal and international per §66 ---------------
   const internal: string[] = [];
@@ -332,7 +372,7 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
   groups.push(group('international-borders', international));
 
   // --- rivers and roads -----------------------------------------------------
-  const rivers: string[] = [];
+  const rivers: string[] = [...basemapRivers];
   const roads: string[] = [];
   for (const f of Object.values(project.linearFeatures)) {
     if (f.hidden || f.kind === 'label-path') continue;

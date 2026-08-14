@@ -417,7 +417,7 @@ export interface BasemapSource {
   format: 'topojson' | 'geojson';
   /** TopoJSON object key to extract. */
   objectName?: string;
-  role: 'land' | 'countries' | 'states' | 'counties' | 'custom';
+  role: 'land' | 'countries' | 'states' | 'counties' | 'lakes' | 'rivers' | 'custom';
 }
 
 export interface BasemapLayerState {

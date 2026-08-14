@@ -162,9 +162,20 @@ export async function buildDemoProject(): Promise<DemoBuildResult> {
   project.meta.dateLine = 'In the Year 1453';
   project.meta.author = 'After the Fall — demonstration map';
   project.oceanColor = '#cddfe9';
-  project.landColor = '#f2eada';
-  // The demo is self-contained, so the world coastline layer only adds noise.
-  project.basemap = project.basemap.map((b) => ({ ...b, visible: false }));
+  project.landColor = '#e8e0cf';
+  // Land and lakes together, never lakes alone: a lake is filled with the water
+  // colour, so without land beneath it there is nothing for it to be a hole in
+  // and it vanishes into the sea. With both on, the neighbouring land reads as
+  // unclaimed ground in a neutral tone — which is how an atlas frames a region —
+  // and the Great Lakes appear under the labels that name them.
+  project.basemap = [
+    { sourceId: 'world-land-10m', visible: true, opacity: 1 },
+    { sourceId: 'world-lakes-10m', visible: true, opacity: 1 },
+    { sourceId: 'world-rivers-10m', visible: false, opacity: 1 },
+    { sourceId: 'world-land-50m', visible: false, opacity: 1 },
+    { sourceId: 'us-states', visible: false, opacity: 1 },
+    { sourceId: 'us-counties', visible: false, opacity: 1 },
+  ];
 
   const territoryLayer = findLayerByKind(project, 'territory')!;
   const settlementLayer = findLayerByKind(project, 'settlement')!;
