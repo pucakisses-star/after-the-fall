@@ -9,102 +9,48 @@ import { useProjectStore } from '@/state/projectStore';
 import { toast, useUIStore } from '@/state/uiStore';
 import { writeSnapshot } from '@/persistence/db';
 
-interface StartingPoint {
-  id: string;
-  label: string;
-  description: string;
-  basemaps: string[];
-  center: [number, number];
-  zoom: number;
+/**
+ * What a new map starts with.
+ *
+ * One starting geography, not a menu of them. The dialog used to offer six —
+ * blank, two world variants, the Americas and two United States ones — which
+ * asked for a decision before you had seen anything, and five of the answers
+ * were a worse version of this one: a blank sheet you would immediately want a
+ * coastline on, a world four fifths of which this map is not about, or a crop
+ * so tight it cut off half the subject. None of it was capability: every
+ * dataset here, and the US Census ones besides, is still one checkbox away in
+ * the Project panel, and the crop is one button away under Map area.
+ */
+const START = {
+  basemaps: [
+    'world-land-10m',
+    'world-lakes-10m',
+    'world-rivers-10m',
+    'world-countries-10m',
+    'world-places-10m',
+  ],
+  center: [-80, 10] as [number, number],
+  zoom: 2.8,
   /**
-   * WGS84 [w, s, e, n] the map is about, for the regional starting points.
+   * WGS84 [w, s, e, n] the map is about: Cape Horn to the Arctic, Alaska to the
+   * eastern seaboard, with enough water either side that the coasts are not
+   * flush against the frame.
    *
    * Reference geography outside it is never loaded into the renderer and the
    * view cannot pan or zoom past it. Clear it under Project → Map area to go
    * global; nothing about it is baked into the document beyond this one field.
    */
-  extent?: [number, number, number, number];
-}
-
-const STARTING_POINTS: StartingPoint[] = [
-  {
-    id: 'blank',
-    label: 'Blank map',
-    description: 'Nothing but ocean. Draw or import your own geography.',
-    basemaps: [],
-    center: [0, 20],
-    zoom: 2.4,
-  },
-  {
-    id: 'world',
-    label: 'World coastlines',
-    description: 'Natural Earth land outlines, lakes and cities as a tracing reference.',
-    basemaps: ['world-land-10m', 'world-lakes-10m', 'world-places-10m'],
-    center: [0, 20],
-    zoom: 2.4,
-  },
-  {
-    id: 'countries',
-    label: 'World countries',
-    description: 'Land, lakes, cities and modern country boundaries, ready to convert.',
-    basemaps: ['world-land-10m', 'world-lakes-10m', 'world-countries-10m', 'world-places-10m'],
-    center: [0, 20],
-    zoom: 2.4,
-  },
-  {
-    id: 'americas-detailed',
-    label: 'The Americas',
-    description:
-      'Coastlines, lakes, rivers, boundaries and cities, cropped to the western hemisphere so nothing off-continent is drawn and the view stays on the subject.',
-    basemaps: [
-      'world-land-10m',
-      'world-lakes-10m',
-      'world-rivers-10m',
-      'world-countries-10m',
-      'world-places-10m',
-    ],
-    center: [-80, 10],
-    zoom: 2.8,
-    // Cape Horn to the Arctic, Alaska to the eastern seaboard, with enough water
-    // either side that the coasts are not flush against the frame.
-    extent: [-172, -58, -28, 74],
-  },
-  {
-    id: 'us-states',
-    label: 'United States — states',
-    description: 'State outlines over real coastline, with lakes, rivers and cities.',
-    // Land first, always: a lake is filled with the water colour, so without
-    // land beneath it there is nothing for it to be a hole in and the whole map
-    // reads as open sea with a few boundary lines drawn on it.
-    basemaps: ['world-land-10m', 'us-states', 'world-lakes-10m', 'world-rivers-10m', 'world-places-10m'],
-    center: [-96, 39],
-    zoom: 4.2,
-    // The lower 48 plus Alaska, Hawaii and the near neighbours a US map needs
-    // to make sense of its own borders.
-    extent: [-172, 10, -52, 74],
-  },
-  {
-    id: 'us-counties',
-    label: 'United States — counties',
-    description: '3,000+ counties, with coastline, lakes, rivers and cities. Use the paint tool to build states from them.',
-    basemaps: [
-      'world-land-10m',
-      'us-states',
-      'us-counties',
-      'world-lakes-10m',
-      'world-rivers-10m',
-      'world-places-10m',
-    ],
-    center: [-96, 39],
-    zoom: 4.2,
-    extent: [-172, 10, -52, 74],
-  },
-];
+  extent: [-172, -58, -28, 74] as [number, number, number, number],
+};
 
 export function NewProjectDialog({ onClose }: { onClose: () => void }) {
   const [title, setTitle] = useState('Untitled Map');
-  const [projectionId, setProjectionId] = useState('ATF:LCC');
-  const [start, setStart] = useState('us-states');
+  // The projection that suits the geography every new map now starts with:
+  // equal-area and centred on the New World, so both continents sit on one
+  // sheet at true relative size. The old default was a North America conic,
+  // which is the right answer for the lower 48 and the wrong one for a map
+  // that reaches Cape Horn.
+  const [projectionId, setProjectionId] = useState('ATF:AMERICAS');
   const [busy, setBusy] = useState(false);
 
   const create = async () => {
@@ -114,7 +60,6 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
     }
 
     const preset = PROJECTION_PRESETS.find((p) => p.id === projectionId)!;
-    const chosen = STARTING_POINTS.find((s) => s.id === start)!;
     const project = createProject({ title });
     project.projection = {
       id: preset.id,
@@ -123,9 +68,9 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
       extent: preset.extent,
       units: preset.units,
     };
-    project.basemap = chosen.basemaps.map((sourceId) => ({ sourceId, visible: true, opacity: 1 }));
-    project.view = { center: chosen.center, zoom: chosen.zoom, rotation: 0 };
-    project.workingExtent = chosen.extent ?? null;
+    project.basemap = START.basemaps.map((sourceId) => ({ sourceId, visible: true, opacity: 1 }));
+    project.view = { center: START.center, zoom: START.zoom, rotation: 0 };
+    project.workingExtent = START.extent;
     useProjectStore.getState().loadProject(project, null);
     onClose();
   };
@@ -195,36 +140,26 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
       </p>
 
       <h3 className="panel__section-title">Starting geography</h3>
-      {STARTING_POINTS.map((s) => (
-        <label
-          key={s.id}
-          className="checkbox"
-          style={{
-            alignItems: 'flex-start',
-            padding: '6px 8px',
-            border: '1px solid var(--line)',
-            borderRadius: 3,
-            marginBottom: 4,
-            background: start === s.id ? 'var(--panel-3)' : 'transparent',
-          }}
-        >
-          <input
-            type="radio"
-            name="start"
-            checked={start === s.id}
-            onChange={() => setStart(s.id)}
-            style={{ marginTop: 2 }}
-          />
-          <span>
-            <strong style={{ color: 'var(--text)' }}>{s.label}</strong>
-            <br />
-            <span style={{ color: 'var(--text-faint)' }}>{s.description}</span>
-          </span>
-        </label>
-      ))}
+      <div
+        style={{
+          padding: '8px 10px',
+          border: '1px solid var(--line)',
+          borderRadius: 3,
+          background: 'var(--panel-3)',
+        }}
+      >
+        <strong style={{ color: 'var(--text)' }}>The Americas</strong>
+        <br />
+        <span style={{ color: 'var(--text-faint)' }}>
+          Coastlines, lakes, rivers, boundaries and cities at Natural Earth's finest published
+          scale, cropped to the western hemisphere so nothing off-continent is drawn and the view
+          stays on the subject.
+        </span>
+      </div>
       <p className="hint">
         Reference geography is a backdrop, not part of the document. Turn it into editable
-        territories from the Project panel once you have chosen what you need.
+        territories from the Project panel, where you can also switch on the US Census states and
+        counties, or clear the crop under Map area to work on the whole world.
       </p>
     </Dialog>
   );

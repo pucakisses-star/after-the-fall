@@ -119,8 +119,8 @@ outside the United States, which is the only place the Census files cover.
 **Most maps are about somewhere, not everywhere.** Project → Map area crops the map to a region:
 reference geography outside it is never projected or drawn, and the view cannot pan or zoom past it,
 so a map of the Americas behaves like a sheet of paper of a definite size rather than a window onto
-the globe that happens to be pointed at Brazil. The regional starting points come cropped; **Crop to
-current view** and **Whole world** set it by hand at any time. Cropping bounds the reference data and
+the globe that happens to be pointed at Brazil. A new map comes cropped to the western hemisphere;
+**Crop to current view** and **Whole world** set it by hand at any time. Cropping bounds the reference data and
 the view, never the document — anything you have drawn outside it stays put, stays editable and still
 exports.
 
