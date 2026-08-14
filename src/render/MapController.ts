@@ -30,8 +30,8 @@ import type { Coordinate } from 'ol/coordinate';
 import type { Pixel } from 'ol/pixel';
 import type { Geometry, Point as OlPoint } from 'ol/geom';
 
-import { olProjectionFor, registerProjections } from '@/geo/projections';
-import { findBasemapSource, loadBasemap } from '@/geo/basemap';
+import { olProjectionFor, registerProjections, validAreaFor } from '@/geo/projections';
+import { clipToValidArea, findBasemapSource, loadBasemap } from '@/geo/basemap';
 import {
   resolveLinearStyle,
   resolveSymbolStyle,
@@ -40,6 +40,7 @@ import {
 } from '@/model/resolveStyle';
 import { layerEffective } from '@/model/hierarchy';
 import { visibleInTime } from '@/model/timeline';
+import { toCss } from '@/model/color';
 import { computeBorders } from './borders';
 import { basemapRoleStyle, BASEMAP_Z, clearStyleCaches, lineStyle, territoryStyle } from './olStyles';
 import { drawSymbol } from './symbols';
@@ -91,7 +92,7 @@ export class MapController {
   private lastBorderKey: unknown = null;
   private lastBorderTimeKey: string | null = null;
   private lastOceanColor: string | null = null;
-  private lastLandColor: string | null = null;
+  private lastWaterLandKey: string | null = null;
   private lastProjectionId: string | null = null;
   private lastStyles: unknown = null;
   private lastLayers: unknown = null;
@@ -331,8 +332,11 @@ export class MapController {
       this.syncLayerVisibility(project);
     }
     this.syncOcean(project);
-    if (force || this.lastLandColor !== project.landColor) {
-      this.lastLandColor = project.landColor;
+    // Land layers take landColor and lake layers take oceanColor, so a change to
+    // either has to reach the reference layers.
+    const waterLandKey = `${project.landColor}|${project.oceanColor}`;
+    if (force || this.lastWaterLandKey !== waterLandKey) {
+      this.lastWaterLandKey = waterLandKey;
       for (const [id, layer] of this.basemapLayers) {
         layer.setStyle(basemapRoleStyle(findBasemapSource(id)?.role ?? 'custom', project));
       }
@@ -498,19 +502,28 @@ export class MapController {
       try {
         const features = await loadBasemap(entry.sourceId);
         const proj = this.projection();
-        source.addFeatures(
-          features.map((f, i) => {
-            const olf = new Feature<Geometry>({
-              geometry: geojson.readGeometry(f.geometry, {
-                dataProjection: 'EPSG:4326',
-                featureProjection: proj,
-              }),
-            });
-            olf.setId(`${entry.sourceId}-${i}`);
-            olf.set('basemap', f, true);
-            return olf;
-          }),
-        );
+        // Drop anything outside the projection's domain of validity. Without
+        // this, Antarctica in a North-America conic projects to a ring tens of
+        // thousands of kilometres across and floods the map with land colour.
+        const valid = validAreaFor(proj);
+        const olFeatures: Feature<Geometry>[] = [];
+        for (let i = 0; i < features.length; i++) {
+          const clipped = clipToValidArea(features[i], valid);
+          if (!clipped) continue;
+          const f = clipped;
+          const geometry = geojson.readGeometry(f.geometry, {
+            dataProjection: 'EPSG:4326',
+            featureProjection: proj,
+          });
+          // Backstop for custom projections with no declared domain.
+          const extent = geometry.getExtent();
+          if (!extent.every(Number.isFinite)) continue;
+          const olf = new Feature<Geometry>({ geometry });
+          olf.setId(`${entry.sourceId}-${i}`);
+          olf.set('basemap', f, true);
+          olFeatures.push(olf);
+        }
+        source.addFeatures(olFeatures);
       } catch (err) {
         useUIStore.getState().toast(String((err as Error).message ?? err), 'error');
       }
@@ -524,12 +537,25 @@ export class MapController {
    */
   private syncOcean(project: MapProject): void {
     const oceanLayers = Object.values(project.layers).filter((l) => l.kind === 'ocean');
-    const visible = oceanLayers.length === 0 || oceanLayers.some((l) => layerEffective(project, l.id).visible);
-    const color = visible ? project.oceanColor : '#1c1b19';
-    if (this.lastOceanColor === color) return;
-    this.lastOceanColor = color;
+    const effective = oceanLayers.map((l) => layerEffective(project, l.id));
+    const visible = effective.length === 0 || effective.some((e) => e.visible);
+    // The Ocean layer's opacity slider has to mean something: fade the water
+    // towards the application background as it drops, which is what a user
+    // reaching for that slider is asking for.
+    const opacity = effective.length ? Math.max(...effective.map((e) => e.opacity)) : 1;
+    const color = visible ? toCss(project.oceanColor, opacity) : 'transparent';
+
+    const key = `${color}`;
+    if (this.lastOceanColor === key) return;
+    this.lastOceanColor = key;
+
     const viewport = this.map.getViewport();
-    if (viewport) viewport.style.background = color;
+    if (viewport) {
+      // A translucent water colour needs something behind it, or the page shows
+      // through as application chrome.
+      viewport.style.backgroundColor = '#1c1b19';
+      viewport.style.backgroundImage = `linear-gradient(${color}, ${color})`;
+    }
   }
 
   private syncGraticule(project: MapProject): void {

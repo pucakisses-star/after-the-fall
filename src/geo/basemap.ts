@@ -239,6 +239,63 @@ function isDrawableFeature(f: Feature): f is BasemapFeature {
   return isPolygonFeature(f) || isLineFeature(f);
 }
 
+/**
+ * Drop the parts of a feature that fall outside a projection's domain of validity.
+ *
+ * This has to work at *part* level, not feature level: Natural Earth's land file
+ * is a single Feature holding a MultiPolygon of four thousand landmasses, so
+ * testing the feature's own bounding box tells you only that the world is in the
+ * world. Antarctica is one part of that MultiPolygon, and in a North-America
+ * conic it projects to a ring 66,000 km across that fills the canvas with land
+ * colour — which is why the ocean disappears unless the part is removed first.
+ *
+ * Returns `null` when nothing survives.
+ */
+export function clipToValidArea(
+  f: BasemapFeature,
+  valid: [number, number, number, number],
+): BasemapFeature | null {
+  const intersects = (box: [number, number, number, number]) =>
+    !(box[2] < valid[0] || box[0] > valid[2] || box[3] < valid[1] || box[1] > valid[3]);
+
+  const bboxOf = (coords: unknown): [number, number, number, number] => {
+    let w = Infinity;
+    let s = Infinity;
+    let e = -Infinity;
+    let n = -Infinity;
+    const walk = (c: unknown): void => {
+      if (!Array.isArray(c)) return;
+      if (typeof c[0] === 'number') {
+        const [x, y] = c as number[];
+        if (x < w) w = x;
+        if (x > e) e = x;
+        if (y < s) s = y;
+        if (y > n) n = y;
+        return;
+      }
+      for (const v of c) walk(v);
+    };
+    walk(coords);
+    return [w, s, e, n];
+  };
+
+  const g = f.geometry;
+
+  // Single-part geometry: keep or drop whole.
+  if (g.type === 'Polygon' || g.type === 'LineString') {
+    return intersects(bboxOf(g.coordinates)) ? f : null;
+  }
+
+  const kept = (g.coordinates as unknown[]).filter((part) => intersects(bboxOf(part)));
+  if (kept.length === 0) return null;
+  if (kept.length === (g.coordinates as unknown[]).length) return f; // untouched
+
+  return {
+    ...f,
+    geometry: { ...g, coordinates: kept },
+  } as BasemapFeature;
+}
+
 /** Polygon-only view of a dataset, for the operations that need areas. */
 export function polygonsOf(features: BasemapFeature[]): PolyFeature[] {
   return features.filter(isPolygonFeature);

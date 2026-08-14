@@ -25,7 +25,7 @@ npm run dev          # http://localhost:5173
 
 ```bash
 npm run build        # typecheck + production bundle into dist/
-npm run test         # 96 unit tests over the geometry, history and export code
+npm run test         # 101 unit tests over the geometry, history and export code
 npm run typecheck    # tsc, no emit
 ```
 
@@ -46,6 +46,13 @@ are ever loaded, and nothing is downloaded from the internet at runtime.
 
 Pick the scale that matches your zoom: 1:110m for a world map, 1:10m for a region. 1:10m carries
 roughly seven times the vertex density of 1:50m and is the finest scale Natural Earth publishes.
+
+Reference geography is clipped to the projection's **domain of validity** before it is drawn, per
+polygon part rather than per feature. This matters more than it sounds: Natural Earth ships all land
+as a single feature holding a MultiPolygon of four thousand landmasses, and in a conic projection
+centred on 39°N, Antarctica projects to a ring 66,000 km across — filling the entire canvas with
+land colour and hiding the ocean completely. Testing the feature's own bounding box cannot catch
+that, because the feature spans the world.
 
 **Lakes render over the political fills, rivers over those** — a lake inside a country has to be
 drawn on top of its colour or it disappears underneath, which is both how atlases set water and the
@@ -374,7 +381,7 @@ Stated plainly rather than stubbed out:
 
 ## Tests (§64)
 
-96 tests covering the parts where a silent regression would be expensive:
+101 tests covering the parts where a silent regression would be expensive:
 
 * `geo/operations.test.ts` — union, difference, intersection, dissolve, polygon splitting along
   straight and bent lines, simplification, interior-point placement for concave shapes.
@@ -389,8 +396,8 @@ Stated plainly rather than stubbed out:
   scaling, XML escaping, timeline filtering.
 * `geo/winkelTripel.test.ts` — forward/inverse round-trips for all four numerically-inverted
   projections, plus the symmetry and pseudocylindrical properties each one should have.
-* `geo/basemap.test.ts` — area/line discrimination for the water datasets, dataset registration and
-  the state-name lookup.
+* `geo/basemap.test.ts` — area/line discrimination for the water datasets, dataset registration, the
+  state-name lookup, and per-part clipping to a projection's domain of validity.
 
 ---
 

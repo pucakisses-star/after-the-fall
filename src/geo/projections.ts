@@ -20,7 +20,25 @@ export interface ProjectionPreset extends ProjectionSettings {
   description: string;
   /** Whole-world projections cannot be tiled or wrapped; used to disable wrapX. */
   global: boolean;
+  /**
+   * Domain of validity, as WGS84 [minLon, minLat, maxLon, maxLat].
+   *
+   * A conic projection is defined everywhere except the opposite pole, but it is
+   * only *usable* over a band: a Lambert Conformal Conic centred on 39°N puts
+   * latitude −85° at y = −37,500 km, so Antarctica becomes a ring tens of
+   * thousands of kilometres across that fills the entire canvas with land.
+   * Geometry outside this window is dropped rather than drawn, and the window
+   * also bounds the extent measurement below — sampling to the far pole otherwise
+   * yields an extent fifty times the circumference of the Earth.
+   */
+  validArea: [number, number, number, number];
 }
+
+/** Everything, minus a sliver at each pole where several projections diverge. */
+const WHOLE_WORLD: [number, number, number, number] = [-180, -89.9, 180, 89.9];
+
+/** Northern-hemisphere conics: south of this the cone unrolls to absurd radii. */
+const NORTHERN_CONIC: [number, number, number, number] = [-180, -60, 180, 89.9];
 
 /**
  * Build a preset. Extents are the projected bounds of the full graticule,
@@ -35,6 +53,7 @@ export const PROJECTION_PRESETS: ProjectionPreset[] = [
     units: 'm',
     description: 'Conformal, familiar, wildly distorts high latitudes.',
     global: true,
+    validArea: [-180, -85.06, 180, 85.06],
   },
   {
     id: 'EPSG:4326',
@@ -44,6 +63,7 @@ export const PROJECTION_PRESETS: ProjectionPreset[] = [
     units: 'degrees',
     description: 'Lat/lon plotted directly. Simple, common in atlases.',
     global: true,
+    validArea: WHOLE_WORLD,
   },
   {
     id: 'ATF:ROBINSON',
@@ -53,6 +73,7 @@ export const PROJECTION_PRESETS: ProjectionPreset[] = [
     units: 'm',
     description: 'Compromise world projection. The classic 20th-century atlas look.',
     global: true,
+    validArea: WHOLE_WORLD,
   },
   {
     id: 'ATF:WINKEL3',
@@ -62,6 +83,7 @@ export const PROJECTION_PRESETS: ProjectionPreset[] = [
     units: 'm',
     description: 'Low overall distortion. Standard for modern reference world maps.',
     global: true,
+    validArea: WHOLE_WORLD,
   },
   {
     id: 'ATF:NATURALEARTH',
@@ -71,6 +93,7 @@ export const PROJECTION_PRESETS: ProjectionPreset[] = [
     units: 'm',
     description: 'Rounded pseudocylindrical, gentle on continent shapes.',
     global: true,
+    validArea: WHOLE_WORLD,
   },
   {
     id: 'ATF:MOLLWEIDE',
@@ -80,6 +103,7 @@ export const PROJECTION_PRESETS: ProjectionPreset[] = [
     units: 'm',
     description: 'Equal-area ellipse. Good for distribution maps.',
     global: true,
+    validArea: WHOLE_WORLD,
   },
   {
     id: 'ATF:LCC',
@@ -89,6 +113,7 @@ export const PROJECTION_PRESETS: ProjectionPreset[] = [
     units: 'm',
     description: 'Conformal conic. The standard choice for mid-latitude regions.',
     global: false,
+    validArea: NORTHERN_CONIC,
   },
   {
     id: 'ATF:ALBERS',
@@ -98,6 +123,7 @@ export const PROJECTION_PRESETS: ProjectionPreset[] = [
     units: 'm',
     description: 'Equal-area conic. Areas comparable, angles slightly off.',
     global: false,
+    validArea: NORTHERN_CONIC,
   },
   {
     id: 'ATF:ORTHOGRAPHIC',
@@ -107,6 +133,7 @@ export const PROJECTION_PRESETS: ProjectionPreset[] = [
     units: 'm',
     description: 'View from infinity. Shows one hemisphere as a disc.',
     global: false,
+    validArea: WHOLE_WORLD,
   },
 ];
 
@@ -138,18 +165,30 @@ export function registerProjections(): void {
   // each one has a different aspect ratio. Sample the outline of the graticule.
   for (const preset of PROJECTION_PRESETS) {
     if (preset.extent) continue;
-    preset.extent = measureExtent(preset.id);
+    preset.extent = measureExtent(preset.id, preset.validArea);
     const olProj = getOlProjection(preset.id);
     if (olProj) {
       olProj.setExtent(preset.extent);
       olProj.setGlobal(preset.global);
+      olProj.setWorldExtent(preset.validArea);
     }
   }
 }
 
-/** Project the boundary of the lon/lat domain and take its bounding box. */
-function measureExtent(id: string): [number, number, number, number] {
+/**
+ * Project the boundary of the projection's valid area and take its bounding box.
+ *
+ * Sampling the *whole* graticule instead would be wrong for the conics: a
+ * Lambert Conformal Conic centred on 39°N sends latitude −89.9° off to a radius
+ * of billions of metres, and the resulting "extent" — fifty times the
+ * circumference of the Earth — makes every fit and zoom calculation nonsense.
+ */
+function measureExtent(
+  id: string,
+  validArea: [number, number, number, number],
+): [number, number, number, number] {
   const to = proj4('EPSG:4326', id);
+  const [west, south, east, north] = validArea;
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -166,17 +205,30 @@ function measureExtent(id: string): [number, number, number, number] {
       /* points outside the projection domain simply do not contribute */
     }
   };
-  for (let lon = -180; lon <= 180; lon += 2) {
-    consider(lon, -89.9);
-    consider(lon, 89.9);
-    consider(lon, 0);
-  }
-  for (let lat = -89.9; lat <= 89.9; lat += 2) {
-    consider(-179.9, lat);
-    consider(179.9, lat);
+  const steps = 180;
+  for (let i = 0; i <= steps; i++) {
+    const lon = west + ((east - west) * i) / steps;
+    const lat = south + ((north - south) * i) / steps;
+    consider(lon, south);
+    consider(lon, north);
+    consider(lon, (south + north) / 2);
+    consider(west, lat);
+    consider(east, lat);
   }
   if (!Number.isFinite(minX)) return [-R, -R, R, R];
   return [minX, minY, maxX, maxY];
+}
+
+/**
+ * The domain of validity for a projection id, in WGS84 [w, s, e, n].
+ *
+ * Reference geography outside this window is dropped before it is projected.
+ * Custom proj4 definitions fall back to the whole world, which is right for the
+ * cylindrical and pseudocylindrical cases and harmless otherwise — the renderer
+ * also guards against non-finite output.
+ */
+export function validAreaFor(id: string): [number, number, number, number] {
+  return findPreset(id)?.validArea ?? WHOLE_WORLD;
 }
 
 export function findPreset(id: string): ProjectionPreset | undefined {
@@ -193,7 +245,9 @@ export function registerCustomProjection(name: string, def: string): ProjectionS
   const id = `ATF:CUSTOM:${name.replace(/\s+/g, '-').toUpperCase()}`;
   proj4.defs(id, def);
   register(proj4);
-  const extent = measureExtent(id);
+  // Custom definitions get the whole world; the renderer's non-finite guard is
+  // the backstop for anything that misbehaves outside its own domain.
+  const extent = measureExtent(id, WHOLE_WORLD);
   const olProj = getOlProjection(id);
   if (olProj) olProj.setExtent(extent);
   return {

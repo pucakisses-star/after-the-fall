@@ -14,8 +14,8 @@
  */
 
 import proj4 from 'proj4';
-import { findBasemapSource, isPolygonFeature, loadBasemap } from '@/geo/basemap';
-import { registerProjections } from '@/geo/projections';
+import { clipToValidArea, findBasemapSource, isPolygonFeature, loadBasemap } from '@/geo/basemap';
+import { registerProjections, validAreaFor } from '@/geo/projections';
 import { computeBorders } from '@/render/borders';
 import { svgPatternDef, svgPatternId, dashArray, doubleLineWidths, isDoubleLine } from '@/render/patterns';
 import { riverRankStyle } from '@/render/olStyles';
@@ -265,7 +265,12 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
 
     for (const entry of ordered) {
       try {
-        const features = await loadBasemap(entry.sourceId);
+        const all = await loadBasemap(entry.sourceId);
+        // Same domain clipping as the screen, so the export matches it.
+        const valid = validAreaFor(project.projection.id);
+        const features = all
+          .map((f) => clipToValidArea(f, valid))
+          .filter((f): f is NonNullable<typeof f> => f !== null);
         const role = findBasemapSource(entry.sourceId)?.role ?? 'custom';
 
         if (role === 'rivers') {
