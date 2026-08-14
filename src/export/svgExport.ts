@@ -30,6 +30,7 @@ import {
   riverRankStyle,
 } from '@/render/olStyles';
 import { symbolToSvg } from '@/render/symbols';
+import { compassToSvg, legendToSvg } from './legend';
 import { toCss } from '@/model/color';
 import { STYLE_IDS } from '@/model/defaults';
 import { layerEffective } from '@/model/hierarchy';
@@ -59,6 +60,10 @@ export interface SvgExportOptions {
   frameStyle: 'simple' | 'double' | 'coordinate-blocks';
   includeTitle: boolean;
   includeScaleBar: boolean;
+  /** Draw the key (§26). What it lists comes from the project's legend settings. */
+  includeLegend: boolean;
+  /** Draw the compass rose (§28), styled and placed by the project's settings. */
+  includeCompass: boolean;
   /** Margin reserved for the frame, in output px. */
   margin: number;
 }
@@ -73,6 +78,8 @@ export const DEFAULT_SVG_OPTIONS: Omit<SvgExportOptions, 'extent' | 'width' | 'h
   frameStyle: 'double',
   includeTitle: false,
   includeScaleBar: false,
+  includeLegend: false,
+  includeCompass: false,
   margin: 28,
 };
 
@@ -551,14 +558,17 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
   }
   groups.push(group('graticule', graticule));
 
-  // --- legend placeholder group, kept so the §66 structure is complete ------
-  groups.push(group('legend', []));
+  // --- legend (§26) ---------------------------------------------------------
+  const legend = opts.includeLegend ? legendToSvg(project, frame, scale) : { markup: [], patterns: new Map() };
+  for (const [id, pattern] of legend.patterns) patterns.set(id, pattern);
+  groups.push(group('legend', legend.markup));
 
   // --- frame ----------------------------------------------------------------
   const frameParts: string[] = [];
   if (opts.includeFrame) frameParts.push(...buildFrame(opts, frame, scale));
   if (opts.includeTitle) frameParts.push(...buildTitle(project, frame, scale));
   if (opts.includeScaleBar) frameParts.push(...buildScaleBar(opts, p, frame, scale));
+  if (opts.includeCompass) frameParts.push(...compassToSvg(project.compass, frame, scale));
   groups.push(group('frame', frameParts));
 
   // --- assemble -------------------------------------------------------------

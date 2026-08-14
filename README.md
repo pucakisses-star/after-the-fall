@@ -13,8 +13,8 @@ following the river, graticule, frame, title block and scale bar — is produced
 ![The editor](docs/editor.png)
 
 *The editor on first launch: the realms of the post-apocalyptic Americas, with the tool palette,
-layer/hierarchy tree, map and object inspector. Every realm is an ordinary territory — dissolved from
-real subdivisions, arranged in an empire → vassal hierarchy, and editable like anything you draw.*
+layer/hierarchy tree, map and object inspector. Every realm is an ordinary territory, arranged in an
+empire → vassal hierarchy and editable like anything you draw.*
 
 ---
 
@@ -27,7 +27,7 @@ npm run dev          # http://localhost:5173
 
 ```bash
 npm run build        # typecheck + production bundle into dist/
-npm run test         # 134 unit tests over the geometry, history, export and map data
+npm run test         # 160 unit tests over the geometry, history, export and map data
 npm run typecheck    # tsc, no emit
 ```
 
@@ -118,6 +118,15 @@ editor showed. Converting them makes each one an editable settlement: Natural Ea
 and regional capitals, so each arrives with the right symbol, and population, country and region
 come across with it.
 
+**The legend writes itself** (§26). Its rows come from what the map actually contains — the
+settlement types it uses, the border tiers its territories carry, the water it draws — so a map with
+no fortresses has no fortress in its key, and a map that gains a disputed border gains the hatching
+row without anyone remembering to add it. Each row names a *style class* rather than carrying its own
+appearance, so every swatch is drawn by the same code that draws the map: restyle the sovereign
+border and the key's rule changes with it. Renaming, hiding or reordering a row hands control over,
+and one button hands it back. A compass rose (§28) sits alongside it, in one of three drawn styles.
+Both go into the exported SVG in their §66 groups.
+
 For anything finer than 1:10m — a single bay, an estuary, a city shoreline — import your own:
 [GSHHG](https://www.soest.hawaii.edu/pwessel/gshhg/) has full-resolution global coastlines, and an
 OSM extract clipped to your area works too. Both come in as GeoJSON through **Import**.
@@ -169,6 +178,7 @@ handled:
 | City circles, larger capital symbols | `render/symbols.ts`, one definition drawn to canvas *and* SVG |
 | Disputed-territory hatching | `render/patterns.ts`, one definition → `CanvasPattern` *and* `<pattern>` |
 | Latitude/longitude grid, frame, title, scale bar | `export/svgExport.ts` and the OpenLayers graticule layer |
+| Legend and compass rose | `export/legend.ts` — rows derived from the map, swatches from its style classes |
 | A map that is about a region, not the globe | `workingExtent` crops the reference data and bounds the view |
 | A whole political world that is not a modern one | `geo/realmGrowth.ts` grows realms from seats; `demo/afterTheEnd.ts` names them |
 | Large maps suitable for print | Export up to 12000 × 8000 raster, unbounded vector |

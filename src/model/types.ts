@@ -482,6 +482,49 @@ export interface MapProject {
   /** Colour applied behind everything — the ocean (§17). */
   oceanColor: Color;
   landColor: Color;
+  legend: LegendSettings;
+  compass: CompassSettings;
+}
+
+/** Where a piece of map furniture sits inside the frame. */
+export type FurniturePosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+
+/**
+ * One row of the legend (§26).
+ *
+ * A row names a style class rather than carrying its own appearance, so the
+ * swatch is drawn by the same code that draws the map. Change the Sovereign
+ * Border style and the legend's rule changes with it — which is the only way a
+ * legend stays true as a map is restyled.
+ */
+export interface LegendEntry {
+  id: UUID;
+  /** Which part of the stylesheet `styleId` refers to, and how to draw it. */
+  kind: 'symbol' | 'line' | 'fill';
+  styleId: UUID;
+  text: string;
+  hidden: boolean;
+}
+
+export interface LegendSettings {
+  enabled: boolean;
+  title: string;
+  position: FurniturePosition;
+  /**
+   * Rebuild the rows from what the map actually contains whenever it is drawn.
+   * Editing a row turns this off, because the user's arrangement is then the
+   * thing to preserve.
+   */
+  auto: boolean;
+  entries: LegendEntry[];
+}
+
+export interface CompassSettings {
+  enabled: boolean;
+  style: 'star' | 'rose' | 'arrow';
+  position: FurniturePosition;
+  /** Diameter in output px, before the export's style scale. */
+  size: number;
 }
 
 /** Collections that hold identified features; used by the undo system. */

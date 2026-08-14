@@ -3,12 +3,13 @@
  * and the reference image (spec §4, §17, §25, §32).
  */
 
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { commit, useProjectStore } from '@/state/projectStore';
 import { toast, useUIStore } from '@/state/uiStore';
 import { PROJECTION_PRESETS, registerCustomProjection } from '@/geo/projections';
 import { BASEMAP_SIZES, BUILTIN_BASEMAPS, allBasemapSources } from '@/geo/basemap';
 import { referenceImageForView, registerImportedBasemap } from '@/io/importers';
+import { deriveLegendEntries } from '@/export/legend';
 import { useMapController } from './MapContext';
 import { Field, Section, Slider } from './Inspector';
 import type { BasemapLayerState, MapProject } from '@/model/types';
@@ -100,6 +101,7 @@ export function ProjectPanel() {
       </Section>
 
       <MapAreaSection />
+      <LegendSection />
       <BasemapSection />
       <ReferenceImageSection />
 
@@ -178,6 +180,180 @@ function CustomProjection() {
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * The legend and compass rose (§26, §28).
+ *
+ * The rows are derived from the map's own content while "keep in step" is on.
+ * Renaming, hiding or reordering a row switches that off and freezes the
+ * arrangement, because at that point the user's ordering is the thing worth
+ * preserving — and "Rebuild from the map" puts it back.
+ */
+function LegendSection() {
+  const project = useProjectStore((s) => s.project);
+  const legend = project.legend;
+  const compass = project.compass;
+  const rows = useMemo(
+    () => (legend.auto || legend.entries.length === 0 ? deriveLegendEntries(project) : legend.entries),
+    [project, legend],
+  );
+
+  const setLegend = (changes: Partial<typeof legend>, label = 'Edit legend') =>
+    commit(label, (r) => r.setDoc('legend', { ...legend, ...changes }));
+  const setCompass = (changes: Partial<typeof compass>) =>
+    commit('Edit compass', (r) => r.setDoc('compass', { ...compass, ...changes }));
+
+  /** Any edit to a row takes the rows out of automatic mode, arrangement and all. */
+  const editRows = (next: typeof rows, label: string) =>
+    setLegend({ auto: false, entries: next }, label);
+
+  const move = (index: number, by: number) => {
+    const next = [...rows];
+    const to = index + by;
+    if (to < 0 || to >= next.length) return;
+    [next[index], next[to]] = [next[to], next[index]];
+    editRows(next, 'Reorder legend');
+  };
+
+  return (
+    <Section title="Legend & compass">
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={legend.enabled}
+          onChange={(e) => setLegend({ enabled: e.target.checked })}
+        />
+        Show a legend
+      </label>
+      {legend.enabled && (
+        <>
+          <Field label="Heading">
+            <input className="input" value={legend.title} onChange={(e) => setLegend({ title: e.target.value })} />
+          </Field>
+          <Field label="Corner">
+            <select
+              className="select"
+              value={legend.position}
+              onChange={(e) => setLegend({ position: e.target.value as typeof legend.position })}
+            >
+              <option value="bottom-left">Bottom left</option>
+              <option value="bottom-right">Bottom right</option>
+              <option value="top-left">Top left</option>
+              <option value="top-right">Top right</option>
+            </select>
+          </Field>
+          <div
+            style={{ border: '1px solid var(--line)', borderRadius: 3, maxHeight: 190, overflow: 'auto', marginTop: 6 }}
+          >
+            {rows.length === 0 && <div className="empty">Nothing to list yet.</div>}
+            {rows.map((row, i) => (
+              <div key={row.id} className="tree-row" style={{ paddingLeft: 7, gap: 4 }}>
+                <input
+                  type="checkbox"
+                  checked={!row.hidden}
+                  title="Include this row"
+                  onChange={(e) =>
+                    editRows(
+                      rows.map((r) => (r.id === row.id ? { ...r, hidden: !e.target.checked } : r)),
+                      'Show or hide legend row',
+                    )
+                  }
+                  style={{ accentColor: 'var(--accent)' }}
+                />
+                <input
+                  className="input"
+                  value={row.text}
+                  style={{ flex: 1, minWidth: 0 }}
+                  onChange={(e) =>
+                    editRows(
+                      rows.map((r) => (r.id === row.id ? { ...r, text: e.target.value } : r)),
+                      'Rename legend row',
+                    )
+                  }
+                />
+                <button className="btn btn--icon" title="Move up" disabled={i === 0} onClick={() => move(i, -1)}>
+                  ↑
+                </button>
+                <button
+                  className="btn btn--icon"
+                  title="Move down"
+                  disabled={i === rows.length - 1}
+                  onClick={() => move(i, 1)}
+                >
+                  ↓
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="btn-row" style={{ marginTop: 5 }}>
+            <button
+              className="btn"
+              disabled={legend.auto}
+              onClick={() => setLegend({ auto: true, entries: [] }, 'Rebuild legend')}
+            >
+              Rebuild from the map
+            </button>
+          </div>
+          <p className="hint">
+            {legend.auto
+              ? 'Rows follow the map: add a fortress or a disputed border and the key gains it. Editing a row takes over from here.'
+              : 'Rows are yours now — the map no longer adds or removes them.'}{' '}
+            Every swatch is drawn from the style class it names, so restyling the map restyles the key.
+          </p>
+        </>
+      )}
+
+      <label className="checkbox" style={{ marginTop: 8 }}>
+        <input
+          type="checkbox"
+          checked={compass.enabled}
+          onChange={(e) => setCompass({ enabled: e.target.checked })}
+        />
+        Show a compass rose
+      </label>
+      {compass.enabled && (
+        <>
+          <Field label="Style">
+            <select
+              className="select"
+              value={compass.style}
+              onChange={(e) => setCompass({ style: e.target.value as typeof compass.style })}
+            >
+              <option value="star">Four-point star</option>
+              <option value="rose">Full rose</option>
+              <option value="arrow">Plain north arrow</option>
+            </select>
+          </Field>
+          <Field label="Corner">
+            <select
+              className="select"
+              value={compass.position}
+              onChange={(e) => setCompass({ position: e.target.value as typeof compass.position })}
+            >
+              <option value="top-right">Top right</option>
+              <option value="top-left">Top left</option>
+              <option value="bottom-right">Bottom right</option>
+              <option value="bottom-left">Bottom left</option>
+            </select>
+          </Field>
+          <Field label="Size">
+            <Slider
+              min={24}
+              max={120}
+              step={2}
+              value={compass.size}
+              suffix="px"
+              onChange={(v) => setCompass({ size: v })}
+            />
+          </Field>
+        </>
+      )}
+      <p className="hint">
+        Both are drawn into the exported map — switch them on under Export SVG or Export PNG.
+      </p>
+    </Section>
   );
 }
 

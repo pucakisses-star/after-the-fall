@@ -85,8 +85,37 @@ export function resolveTextStyle(project: MapProject, l: MapLabel): TextStyle {
 }
 
 export function resolveSymbolStyle(project: MapProject, s: Settlement): SymbolStyle {
-  const base = project.styles.symbol[s.styleClassId]?.style ?? defaultSymbolStyle();
-  return { ...base, ...s.styleOverrides };
+  return resolveSymbolClass(project, s.styleClassId, s.styleOverrides);
+}
+
+/**
+ * Style classes resolved by id alone, with no feature to hang them on.
+ *
+ * The legend needs these: a key row stands for the *class* — "this is what a
+ * fortress looks like" — and inventing a throwaway settlement to ask what a
+ * fortress looks like would be answering the question with a lie.
+ */
+export function resolveSymbolClass(
+  project: MapProject,
+  styleClassId: UUID,
+  overrides: Partial<SymbolStyle> = {},
+): SymbolStyle {
+  const base = project.styles.symbol[styleClassId]?.style ?? defaultSymbolStyle();
+  return { ...base, ...overrides };
+}
+
+export function resolveTerritoryClass(
+  project: MapProject,
+  styleClassId: UUID,
+  overrides: Partial<TerritoryStyle> = {},
+): TerritoryStyle {
+  const base = project.styles.territory[styleClassId]?.style ?? defaultTerritoryStyle();
+  return {
+    ...base,
+    ...overrides,
+    outline: { ...base.outline, ...(overrides.outline ?? {}) },
+    pattern: overrides.pattern !== undefined ? overrides.pattern : base.pattern ? { ...base.pattern } : null,
+  };
 }
 
 /** Apply a text style's case transform. Tracking is applied at draw time, not here. */

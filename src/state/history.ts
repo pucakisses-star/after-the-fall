@@ -26,7 +26,9 @@ export type DocKey =
   | 'basemap'
   | 'workingExtent'
   | 'oceanColor'
-  | 'landColor';
+  | 'landColor'
+  | 'legend'
+  | 'compass';
 
 export interface EntityPatch {
   key: EntityKey;

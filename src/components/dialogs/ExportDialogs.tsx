@@ -165,6 +165,18 @@ function ExportControls({
         <input type="checkbox" checked={state.includeScaleBar} onChange={(e) => set({ includeScaleBar: e.target.checked })} />
         Scale bar
       </label>
+      <label className="checkbox">
+        <input type="checkbox" checked={state.includeLegend} onChange={(e) => set({ includeLegend: e.target.checked })} />
+        Legend
+      </label>
+      <label className="checkbox">
+        <input type="checkbox" checked={state.includeCompass} onChange={(e) => set({ includeCompass: e.target.checked })} />
+        Compass rose
+      </label>
+      <p className="hint">
+        The legend lists what this map actually contains, and the compass takes its style and corner
+        from Project → Legend &amp; compass.
+      </p>
     </>
   );
 }

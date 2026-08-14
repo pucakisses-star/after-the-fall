@@ -177,6 +177,10 @@ export function createProject(opts: NewProjectOptions = {}): MapProject {
     ],
     oceanColor: '#cfe0ea',
     landColor: '#f0e8d5',
+    // Both off by default and both derived when switched on, so a new map never
+    // carries an empty box or a key to things it does not contain (§26, §28).
+    legend: { enabled: false, title: 'Legend', position: 'bottom-left', auto: true, entries: [] },
+    compass: { enabled: false, style: 'star', position: 'top-right', size: 46 },
   };
 }
 
@@ -223,5 +227,7 @@ export function migrate(raw: unknown): MapProject {
     linearFeatures: p.linearFeatures ?? {},
     labels: p.labels ?? {},
     basemap: p.basemap ?? [],
+    legend: p.legend ?? createProject().legend,
+    compass: p.compass ?? createProject().compass,
   };
 }
