@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Polygon } from 'geojson';
 import { createProject } from '@/model/project';
+import { registerUserSource } from '@/geo/basemap';
 import { makeLabel, makeSettlement, makeTerritory } from '@/state/projectStore';
 import { DEFAULT_SVG_OPTIONS, exportSvg } from './svgExport';
 import { STYLE_IDS } from '@/model/defaults';
@@ -202,6 +203,70 @@ describe('exportSvg', () => {
       expect(water).toBeGreaterThan(territories);
       expect(water).toBeLessThan(borders);
     }
+  });
+
+  it('exports reference cities under the document\'s own settlements (§14, §66)', async () => {
+    // Registered in memory: the bundled Natural Earth files only load in a
+    // browser, and this is about the export path, not about the fetch.
+    registerUserSource(
+      {
+        id: 'test-places',
+        name: 'Test cities',
+        url: 'memory://test-places',
+        format: 'geojson',
+        role: 'places',
+      },
+      [
+        {
+          type: 'Feature',
+          properties: { name: 'Referenceville', scalerank: 1, labelrank: 1 },
+          geometry: { type: 'Point', coordinates: [15, 5] },
+        },
+      ],
+    );
+    const project = sampleProject();
+    project.basemap = [{ sourceId: 'test-places', visible: true, opacity: 1 }];
+    const svg = await exportSvg(project, { ...OPTIONS, includeBasemap: true });
+
+    // The dot, the name as real text, and both inside the settlements group.
+    expect(svg).toContain('id="basemap-test-places"');
+    expect(svg).toContain('>Referenceville</text>');
+    const group = svg.slice(svg.indexOf('<g id="settlements"'), svg.indexOf('<g id="labels"'));
+    expect(group).toContain('Referenceville');
+    expect(group).toContain('<circle');
+    // Reference cities go first so the map's own settlements draw over them.
+    expect(group.indexOf('basemap-test-places')).toBeLessThan(group.indexOf('Alpha City'));
+  });
+
+  it('drops the names of minor reference cities when zoomed out', async () => {
+    registerUserSource(
+      {
+        id: 'test-places-minor',
+        name: 'Test hamlets',
+        url: 'memory://test-places-minor',
+        format: 'geojson',
+        role: 'places',
+      },
+      [
+        {
+          type: 'Feature',
+          properties: { name: 'Hamletton', scalerank: 10, labelrank: 10 },
+          geometry: { type: 'Point', coordinates: [15, 5] },
+        },
+      ],
+    );
+    const project = sampleProject();
+    project.basemap = [{ sourceId: 'test-places-minor', visible: true, opacity: 1 }];
+    // A whole hemisphere in 400 px: nothing this minor earns a name.
+    const svg = await exportSvg(project, {
+      ...OPTIONS,
+      width: 400,
+      height: 300,
+      extent: [-180, -80, 0, 80],
+      includeBasemap: true,
+    });
+    expect(svg).toContain('<circle'); // the dot still marks the place
+    expect(svg).not.toContain('Hamletton');
   });
 
   it('handles an empty project without throwing', async () => {

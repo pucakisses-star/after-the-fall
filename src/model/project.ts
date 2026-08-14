@@ -159,6 +159,11 @@ export function createProject(opts: NewProjectOptions = {}): MapProject {
       { sourceId: 'world-lakes-10m', visible: false, opacity: 1 },
       { sourceId: 'world-rivers-50m', visible: false, opacity: 1 },
       { sourceId: 'world-rivers-10m', visible: false, opacity: 1 },
+      // Cities on by default at the middle scale: enough to orient yourself
+      // anywhere in the world without burying a new map under seven thousand
+      // dots. The 1:10m set is one checkbox away when you zoom into a region.
+      { sourceId: 'world-places-50m', visible: true, opacity: 1 },
+      { sourceId: 'world-places-10m', visible: false, opacity: 1 },
       { sourceId: 'us-states', visible: false, opacity: 1 },
       { sourceId: 'us-counties', visible: false, opacity: 1 },
     ],

@@ -15,7 +15,9 @@ import type {
   FeatureCollection,
   LineString,
   MultiLineString,
+  MultiPoint,
   MultiPolygon,
+  Point,
   Polygon,
 } from 'geojson';
 import type { BasemapSource } from '@/model/types';
@@ -127,6 +129,30 @@ export const BUILTIN_BASEMAPS: BasemapSource[] = [
     role: 'rivers',
   },
   {
+    id: 'world-places-110m',
+    name: 'Cities & towns — 1:110m (major only)',
+    url: 'data/world/places-110m.json',
+    format: 'topojson',
+    objectName: 'places',
+    role: 'places',
+  },
+  {
+    id: 'world-places-50m',
+    name: 'Cities & towns — 1:50m (medium)',
+    url: 'data/world/places-50m.json',
+    format: 'topojson',
+    objectName: 'places',
+    role: 'places',
+  },
+  {
+    id: 'world-places-10m',
+    name: 'Cities & towns — 1:10m (detailed)',
+    url: 'data/world/places-10m.json',
+    format: 'topojson',
+    objectName: 'places',
+    role: 'places',
+  },
+  {
     id: 'us-states',
     name: 'US states (Census)',
     url: 'data/us/states-10m.json',
@@ -162,14 +188,21 @@ export const BASEMAP_SIZES: Record<string, string> = {
   'world-rivers-110m': '11 KB',
   'world-rivers-50m': '285 KB',
   'world-rivers-10m': '2.0 MB',
+  'world-places-110m': '47 KB',
+  'world-places-50m': '235 KB',
+  'world-places-10m': '1.4 MB',
   'us-states': '110 KB',
   'us-counties': '820 KB',
 };
 
 export type PolyFeature = Feature<Polygon | MultiPolygon, Record<string, unknown>>;
 export type LineFeature = Feature<LineString | MultiLineString, Record<string, unknown>>;
-/** Anything a reference dataset can hold. Lakes are polygons, rivers are lines. */
-export type BasemapFeature = PolyFeature | LineFeature;
+export type PointFeature = Feature<Point | MultiPoint, Record<string, unknown>>;
+/**
+ * Anything a reference dataset can hold: lakes and coastlines are polygons,
+ * rivers are lines, populated places are points.
+ */
+export type BasemapFeature = PolyFeature | LineFeature | PointFeature;
 
 const cache = new Map<string, BasemapFeature[]>();
 const inflight = new Map<string, Promise<BasemapFeature[]>>();
@@ -235,8 +268,12 @@ export function isLineFeature(f: Feature): f is LineFeature {
   return !!f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString');
 }
 
+export function isPointFeature(f: Feature): f is PointFeature {
+  return !!f.geometry && (f.geometry.type === 'Point' || f.geometry.type === 'MultiPoint');
+}
+
 function isDrawableFeature(f: Feature): f is BasemapFeature {
-  return isPolygonFeature(f) || isLineFeature(f);
+  return isPolygonFeature(f) || isLineFeature(f) || isPointFeature(f);
 }
 
 /**
@@ -282,7 +319,7 @@ export function clipToValidArea(
   const g = f.geometry;
 
   // Single-part geometry: keep or drop whole.
-  if (g.type === 'Polygon' || g.type === 'LineString') {
+  if (g.type === 'Polygon' || g.type === 'LineString' || g.type === 'Point') {
     return intersects(bboxOf(g.coordinates)) ? f : null;
   }
 
@@ -303,6 +340,10 @@ export function polygonsOf(features: BasemapFeature[]): PolyFeature[] {
 
 export function linesOf(features: BasemapFeature[]): LineFeature[] {
   return features.filter(isLineFeature);
+}
+
+export function pointsOf(features: BasemapFeature[]): PointFeature[] {
+  return features.filter(isPointFeature);
 }
 
 /**

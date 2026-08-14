@@ -42,6 +42,7 @@ are ever loaded, and nothing is downloaded from the internet at runtime.
 | Country boundaries | 105 KB | 740 KB | 3.5 MB |
 | Lakes | 7 KB | 200 KB | 1.2 MB |
 | Rivers | 11 KB | 285 KB | 2.0 MB |
+| Cities & towns | 47 KB | 235 KB | 1.4 MB |
 | US states / counties (Census) | — | — | 110 / 820 KB |
 
 Pick the scale that matches your zoom: 1:110m for a world map, 1:10m for a region. 1:10m carries
@@ -63,6 +64,15 @@ Rivers are weighted by Natural Earth's `scalerank` on screen and in the export, 
 carry the eye and tributaries stay quiet rather than every watercourse drawing as the same hairline.
 Converted rivers keep that ranking (major rivers get the heavier line style) and their names run
 along the river itself via text-on-path.
+
+**Cities and towns** draw as quiet hollow dots with grey names, below the map's own settlements, so
+real places read as a backdrop you are placing your own against rather than competing with them.
+Names thin out as you zoom out — 7,300 cities would otherwise pile into an unreadable mat — and the
+layer is decluttered so a name is dropped rather than overprinted. The screen and the SVG exporter
+ask the same function which names survive at a given scale, so a printed map names the cities the
+editor showed. Converting them makes each one an editable settlement: Natural Earth marks national
+and regional capitals, so each arrives with the right symbol, and population, country and region
+come across with it.
 
 For anything finer than 1:10m — a single bay, an estuary, a city shoreline — import your own:
 [GSHHG](https://www.soest.hawaii.edu/pwessel/gshhg/) has full-resolution global coastlines, and an
@@ -95,6 +105,7 @@ handled:
 | Thin internal boundaries, heavy sovereign ones | Borders are **derived**, not drawn — `render/borders.ts` |
 | Detailed coastline geometry | Natural Earth 1:110m/1:50m/1:10m and US Census data, convertible to editable territories |
 | Lakes and rivers | Natural Earth water at three scales, drawn over the political fills |
+| Real city locations | Natural Earth populated places at three scales, convertible to settlements |
 | Widely-spaced country names | Per-glyph text rendering with real tracking — `render/textRenderer.ts` |
 | Sea labels on broad curves, river labels along rivers | Text-on-path, same module |
 | City circles, larger capital symbols | `render/symbols.ts`, one definition drawn to canvas *and* SVG |
@@ -355,7 +366,7 @@ overrides.
 settlements with ten symbol types, rivers and roads, labels with real tracking, halos, rotation,
 manual placement and text-on-path, graticule, frames, title block, scale bar.
 
-**Data** — real world/US geography including lakes and rivers, GeoJSON/TopoJSON/KML/GPX/CSV import,
+**Data** — real world/US geography including lakes, rivers and cities, GeoJSON/TopoJSON/KML/GPX/CSV import,
 basemap→territory conversion, reference-image tracing, spreadsheet data table, search,
 GeoJSON/CSV/SVG/PNG export, IndexedDB storage with autosave and recovery snapshots.
 

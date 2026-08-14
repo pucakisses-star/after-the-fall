@@ -26,11 +26,13 @@ import {
   findBasemapSource,
   linesOf,
   loadBasemap,
+  pointsOf,
   polygonsOf,
   registerUserSource,
   type BasemapFeature,
 } from '@/geo/basemap';
 import { commit, getProject, makeLabel, makeLinear, makeSettlement, makeTerritory } from '@/state/projectStore';
+import { territoryAt } from '@/state/commands';
 import { useUIStore, toast } from '@/state/uiStore';
 import type { BorderStyleKind, PoliticalType, Settlement, Territory, UUID } from '@/model/types';
 
@@ -391,9 +393,10 @@ export async function convertBasemapToTerritories(opts: ConvertOptions): Promise
   const all = await loadBasemap(opts.sourceId);
   const role = findBasemapSource(opts.sourceId)?.role;
 
-  // Rivers are lines; send them down the linear path instead of silently
-  // producing nothing.
+  // Rivers are lines and places are points; send them down their own paths
+  // instead of silently producing nothing.
   if (role === 'rivers') return convertBasemapToRivers(opts);
+  if (role === 'places') return convertBasemapToSettlements(opts);
 
   const features = polygonsOf(all);
   const filtered = features.filter((f, i) => {
@@ -488,6 +491,81 @@ export async function convertBasemapToRivers(opts: ConvertOptions): Promise<numb
   });
 
   return rivers.length;
+}
+
+/**
+ * Turn a populated-places dataset into editable `Settlement`s (spec §14).
+ *
+ * Natural Earth's `featurecla` already carries the distinction a historical
+ * atlas cares about — national capital, regional capital, ordinary town — so it
+ * maps straight onto the settlement types and each city arrives with the right
+ * symbol rather than as an undifferentiated dot. Population comes from
+ * `pop_max`, and the country and region become the note, so the provenance of an
+ * imported city is still visible after you have renamed it.
+ */
+export async function convertBasemapToSettlements(opts: ConvertOptions): Promise<number> {
+  const all = await loadBasemap(opts.sourceId);
+  const places = pointsOf(all).filter((f, i) => {
+    if (opts.includeIndices?.size && !opts.includeIndices.has(i)) return false;
+    if (opts.includeNames?.size && !opts.includeNames.has(basemapFeatureName(f))) return false;
+    return true;
+  });
+  if (places.length === 0) return 0;
+
+  const project = getProject();
+  const createLabels = opts.createLabels ?? true;
+
+  commit('Import settlements', (r) => {
+    for (const f of places) {
+      const props = (f.properties ?? {}) as Record<string, unknown>;
+      const name = basemapFeatureName(f);
+      const population = Number(props.pop_max);
+      const type = settlementTypeFromNaturalEarth(
+        typeof props.featurecla === 'string' ? props.featurecla : '',
+        Number.isFinite(population) ? population : null,
+      );
+      const coords = f.geometry.type === 'Point'
+        ? (f.geometry.coordinates as [number, number])
+        : (f.geometry.coordinates[0] as [number, number]);
+
+      const where = [props.adm1name, props.adm0name].filter(Boolean).join(', ');
+      const s = makeSettlement(project, { type: 'Point', coordinates: coords }, {
+        name,
+        type,
+        population: Number.isFinite(population) ? population : null,
+        ownerId: territoryAt(project, coords)?.id ?? null,
+        notes: where ? String(where) : '',
+      });
+
+      if (createLabels) {
+        const label = makeLabel(project, { type: 'Point', coordinates: coords }, {
+          kind: 'city',
+          text: name,
+          attachedToId: s.id,
+          styleClassId: type.includes('capital') ? STYLE_IDS.textCapital : STYLE_IDS.textCity,
+          offset: [type.includes('capital') ? 11 : 8, 0],
+        });
+        r.set('settlements', { ...s, labelId: label.id });
+        r.set('labels', label);
+      } else {
+        r.set('settlements', s);
+      }
+    }
+  });
+
+  return places.length;
+}
+
+/** Natural Earth's `featurecla`, plus population as a tie-breaker for towns. */
+export function settlementTypeFromNaturalEarth(featurecla: string, population: number | null): Settlement['type'] {
+  const c = featurecla.toLowerCase();
+  if (c.startsWith('admin-0 capital')) return 'national-capital';
+  if (c.startsWith('admin-1') || c.includes('region capital')) return 'regional-capital';
+  if (c.includes('historic')) return 'ruins';
+  if (population === null) return 'city';
+  if (population >= 250_000) return 'city';
+  if (population >= 25_000) return 'town';
+  return 'village';
 }
 
 /** A point roughly halfway along a line, used to anchor its label. */

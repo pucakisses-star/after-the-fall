@@ -466,7 +466,21 @@ export class MapController {
     this.borderSource.addFeatures(features);
   }
 
+  /**
+   * Bumped on every basemap sync so a superseded run can bow out.
+   *
+   * Loading a dataset is asynchronous, so switching projects while the previous
+   * one is still loading interleaves two runs. Without a way to tell which run
+   * is current, the stale one adds a layer the new project never asked for —
+   * a reference dataset on screen with its checkbox clear, invisible when it was
+   * one coastline under another and glaring the moment it is a layer of city
+   * dots. Nothing is registered or added to the map until its data is in hand
+   * and the token still matches, so an abandoned run leaves no trace.
+   */
+  private basemapSyncToken = 0;
+
   private async syncBasemaps(project: MapProject): Promise<void> {
+    const token = ++this.basemapSyncToken;
     const wanted = new Set(project.basemap.filter((b) => b.visible).map((b) => b.sourceId));
 
     for (const [id, layer] of this.basemapLayers) {
@@ -476,58 +490,70 @@ export class MapController {
       }
     }
 
-    for (const entry of project.basemap) {
-      if (!entry.visible) continue;
-      const existing = this.basemapLayers.get(entry.sourceId);
-      if (existing) {
-        existing.setOpacity(entry.opacity);
-        continue;
-      }
-      // Reserve the slot immediately so a slow fetch cannot queue twice.
-      const source = new VectorSource({ wrapX: false });
-      const role = findBasemapSource(entry.sourceId)?.role ?? 'custom';
-      const layer = new VectorLayer({
-        source,
-        opacity: entry.opacity,
-        style: basemapRoleStyle(role, project),
-        renderBuffer: 200,
-        // Explicit z so land sits under lakes, lakes under rivers, and every
-        // reference layer stays below the document's own features regardless of
-        // the order the user switches them on.
-        zIndex: BASEMAP_Z[role],
-      });
-      this.basemapLayers.set(entry.sourceId, layer);
-      this.map.addLayer(layer);
+    // Loaded in parallel: `loadBasemap` shares one request per dataset, so this
+    // costs nothing extra and gets a multi-layer map on screen far sooner than
+    // waiting for each file in turn.
+    await Promise.all(
+      project.basemap
+        .filter((entry) => entry.visible)
+        .map(async (entry) => {
+          const existing = this.basemapLayers.get(entry.sourceId);
+          if (existing) {
+            existing.setOpacity(entry.opacity);
+            return;
+          }
 
-      try {
-        const features = await loadBasemap(entry.sourceId);
-        const proj = this.projection();
-        // Drop anything outside the projection's domain of validity. Without
-        // this, Antarctica in a North-America conic projects to a ring tens of
-        // thousands of kilometres across and floods the map with land colour.
-        const valid = validAreaFor(proj);
-        const olFeatures: Feature<Geometry>[] = [];
-        for (let i = 0; i < features.length; i++) {
-          const clipped = clipToValidArea(features[i], valid);
-          if (!clipped) continue;
-          const f = clipped;
-          const geometry = geojson.readGeometry(f.geometry, {
-            dataProjection: 'EPSG:4326',
-            featureProjection: proj,
+          let features;
+          try {
+            features = await loadBasemap(entry.sourceId);
+          } catch (err) {
+            useUIStore.getState().toast(String((err as Error).message ?? err), 'error');
+            return;
+          }
+          // Superseded by a newer project, or another run got here first.
+          if (token !== this.basemapSyncToken) return;
+          if (this.basemapLayers.has(entry.sourceId)) return;
+
+          const proj = this.projection();
+          // Drop anything outside the projection's domain of validity. Without
+          // this, Antarctica in a North-America conic projects to a ring tens of
+          // thousands of kilometres across and floods the map with land colour.
+          const valid = validAreaFor(proj);
+          const olFeatures: Feature<Geometry>[] = [];
+          for (let i = 0; i < features.length; i++) {
+            const clipped = clipToValidArea(features[i], valid);
+            if (!clipped) continue;
+            const f = clipped;
+            const geometry = geojson.readGeometry(f.geometry, {
+              dataProjection: 'EPSG:4326',
+              featureProjection: proj,
+            });
+            // Backstop for custom projections with no declared domain.
+            const extent = geometry.getExtent();
+            if (!extent.every(Number.isFinite)) continue;
+            const olf = new Feature<Geometry>({ geometry });
+            olf.setId(`${entry.sourceId}-${i}`);
+            olf.set('basemap', f, true);
+            olFeatures.push(olf);
+          }
+
+          const role = findBasemapSource(entry.sourceId)?.role ?? 'custom';
+          const layer = new VectorLayer({
+            source: new VectorSource({ features: olFeatures, wrapX: false }),
+            opacity: entry.opacity,
+            style: basemapRoleStyle(role, project),
+            // City names would otherwise pile into an unreadable mat at low zoom.
+            declutter: role === 'places',
+            renderBuffer: role === 'places' ? 400 : 200,
+            // Explicit z so land sits under lakes, lakes under rivers, and every
+            // reference layer stays below the document's own features regardless
+            // of the order the user switches them on.
+            zIndex: BASEMAP_Z[role],
           });
-          // Backstop for custom projections with no declared domain.
-          const extent = geometry.getExtent();
-          if (!extent.every(Number.isFinite)) continue;
-          const olf = new Feature<Geometry>({ geometry });
-          olf.setId(`${entry.sourceId}-${i}`);
-          olf.set('basemap', f, true);
-          olFeatures.push(olf);
-        }
-        source.addFeatures(olFeatures);
-      } catch (err) {
-        useUIStore.getState().toast(String((err as Error).message ?? err), 'error');
-      }
-    }
+          this.basemapLayers.set(entry.sourceId, layer);
+          this.map.addLayer(layer);
+        }),
+    );
   }
 
   /**

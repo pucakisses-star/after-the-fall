@@ -17,6 +17,7 @@ import {
   findBasemapSource,
   linesOf,
   loadBasemap,
+  pointsOf,
   polygonsOf,
   type BasemapFeature,
 } from '@/geo/basemap';
@@ -52,11 +53,21 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
   const role = findBasemapSource(sourceId)?.role;
   const isRivers = role === 'rivers';
   const isLakes = role === 'lakes';
+  const isPlaces = role === 'places';
+  /** Only areal datasets can be merged into a realm. */
+  const dissolvable = !isRivers && !isPlaces;
+  const noun = isRivers
+    ? { one: 'river', many: 'rivers' }
+    : isLakes
+      ? { one: 'lake', many: 'lakes' }
+      : isPlaces
+        ? { one: 'city', many: 'cities' }
+        : { one: 'territory', many: 'territories' };
 
-  // "Dissolve into one state" is meaningless for river centrelines.
+  // "Dissolve into one state" is meaningless for centrelines and city points.
   useEffect(() => {
-    if (isRivers && mode === 'single-state') setMode('divisions');
-  }, [isRivers, mode]);
+    if (!dissolvable && mode === 'single-state') setMode('divisions');
+  }, [dissolvable, mode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,8 +88,15 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
    * would be wrong for a mixed file.
    */
   const candidates = useMemo(
-    () => (features ? (isRivers ? linesOf(features) : polygonsOf(features)) : []),
-    [features, isRivers],
+    () =>
+      features
+        ? isRivers
+          ? linesOf(features)
+          : isPlaces
+            ? pointsOf(features)
+            : polygonsOf(features)
+        : [],
+    [features, isRivers, isPlaces],
   );
 
   const unnamedCount = useMemo(
@@ -88,17 +106,28 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
 
   const rows = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    return candidates
-      .map((f, index) => ({
-        index,
-        name: basemapFeatureName(f),
-        fips: typeof f.id === 'number' || typeof f.id === 'string' ? String(f.id).padStart(5, '0').slice(0, 2) : '',
-      }))
+    const listed = candidates
+      .map((f, index) => {
+        const props = (f.properties ?? {}) as Record<string, unknown>;
+        return {
+          index,
+          name: basemapFeatureName(f),
+          fips: typeof f.id === 'number' || typeof f.id === 'string' ? String(f.id).padStart(5, '0').slice(0, 2) : '',
+          // Cities carry their country, which is the only way to tell the
+          // several dozen Springfields and Victorias apart in the list.
+          badge: isPlaces ? String(props.adm0name ?? '') : '',
+          rank: isPlaces ? Number(props.scalerank ?? 10) : 0,
+        };
+      })
       .filter((r) => (namedOnly ? r.name !== 'Unnamed' : true))
-      .filter((r) => (q ? r.name.toLowerCase().includes(q) : true))
-      .filter((r) => (isCounties && stateFilter ? r.fips === stateFilter : true))
-      .sort((a, b) => a.name.localeCompare(b.name) || a.index - b.index);
-  }, [candidates, filter, stateFilter, isCounties, namedOnly]);
+      .filter((r) => (q ? r.name.toLowerCase().includes(q) || r.badge.toLowerCase().includes(q) : true))
+      .filter((r) => (isCounties && stateFilter ? r.fips === stateFilter : true));
+    // Seven thousand cities sorted alphabetically buries every capital, so rank
+    // them by Natural Earth's scalerank first — world cities, then the rest.
+    return isPlaces
+      ? listed.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name) || a.index - b.index)
+      : listed.sort((a, b) => a.name.localeCompare(b.name) || a.index - b.index);
+  }, [candidates, filter, stateFilter, isCounties, isPlaces, namedOnly]);
 
   const toggle = (index: number) => {
     setChosen((prev) => {
@@ -139,10 +168,8 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
         });
         if (count === 0) toast('Nothing matched that filter.', 'warn');
         else {
-          const noun = isRivers ? 'river' : isLakes ? 'lake' : 'editable territory';
-          const plural = isRivers ? 'rivers' : isLakes ? 'lakes' : 'editable territories';
           toast(
-            `Imported ${count} ${count === 1 ? noun : plural}` +
+            `Imported ${count} ${count === 1 ? noun.one : noun.many}` +
               (isLakes ? ' as water bodies.' : '.'),
             'success',
           );
@@ -177,11 +204,7 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
               ? 'Working…'
               : mode === 'single-state'
                 ? `Create "${name}"`
-                : `Import ${selectionCount} ${
-                    selectionCount === 1
-                      ? isRivers ? 'river' : isLakes ? 'lake' : 'territory'
-                      : isRivers ? 'rivers' : isLakes ? 'lakes' : 'territories'
-                  }`}
+                : `Import ${selectionCount} ${selectionCount === 1 ? noun.one : noun.many}`}
           </button>
         </>
       }
@@ -242,6 +265,7 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
                 <input type="checkbox" readOnly checked={chosen.has(r.index)} style={{ accentColor: 'var(--accent)' }} />
                 <span className="tree-row__name">{r.name}</span>
                 {isCounties && <span className="tree-row__badge">{STATE_FIPS[r.fips] ?? ''}</span>}
+                {isPlaces && r.badge && <span className="tree-row__badge">{r.badge}</span>}
               </label>
             ))}
           </div>
@@ -267,7 +291,13 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
             <input type="radio" checked={mode === 'divisions'} onChange={() => setMode('divisions')} style={{ marginTop: 2 }} />
             <span>
               <strong style={{ color: 'var(--text)' }}>
-                {isRivers ? 'One river per feature' : isLakes ? 'One water body per lake' : 'One territory per feature'}
+                {isRivers
+                  ? 'One river per feature'
+                  : isLakes
+                    ? 'One water body per lake'
+                    : isPlaces
+                      ? 'One settlement per city'
+                      : 'One territory per feature'}
               </strong>
               <br />
               <span style={{ color: 'var(--text-faint)' }}>
@@ -275,11 +305,13 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
                   ? 'Each becomes an editable river you can reshape, rename and relabel. Names run along the river automatically.'
                   : isLakes
                     ? 'Each lake becomes an editable water body using the Water style, with its name as a water label.'
-                    : 'Each state or county becomes its own editable division. Use the paint tool afterwards to group them into realms.'}
+                    : isPlaces
+                      ? 'Each city becomes an editable settlement with its own symbol, population and label, owned by whichever territory it falls inside.'
+                      : 'Each state or county becomes its own editable division. Use the paint tool afterwards to group them into realms.'}
               </span>
             </span>
           </label>
-          {!isRivers && (
+          {dissolvable && (
             <label className="checkbox" style={{ alignItems: 'flex-start' }}>
               <input type="radio" checked={mode === 'single-state'} onChange={() => setMode('single-state')} style={{ marginTop: 2 }} />
               <span>
@@ -312,11 +344,13 @@ export function BasemapDialog({ onClose }: { onClose: () => void }) {
               </label>
             </>
           ) : (
-            isRivers || isLakes ? (
+            isRivers || isLakes || isPlaces ? (
               <p className="hint">
                 {isRivers
                   ? 'Rivers come in ranked by Natural Earth\'s scalerank, so major rivers get the heavier line style.'
-                  : 'Lakes come in with the Water style class, so they match the ocean colour and update with it.'}
+                  : isLakes
+                    ? 'Lakes come in with the Water style class, so they match the ocean colour and update with it.'
+                    : 'Natural Earth marks which cities are national and regional capitals, so each one arrives with the right symbol; population and country come across too.'}
               </p>
             ) : (
             <>

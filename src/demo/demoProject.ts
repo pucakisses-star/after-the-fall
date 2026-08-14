@@ -172,6 +172,10 @@ export async function buildDemoProject(): Promise<DemoBuildResult> {
     { sourceId: 'world-land-10m', visible: true, opacity: 1 },
     { sourceId: 'world-lakes-10m', visible: true, opacity: 1 },
     { sourceId: 'world-rivers-10m', visible: false, opacity: 1 },
+    // Off by default here: this map names its own cities, and real ones on top
+    // of them would just be two atlases fighting over the same ground. It is
+    // still one checkbox away for anyone who wants the real geography back.
+    { sourceId: 'world-places-10m', visible: false, opacity: 1 },
     { sourceId: 'world-land-50m', visible: false, opacity: 1 },
     { sourceId: 'us-states', visible: false, opacity: 1 },
     { sourceId: 'us-counties', visible: false, opacity: 1 },

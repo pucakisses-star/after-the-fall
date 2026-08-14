@@ -11,6 +11,7 @@ import Style from 'ol/style/Style';
 import Fill from 'ol/style/Fill';
 import Stroke from 'ol/style/Stroke';
 import CircleStyle from 'ol/style/Circle';
+import Text from 'ol/style/Text';
 import { toCss } from '@/model/color';
 import { canvasPattern, dashArray, doubleLineWidths, isDoubleLine } from './patterns';
 import type { StyleFunction } from 'ol/style/Style';
@@ -160,7 +161,8 @@ export function basemapStyle(fill: string, stroke: string, width = 0.5): Style {
   });
 }
 
-export type BasemapRole = 'land' | 'countries' | 'states' | 'counties' | 'lakes' | 'rivers' | 'custom';
+export type BasemapRole =
+  | 'land' | 'countries' | 'states' | 'counties' | 'lakes' | 'rivers' | 'places' | 'custom';
 
 /**
  * Draw order for reference geography, interleaved with the document's own layers
@@ -183,6 +185,9 @@ export const BASEMAP_Z: Record<BasemapRole, number> = {
   custom: -70,
   lakes: 14,
   rivers: 16,
+  // Reference cities sit just under the document's own settlements, so your
+  // placed capitals always read above the ones you are working from.
+  places: 38,
 };
 
 /**
@@ -192,7 +197,7 @@ export const BASEMAP_Z: Record<BasemapRole, number> = {
  */
 export function basemapRoleStyle(
   role: BasemapRole,
-  project: { landColor: string; oceanColor: string },
+  project: { landColor: string; oceanColor: string; projection?: { units: string } },
 ): Style | StyleFunction {
   switch (role) {
     case 'land':
@@ -202,6 +207,8 @@ export function basemapRoleStyle(
     case 'rivers':
       // A style *function*, not a fixed style: width follows importance.
       return basemapRiverStyle();
+    case 'places':
+      return basemapPlaceStyle(metersPerUnit(project.projection?.units));
     default:
       return basemapStyle('rgba(0,0,0,0)', '#a89c86', 0.4);
   }
@@ -236,6 +243,102 @@ export function basemapRiverStyle(): StyleFunction {
     }
     return style;
   };
+}
+
+/**
+ * Reference cities and towns.
+ *
+ * Deliberately quiet — a small hollow dot and a grey name, so real places read
+ * as a backdrop you are placing your own settlements against rather than
+ * competing with them. Size and label visibility follow Natural Earth's
+ * `scalerank`, and the layer is decluttered so names thin out instead of piling
+ * into an unreadable mat at low zoom.
+ */
+export function basemapPlaceStyle(unitsInMeters = 1): StyleFunction {
+  const cache = new Map<string, Style>();
+  return (feature, resolution) => {
+    const props =
+      (feature.get('basemap') as { properties?: Record<string, unknown> } | undefined)?.properties ?? {};
+    const rank = clampRank(Number(props.scalerank), 8);
+    const labelRank = clampRank(Number(props.labelrank), 8);
+    const name = typeof props.name === 'string' ? props.name : '';
+
+    // Show fewer names as you zoom out: at world scale only the majors survive.
+    // `resolution` is metres (or degrees) per pixel, so a log scale is the right
+    // shape here.
+    const showLabel = !!name && placeLabelVisible(labelRank, resolution * unitsInMeters);
+
+    const key = `${rank}|${showLabel ? name : ''}`;
+    let style = cache.get(key);
+    if (!style) {
+      const { radius, fontSize } = placeRankStyle(rank);
+      style = new Style({
+        image: new CircleStyle({
+          radius,
+          fill: new Fill({ color: PLACE_DOT_FILL }),
+          stroke: new Stroke({ color: PLACE_DOT_STROKE, width: 1 }),
+        }),
+        text: showLabel
+          ? new Text({
+              text: name,
+              font: `${fontSize}px 'Iowan Old Style', Palatino, Georgia, serif`,
+              offsetX: radius + 4,
+              textAlign: 'left',
+              fill: new Fill({ color: PLACE_TEXT_FILL }),
+              stroke: new Stroke({ color: PLACE_TEXT_HALO, width: 2.5 }),
+              declutterMode: 'declutter',
+            })
+          : undefined,
+      });
+      cache.set(key, style);
+    }
+    return style;
+  };
+}
+
+export function clampRank(raw: number, fallback: number): number {
+  return Number.isFinite(raw) ? Math.max(0, Math.min(11, Math.round(raw))) : fallback;
+}
+
+/** Colours for reference cities, shared with the SVG exporter. */
+export const PLACE_DOT_FILL = '#fdfaf2';
+export const PLACE_DOT_STROKE = '#8a7f6d';
+export const PLACE_TEXT_FILL = '#6d6455';
+export const PLACE_TEXT_HALO = 'rgba(253,250,242,0.9)';
+
+/** Dot radius and name size for a place's `scalerank`, shared with the exporter. */
+export function placeRankStyle(rank: number): { radius: number; fontSize: number } {
+  const r = clampRank(rank, 8);
+  return {
+    radius: r <= 1 ? 3.6 : r <= 3 ? 3 : r <= 5 ? 2.5 : 2,
+    fontSize: r <= 1 ? 11 : 10,
+  };
+}
+
+/**
+ * Metres in one unit of a projection, for turning a resolution into a scale.
+ *
+ * Only the two cases the app can produce: an equirectangular project measures in
+ * degrees, everything else in metres. Without this a lat/lon map reports a
+ * resolution near 0.5 where a metric one reports 40,000, and any threshold
+ * calibrated on one is nonsense on the other.
+ */
+export function metersPerUnit(units: string | undefined): number {
+  return units === 'degrees' ? 111319.49079327358 : 1;
+}
+
+/**
+ * Whether a place's name is worth drawing at this scale.
+ *
+ * Show fewer names as you zoom out: at world scale only the majors survive,
+ * otherwise seven thousand names pile into an unreadable mat. `metersPerPixel`
+ * is a scale, so a log curve is the right shape — and because the SVG exporter
+ * knows its own metres per pixel it can ask the same question and get the same
+ * answer, keeping print and screen in agreement.
+ */
+export function placeLabelVisible(labelRank: number, metersPerPixel: number): boolean {
+  const zoomish = Math.max(0, 14 - Math.log2(Math.max(metersPerPixel, 1e-9)));
+  return clampRank(labelRank, 8) <= zoomish - 1;
 }
 
 /** Stroke width and colour for a river rank, shared with the SVG exporter. */

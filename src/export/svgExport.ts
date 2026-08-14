@@ -18,7 +18,16 @@ import { clipToValidArea, findBasemapSource, isPolygonFeature, loadBasemap } fro
 import { registerProjections, validAreaFor } from '@/geo/projections';
 import { computeBorders } from '@/render/borders';
 import { svgPatternDef, svgPatternId, dashArray, doubleLineWidths, isDoubleLine } from '@/render/patterns';
-import { riverRankStyle } from '@/render/olStyles';
+import {
+  PLACE_DOT_FILL,
+  PLACE_DOT_STROKE,
+  PLACE_TEXT_FILL,
+  PLACE_TEXT_HALO,
+  metersPerUnit,
+  placeLabelVisible,
+  placeRankStyle,
+  riverRankStyle,
+} from '@/render/olStyles';
 import { symbolToSvg } from '@/render/symbols';
 import { toCss } from '@/model/color';
 import { STYLE_IDS } from '@/model/defaults';
@@ -77,7 +86,10 @@ interface Frame {
   h: number;
 }
 
-function buildProjector(project: MapProject, opts: SvgExportOptions): { project: Projector; frame: Frame } {
+function buildProjector(
+  project: MapProject,
+  opts: SvgExportOptions,
+): { project: Projector; frame: Frame; resolution: number } {
   registerProjections();
   const code = project.projection.id;
   const forward =
@@ -146,7 +158,10 @@ function buildProjector(project: MapProject, opts: SvgExportOptions): { project:
     }
   };
 
-  return { project: projector, frame };
+  // Projected units per output pixel — the same quantity OpenLayers calls a
+  // resolution, so the exporter can apply the screen's zoom-dependent rules
+  // (which reference cities get named, for instance) and reach the same answer.
+  return { project: projector, frame, resolution: 1 / scale };
 }
 
 // ---------------------------------------------------------------------------
@@ -183,6 +198,16 @@ function lineToPath(g: LineString | MultiLineString, p: Projector): string {
     }
   }
   return d;
+}
+
+/** The first coordinate of a point (or multi-point) reference feature. */
+function firstPointOf(f: { geometry: { type: string; coordinates: unknown } }, p: Projector) {
+  const g = f.geometry;
+  const c =
+    g.type === 'Point' ? (g.coordinates as Position)
+    : g.type === 'MultiPoint' ? (g.coordinates as Position[])[0]
+    : null;
+  return c ? p(c[0], c[1]) : null;
 }
 
 function num(n: number): string {
@@ -231,8 +256,9 @@ function textAttrs(s: TextStyle, scale: number): string {
 // ---------------------------------------------------------------------------
 
 export async function exportSvg(project: MapProject, opts: SvgExportOptions): Promise<string> {
-  const { project: p, frame } = buildProjector(project, opts);
+  const { project: p, frame, resolution } = buildProjector(project, opts);
   const scale = opts.styleScale;
+  const metersPerPixel = resolution * metersPerUnit(project.projection.units);
 
   const patterns = new Map<string, HatchPattern>();
   const defs: string[] = [];
@@ -250,6 +276,7 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
   // --- basemap land ---------------------------------------------------------
   const terrain: string[] = [];
   const basemapRivers: string[] = [];
+  const basemapPlaces: string[] = [];
   const lakeLayers: string[] = [];
   if (opts.includeBasemap) {
     // Match the screen's draw order: land, then lakes, then everything else.
@@ -302,6 +329,45 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
             basemapRivers.push(
               `<g id="basemap-${esc(entry.sourceId)}" fill="none" stroke-linecap="round" ` +
                 `stroke-linejoin="round" opacity="${entry.opacity}">${inner}</g>`,
+            );
+          }
+          continue;
+        }
+
+        if (role === 'places') {
+          // Reference cities are points, and they belong with the settlements
+          // rather than in "terrain". Both the dot size and which names survive
+          // come from the shared helpers the screen renderer uses, so a printed
+          // map names the same cities the editor did.
+          const dots: string[] = [];
+          const names: string[] = [];
+          for (const f of features) {
+            const pt = firstPointOf(f, p);
+            if (!pt) continue;
+            const props = (f.properties ?? {}) as Record<string, unknown>;
+            const { radius, fontSize } = placeRankStyle(Number(props.scalerank));
+            const r = radius * scale;
+            dots.push(`<circle cx="${num(pt[0])}" cy="${num(pt[1])}" r="${num(r)}"/>`);
+            const name = typeof props.name === 'string' ? props.name : '';
+            if (!name || !placeLabelVisible(Number(props.labelrank), metersPerPixel)) continue;
+            names.push(
+              `<text x="${num(pt[0] + r + 4 * scale)}" y="${num(pt[1] + fontSize * 0.35 * scale)}"` +
+                (fontSize === 10 ? '' : ` font-size="${num(fontSize * scale)}"`) +
+                `>${esc(name)}</text>`,
+            );
+          }
+          if (dots.length) {
+            basemapPlaces.push(
+              `<g id="basemap-${esc(entry.sourceId)}" opacity="${entry.opacity}">` +
+                `<g fill="${PLACE_DOT_FILL}" stroke="${PLACE_DOT_STROKE}" stroke-width="${num(scale)}">` +
+                `${dots.join('')}</g>` +
+                (names.length
+                  ? `<g font-family="'Iowan Old Style', Palatino, Georgia, serif" ` +
+                    `font-size="${num(10 * scale)}" fill="${PLACE_TEXT_FILL}" ` +
+                    `paint-order="stroke" stroke="${PLACE_TEXT_HALO}" stroke-width="${num(2.5 * scale)}" ` +
+                    `stroke-linejoin="round">${names.join('')}</g>`
+                  : '') +
+                `</g>`,
             );
           }
           continue;
@@ -423,7 +489,9 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
       `<g id="settlement-${esc(s.id)}" data-name="${esc(s.name)}">${symbolToSvg(style, pt[0], pt[1], scale)}</g>`,
     );
   }
-  groups.push(group('settlements', settlements));
+  // Reference cities sit under the document's own settlements, exactly as they
+  // do on screen — your places win where they coincide.
+  groups.push(group('settlements', [...basemapPlaces, ...settlements]));
 
   // --- labels: text stays text ---------------------------------------------
   const labels: string[] = [];
