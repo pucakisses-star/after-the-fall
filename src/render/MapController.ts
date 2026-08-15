@@ -61,9 +61,17 @@ import { drawSymbol } from './symbols';
 import { drawText, drawTextOnPath, boxContains, type TextBox } from './textRenderer';
 import { useProjectStore } from '@/state/projectStore';
 import { useUIStore } from '@/state/uiStore';
-import type { MapLabel, MapProject, ProjectionSettings, TimelineRange, UUID } from '@/model/types';
+import type { MapLabel, MapProject, ProjectionSettings, TextStyle, TimelineRange, UUID } from '@/model/types';
 
 const geojson = new GeoJSON();
+
+/**
+ * The scale territory labels are composed for, as metres per pixel.
+ *
+ * Must match `PLATE_SCALE` in the demo builder — 26 px per degree of latitude,
+ * which is a regional plate: one kingdom filling a window.
+ */
+const PLATE_METERS_PER_PIXEL = 111_320 / 26;
 
 /** Comparable form of a working extent, for spotting a change cheaply. */
 function extentKey(e: [number, number, number, number] | null | undefined): string {
@@ -859,14 +867,49 @@ export class MapController {
     return territoryLabelVisible(depthOf(project, owner.id), metersPerPixel);
   }
 
+  /**
+   * Grow and shrink a political name with the land it names (spec §42).
+   *
+   * A territory's label is laid out once, against the shape of the territory, at
+   * the scale the plate is composed for — see `render/labelFit.ts`. Drawn at a
+   * fixed pixel size it is then only correct at that one zoom: composed to span
+   * a kingdom, it spans two continents when you zoom out, and shrinks to a
+   * caption when you zoom in. That is the difference between a name that belongs
+   * to a country and a name that floats over it.
+   *
+   * So the size travels with the map. The clamp is what keeps it usable at the
+   * extremes: without a floor a realm's name disappears entirely on a world
+   * view, and without a ceiling one letter fills the window at street level.
+   *
+   * Only territory names scale. Cities, rivers and oceans are annotations on the
+   * map rather than inscriptions across a shape, and are set to be read at
+   * whatever zoom you happen to be at.
+   */
+  private scaleToPlate(project: MapProject, label: MapLabel, style: TextStyle): TextStyle {
+    if (!label.attachedToId || !project.territories[label.attachedToId]) return style;
+    const resolution = this.map.getView().getResolution() ?? 1;
+    const metersPerPixel = resolution * metersPerUnit(project.projection?.units);
+    if (!(metersPerPixel > 0)) return style;
+
+    const factor = Math.max(0.2, Math.min(2.5, PLATE_METERS_PER_PIXEL / metersPerPixel));
+    if (Math.abs(factor - 1) < 0.02) return style;
+    return {
+      ...style,
+      fontSize: style.fontSize * factor,
+      tracking: style.tracking * factor,
+      haloWidth: style.haloWidth * Math.min(1, factor),
+    };
+  }
+
   private styleLabel(f: Feature<Geometry>): Style[] {
     const project = useProjectStore.getState().project;
     const id = f.getId() as UUID;
     const label = project.labels[id];
     if (!label) return [];
-    const style = resolveTextStyle(project, label);
+    const base = resolveTextStyle(project, label);
     const selected = useUIStore.getState().selection.includes(id);
     if (!selected && !this.labelEarnsItsPlace(project, label)) return [];
+    const style = this.scaleToPlate(project, label, base);
     const pathPixels = label.pathId ? this.labelPathPixels(project, label) : null;
 
     return [

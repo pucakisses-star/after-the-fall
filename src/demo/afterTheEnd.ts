@@ -25,6 +25,7 @@
 
 import { linesOf, loadBasemap, pointsOf, polygonsOf } from '@/geo/basemap';
 import { memberCountFor, pickSeats, subdivideRealm, type SubdivisionSeat } from '@/geo/subdivide';
+import { fitLabel } from '@/render/labelFit';
 import { relationshipInfo } from '@/model/defaults';
 import { areaKm2, dissolve, interiorPoint } from '@/geo/operations';
 import { recolor } from '@/geo/palette';
@@ -688,10 +689,9 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
           // what it is and half of what makes the setting worth mapping. The
           // short form stays on the territory, for the places too tight for the
           // full one.
-          text: realm.name,
           coords: interiorPoint(shape),
           styleClassId: STYLE_IDS.textCountry,
-          style: nameStyle(shape, realm.name),
+          ...nameLayout(shape, realm.name, 0),
         });
       }
       if (seatStateId) {
@@ -730,11 +730,10 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
     attachLabel(project, empireId, 'territories', {
       layerId: countryLabels.id,
       kind: 'country',
-      text: empire.name,
       coords: empire.label ?? interiorPoint(whole),
       styleClassId: STYLE_IDS.textCountry,
       manualPosition: !!empire.label,
-      style: nameStyle(whole, empire.name),
+      ...nameLayout(whole, empire.name, 0),
     });
 
     empire.realms.forEach((realm) => {
@@ -764,10 +763,9 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
       attachLabel(project, realmId, 'territories', {
         layerId: regionLabels.id,
         kind: 'region',
-        text: realm.name,
         coords: interiorPoint(shape),
         styleClassId: STYLE_IDS.textRegion,
-        style: nameStyle(shape, realm.name),
+        ...nameLayout(shape, realm.name, 1),
       });
     });
 
@@ -807,7 +805,9 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
   }
   for (const parent of Object.values(project.territories)) {
     if (parent.relationship !== 'vassal' || !parent.parentId) continue;
-    memberCount += addMembers(project, parent, towns, rivers, territoryLayer.id, regionLabels.id);
+    // A vassal realm's members sit two levels under the empire, so their names
+    // are set smaller again and appear a zoom step later.
+    memberCount += addMembers(project, parent, towns, rivers, territoryLayer.id, regionLabels.id, 2);
   }
   if (memberCount) console.debug(`After the End: ${memberCount} member states`);
 
@@ -844,45 +844,31 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
  * Detroit" needs two and a half times the room "Detroit" does, so it is set
  * proportionally smaller and comes out about as wide.
  */
-function nameStyle(shape: Polygon | MultiPolygon, text: string): { fontSize: number; tracking: number } {
-  const rings = shape.type === 'Polygon' ? shape.coordinates : shape.coordinates.flat();
-  let west = Infinity;
-  let east = -Infinity;
-  let south = Infinity;
-  let north = -Infinity;
-  for (const ring of rings) {
-    for (const [x, y] of ring) {
-      if (x < west) west = x;
-      if (x > east) east = x;
-      if (y < south) south = y;
-      if (y > north) north = y;
-    }
-  }
-  if (!Number.isFinite(west)) return { fontSize: 6, tracking: 0.9 };
-  const km = Math.max(
-    (east - west) * 111 * Math.max(0.2, Math.cos((((south + north) / 2) * Math.PI) / 180)),
-    (north - south) * 111,
-  );
+/**
+ * How a realm's name is set on it (spec §10, §42).
+ *
+ * The whole layout — angle, size, tracking, line breaks — is derived from the
+ * territory's own shape and its depth in the hierarchy, so a name belongs to the
+ * country rather than floating above its middle at whatever size the style class
+ * happens to carry. See `render/labelFit.ts`.
+ *
+ * `PLATE_SCALE` is the pixels-per-degree the sizes are chosen for: the scale at
+ * which you read realm names on this map. Labels are a fixed pixel size, so this
+ * is a decision about which zoom the plate is composed for, not a conversion.
+ */
+const PLATE_SCALE = 26;
 
-  // 300 km sets the floor, 2,600 km the ceiling: the span between a petty realm
-  // and an empire on this map.
-  const t = Math.min(1, Math.max(0, Math.log(km / 300) / Math.log(2600 / 300)));
-  // Against a twelve-character title, which is about the middle of the table.
-  const forLength = Math.min(1.1, Math.max(0.6, 12 / Math.max(4, text.length)));
-
-  // Floored at seven points, and the floor matters more than the scale above
-  // it. A chiefdom of a hundred and thirty kilometres with a twenty-character
-  // title works out at four points on the two rules alone, which is not a small
-  // label but an absent one — the realm reads as nameless, which is the one
-  // thing it must not do. Below the floor a name simply outgrows its realm and
-  // overhangs the ground beside it, the way an atlas sets a name it cannot fit.
-  //
-  // The whole range is set for the scale a reader actually reads realm names
-  // at — a region on the screen, not both continents at once. Label text is a
-  // fixed pixel size rather than a fixed distance on the ground, so it cannot
-  // be right at both, and of the two this is the one worth being right at.
-  const fontSize = Number(Math.min(20, Math.max(7, (7 + t * 9) * forLength)).toFixed(2));
-  return { fontSize, tracking: Number((fontSize * 0.16).toFixed(2)) };
+function nameLayout(
+  shape: Polygon | MultiPolygon,
+  text: string,
+  depth: number,
+): { rotation: number; text: string; style: Partial<TextStyle> } {
+  const fit = fitLabel(text, shape, PLATE_SCALE, { depth });
+  return {
+    rotation: fit.rotation,
+    text: fit.lines.join('\n'),
+    style: { fontSize: fit.fontSize, tracking: fit.tracking },
+  };
 }
 
 /**
@@ -942,6 +928,7 @@ function addMembers(
   rivers: Position[][],
   layerId: string,
   regionLabelLayerId: string,
+  depth = 1,
 ): number {
   const wanted = memberCountFor(areaKm2(parent.geometry));
   if (wanted < 2) return 0;
@@ -983,10 +970,9 @@ function addMembers(
     attachLabel(project, id, 'territories', {
       layerId: regionLabelLayerId,
       kind: 'region',
-      text: title.name,
       coords: interiorPoint(m.geometry),
       styleClassId: STYLE_IDS.textRegion,
-      style: nameStyle(m.geometry, title.name),
+      ...nameLayout(m.geometry, title.name, depth),
     });
   }
   return members.length;
@@ -1112,6 +1098,7 @@ function makeLabel(init: {
   offset?: [number, number];
   manualPosition?: boolean;
   hidden?: boolean;
+  rotation?: number;
   style?: Partial<TextStyle>;
 }): MapLabel {
   return {
@@ -1131,7 +1118,7 @@ function makeLabel(init: {
     pathId: null,
     manualPosition: init.manualPosition ?? false,
     offset: init.offset ?? [0, 0],
-    rotation: 0,
+    rotation: init.rotation ?? 0,
     ignoreCollisions: false,
     maxWidth: null,
   };
