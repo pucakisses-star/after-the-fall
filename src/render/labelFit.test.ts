@@ -15,6 +15,7 @@ import {
   breakTitle,
   dominantAxis,
   fitLabel,
+  fitToPlate,
   inscriptionScale,
   labelZoomScale,
   pinnedText,
@@ -192,6 +193,14 @@ describe('label zoom scale', () => {
     expect(labelZoomScale(PLATE_METERS_PER_PIXEL * 2)).toBeCloseTo(0.5, 6);
   });
 
+  it('keeps scaling well past the plate, so a name stays with its land', () => {
+    // The ceiling used to be 2.5, i.e. reached one and a half zoom levels in,
+    // which froze every name for the whole of the working range.
+    expect(labelZoomScale(PLATE_METERS_PER_PIXEL / 4)).toBe(4);
+    expect(labelZoomScale(PLATE_METERS_PER_PIXEL / 8)).toBe(8);
+    expect(MAX_LABEL_SCALE).toBeGreaterThanOrEqual(8);
+  });
+
   it('holds between a floor and a ceiling at the extremes', () => {
     expect(labelZoomScale(PLATE_METERS_PER_PIXEL * 1000)).toBe(MIN_LABEL_SCALE);
     expect(labelZoomScale(PLATE_METERS_PER_PIXEL / 1000)).toBe(MAX_LABEL_SCALE);
@@ -204,11 +213,11 @@ describe('label zoom scale', () => {
   });
 
   it('pins a name at the size it is drawn, not the size it is set to', () => {
-    // A regional zoom, where the scale is pegged at the ceiling: this is the
-    // case the switch used to make jump.
+    // Three zoom levels inside the plate the name was composed for: the case
+    // the switch used to make jump.
     const mpp = PLATE_METERS_PER_PIXEL / 8;
     const factor = labelZoomScale(mpp);
-    expect(factor).toBe(MAX_LABEL_SCALE);
+    expect(factor).toBe(8);
 
     const before = drawn(style, mpp);
     const pinned = pinnedText(style, factor, true);
@@ -257,6 +266,30 @@ describe('label zoom scale', () => {
     expect(round.fontSize).toBeCloseTo(style.fontSize, 1);
     expect(round.tracking).toBeCloseTo(style.tracking, 1);
     expect(round.haloWidth).toBeCloseTo(style.haloWidth, 1);
+  });
+
+  it('never lets a name grow wider than the window it is drawn in', () => {
+    const window = 1200;
+    const capped = fitToPlate(MAX_LABEL_SCALE, 'COUNTY OF BILWI', style, window);
+    const width = 'COUNTY OF BILWI'.length * style.fontSize * 0.56 * capped;
+    expect(width).toBeLessThanOrEqual(window);
+    expect(capped).toBeLessThan(MAX_LABEL_SCALE);
+  });
+
+  it('measures the longest line, not the whole text', () => {
+    const oneLine = fitToPlate(MAX_LABEL_SCALE, 'COUNTY OF BILWI', style, 1200);
+    const broken = fitToPlate(MAX_LABEL_SCALE, 'COUNTY OF\nBILWI', style, 1200);
+    expect(broken).toBeGreaterThan(oneLine);
+  });
+
+  it('leaves a name alone until it is actually near the edge', () => {
+    // Same name, same type, a window four times as wide: nothing to cap.
+    expect(fitToPlate(3, 'COUNTY OF BILWI', style, 4000)).toBe(3);
+  });
+
+  it('never caps a name out of existence', () => {
+    const tiny = fitToPlate(MAX_LABEL_SCALE, 'A VERY LONG NAME INDEED', style, 10);
+    expect(tiny).toBe(MIN_LABEL_SCALE);
   });
 
   it('carries the halo through a pin at a zoomed-out scale', () => {

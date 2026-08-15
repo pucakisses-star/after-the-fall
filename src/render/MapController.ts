@@ -58,7 +58,7 @@ import {
   territoryStyle,
 } from './olStyles';
 import { drawSymbol } from './symbols';
-import { inscriptionScale, scaledText } from './labelFit';
+import { fitToPlate, inscriptionScale, scaledText } from './labelFit';
 import { drawText, drawTextOnPath, boxContains, type TextBox } from './textRenderer';
 import { useProjectStore } from '@/state/projectStore';
 import { useUIStore } from '@/state/uiStore';
@@ -889,18 +889,28 @@ export class MapController {
    * on screen is `style size × scale`; pinning multiplies the scale into the
    * style and then stops scaling, which leaves the glyphs exactly where they
    * were and makes the size box mean what it says.
+   *
+   * Pass the resolved style when you already have it — the renderer does, and it
+   * saves resolving it twice for every label on every frame.
    */
-  labelScale(label: MapLabel, project = useProjectStore.getState().project): number {
+  labelScale(
+    label: MapLabel,
+    project = useProjectStore.getState().project,
+    style?: TextStyle,
+  ): number {
     const resolution = this.map.getView().getResolution() ?? 1;
-    return inscriptionScale({
+    const factor = inscriptionScale({
       pinned: label.fixedSize,
       attached: !!label.attachedToId && !!project.territories[label.attachedToId],
       metersPerPixel: resolution * metersPerUnit(project.projection?.units),
     });
+    if (factor <= 1) return factor;
+    const width = this.map.getSize()?.[0] ?? 0;
+    return fitToPlate(factor, label.text, style ?? resolveTextStyle(project, label), width);
   }
 
   private scaleToPlate(project: MapProject, label: MapLabel, style: TextStyle): TextStyle {
-    const factor = this.labelScale(label, project);
+    const factor = this.labelScale(label, project, style);
     if (Math.abs(factor - 1) < 0.02) return style;
     return scaledText(style, factor);
   }

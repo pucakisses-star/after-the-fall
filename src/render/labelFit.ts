@@ -242,8 +242,18 @@ export const PLATE_METERS_PER_PIXEL = 111_320 / 26;
 
 /** Below this the name of a realm would vanish on a world view... */
 export const MIN_LABEL_SCALE = 0.2;
-/** ...and above it a single letter would fill the window at street level. */
-export const MAX_LABEL_SCALE = 2.5;
+/**
+ * ...and above it a single letter would fill the window at street level.
+ *
+ * The ceiling used to be 2.5, which sounds generous and is not: it is reached
+ * about one and a half zoom levels above the plate the names are composed for,
+ * so every zoom past that drew every name at exactly the same size. The effect
+ * was a map where names quietly stopped belonging to their territories — a
+ * county filling the window with its name set in the same type as when it was
+ * a thumbnail — and a "do not scale with zoom" switch that could not be seen to
+ * do anything, because nothing was scaling any more.
+ */
+export const MAX_LABEL_SCALE = 16;
 
 /**
  * How much bigger than its composed size an inscription is drawn at a given
@@ -276,6 +286,36 @@ export function inscriptionScale(opts: {
 }): number {
   if (opts.pinned || !opts.attached) return 1;
   return labelZoomScale(opts.metersPerPixel);
+}
+
+/**
+ * Hold an inscription inside the plate it is drawn on.
+ *
+ * With the ceiling raised, a name keeps growing with its land right up to the
+ * zoom where the land is the window — and a word wider than the window is not
+ * an inscription, it is a fragment: "COUNTY O" with the rest off both edges.
+ * The land it names has no such problem, because you can see part of a country
+ * and know what it is.
+ *
+ * So the last word goes to the window: whatever the zoom says, the longest line
+ * is drawn no wider than `fill` of the plate. Below that zoom this changes
+ * nothing at all.
+ */
+export function fitToPlate(
+  factor: number,
+  text: string,
+  style: ScalableText & { tracking: number },
+  viewportWidth: number,
+  fill = 0.92,
+): number {
+  if (!(viewportWidth > 0)) return factor;
+  const longest = text.split(/\r?\n/).reduce((n, line) => Math.max(n, line.trim().length), 0);
+  if (longest < 1) return factor;
+  // The same estimate `fitLabel` composes with, so the two agree about how wide
+  // a line of this type is before anything is drawn.
+  const unit = longest * style.fontSize * GLYPH_WIDTH + (longest - 1) * Math.max(0, style.tracking);
+  if (!(unit > 0)) return factor;
+  return Math.max(MIN_LABEL_SCALE, Math.min(factor, (viewportWidth * fill) / unit));
 }
 
 /** The parts of a text style that scaling touches. */

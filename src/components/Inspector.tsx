@@ -626,8 +626,9 @@ function useLabelScale(
   controller: MapController | null,
   l: MapLabel,
   project: MapProject,
+  style: TextStyle,
 ): number {
-  const read = () => controller?.labelScale({ ...l, fixedSize: false }, project) ?? 1;
+  const read = () => controller?.labelScale({ ...l, fixedSize: false }, project, style) ?? 1;
   const [scale, setScale] = useState(read);
 
   useEffect(() => {
@@ -641,7 +642,7 @@ function useLabelScale(
     view.on('change:resolution', onChange);
     return () => view.un('change:resolution', onChange);
     // Re-read when the label or the document behind it changes, not only on zoom.
-  }, [controller, l, project]);
+  }, [controller, l, project, style.fontSize, style.tracking]);
 
   return scale;
 }
@@ -659,7 +660,7 @@ function LabelInspector({ label: l }: { label: MapLabel }) {
 
   // What the map is currently multiplying this label's type size by (§42).
   const controller = useMapController();
-  const scale = useLabelScale(controller, l, project);
+  const scale = useLabelScale(controller, l, project, style);
 
   /**
    * Pin a name at the size it is drawn at, rather than at the size it is set to.
@@ -753,12 +754,28 @@ function LabelInspector({ label: l }: { label: MapLabel }) {
           </select>
         </Field>
         <Field label="Size">
-          {/* Up to 160: a realm's name pinned at a regional zoom carries the
-              scale it was drawn at, which runs well past ordinary type sizes. */}
-          <Slider value={style.fontSize} min={5} max={160} step={0.5} onChange={(v) => setStyle({ fontSize: v })} suffix="px" />
+          {/* The track stretches to fit: a realm's name pinned at a close zoom
+              carries the scale it was drawn at, which runs well past ordinary
+              type sizes, and a slider whose thumb is stuck at the end cannot be
+              used to make it smaller again. */}
+          <Slider
+            value={style.fontSize}
+            min={5}
+            max={Math.max(80, Math.ceil(style.fontSize / 20) * 20)}
+            step={0.5}
+            onChange={(v) => setStyle({ fontSize: v })}
+            suffix="px"
+          />
         </Field>
         <Field label="Tracking">
-          <Slider value={style.tracking} min={-3} max={120} step={0.5} onChange={(v) => setStyle({ tracking: v })} suffix="px" />
+          <Slider
+            value={style.tracking}
+            min={-3}
+            max={Math.max(40, Math.ceil(style.tracking / 10) * 10)}
+            step={0.5}
+            onChange={(v) => setStyle({ tracking: v })}
+            suffix="px"
+          />
         </Field>
         <Field label="Line height">
           <Slider value={style.lineHeight} min={0.8} max={2.4} step={0.05} onChange={(v) => setStyle({ lineHeight: v })} />
