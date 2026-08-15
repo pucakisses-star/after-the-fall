@@ -226,8 +226,9 @@ other are different questions. It now varies hue, saturation and lightness from 
 of the territory's id — three axes because four siblings spread along one would collide about half
 the time, and from the id so a saved map opens in the colours it was saved in.
 
-**A border drawn inside a state makes a subdivision of it.** Draw with the territory tool (**R**)
-inside an existing territory and the new shape joins it — as a member, with the inherited colour and
+**A border drawn inside a state makes a subdivision of it.** Draw one inside an existing territory —
+freehand with the redraw tool (**N**), or vertex by vertex with the territory tool (**R**) — and the
+new shape joins it — as a member, with the inherited colour and
 the lighter border weight that go with being one — rather than as a rival sovereign lying on top of
 it with a full international frontier around it. The smallest containing territory is the parent,
 because containment is nested: a border drawn inside a county inside a duchy belongs to the county.
@@ -237,9 +238,14 @@ Nine tenths of the new shape has to be inside for it to count. Not all of it, be
 by hand along an existing frontier crosses it by a pixel here and there, and "entirely inside" would
 answer *sovereign* for something anybody looking at the map would call a province; not much less,
 because a shape half in and half out is a new state overlapping an old one, which is a different
-thing and not something to guess about. Redrawing a state's own outline is a different gesture with
-its own tool and is unaffected — this is what happens when you draw a new line rather than move an
-existing one.
+thing and not something to guess about. Whatever hangs over the edge inside that tenth is trimmed
+off, because a subdivision is made of its parent's ground and a province sticking out of its own
+realm into the neighbour is not what was drawn.
+
+The redraw tool decides between the two by what the stroke does: one that runs along an existing
+outline moves that outline and the neighbours sharing it follow, and one drawn inside a state is a
+new border. A freehand stroke is closed into a shape first — a hand drawing a loop rarely lands back
+on its own start — and passed through the clipper to resolve the crossings freehand always leaves.
 
 **The paint bucket fills land, claimed or not.** Click ground with the bucket (**G**) and it goes to
 one realm — the whole connected patch of it, out to the coast and up to whatever anyone else already

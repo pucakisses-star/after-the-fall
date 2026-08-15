@@ -18,6 +18,7 @@ import {
   dissolve,
   dropHairlines,
   explode,
+  makeValid,
   interiorPoint,
   intersection,
   normalizePoly,
@@ -93,7 +94,7 @@ const ENCLOSED_SHARE = 0.9;
  * Locked territories are skipped — a lock means "do not let anything happen to
  * this", and quietly gaining a member is something happening to it.
  */
-function enclosingTerritory(project: MapProject, shape: Poly): Territory | null {
+export function enclosingTerritory(project: MapProject, shape: Poly): Territory | null {
   const area = areaKm2(shape);
   if (!(area > 0)) return null;
   const box = bbox(shape);
@@ -141,6 +142,11 @@ export function addTerritory(geometry: Polygon | MultiPolygon, init: Partial<Ter
   }
   const ui = useUIStore.getState();
   const host = init.parentId === undefined ? enclosingTerritory(project, cleaned) : null;
+  // A subdivision is made of its parent's ground, so the tenth of the shape the
+  // rule above tolerates hanging outside is trimmed rather than kept: a border
+  // drawn by hand crosses the outline it was meant to follow, and a province
+  // sticking out of its own realm into the neighbour is not what was drawn.
+  const shape = (host && intersection(host.geometry, cleaned)) || cleaned;
   const inherited: Partial<Territory> = host
     ? {
         parentId: host.id,
@@ -148,13 +154,13 @@ export function addTerritory(geometry: Polygon | MultiPolygon, init: Partial<Ter
         borderKind: depthOf(project, host.id) === 0 ? 'provincial' : 'county',
       }
     : {};
-  const territory = makeTerritory(project, cleaned, {
+  const territory = makeTerritory(project, shape, {
     politicalType: ui.draftPoliticalType,
     name: init.name ?? nextName(project, 'territories', 'New Territory'),
     ...inherited,
     ...init,
   });
-  const label = makeLabel(project, { type: 'Point', coordinates: interiorPoint(cleaned) }, {
+  const label = makeLabel(project, { type: 'Point', coordinates: interiorPoint(shape) }, {
     kind: rankOf(territory) <= 2 ? 'country' : 'region',
     text: territory.name,
     attachedToId: territory.id,
@@ -1262,6 +1268,33 @@ export const undo = () => useProjectStore.getState().undo();
 export const redo = () => useProjectStore.getState().redo();
 
 /**
+ * Turn a border drawn inside a state into a subdivision of it (spec §5, §7).
+ *
+ * This is the other half of the redraw tool, and the half the tool is usually
+ * reached for: a stroke that runs along an existing outline moves that outline,
+ * and a stroke drawn *inside* a state is a new border, so it makes a new
+ * subdivision bounded by what was drawn.
+ *
+ * The stroke is closed to make a shape — a hand drawing a loop rarely lands
+ * back on its own start — and passed through the clipper to resolve the
+ * crossings freehand always leaves. It has to land inside a state: a loop drawn
+ * on open ground is not a subdivision of anything, and the tool says so rather
+ * than inventing a country out of a scribble.
+ */
+export function subdivisionFromStroke(stroke: LineString): UUID | null {
+  const ring = [...stroke.coordinates];
+  if (ring.length < 3) return null;
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  if (first[0] !== last[0] || first[1] !== last[1]) ring.push([...first]);
+
+  const shape = makeValid({ type: 'Polygon', coordinates: [ring] });
+  if (!shape || areaKm2(shape) <= 0) return null;
+  if (!enclosingTerritory(getProject(), shape)) return null;
+  return addTerritory(shape);
+}
+
+/**
  * Redraw a stretch of a territory's boundary by hand (spec §5, §6, §21).
  *
  * The stroke replaces the run of border it was drawn along. The territory on
@@ -1274,14 +1307,20 @@ export const redo = () => useProjectStore.getState().redo();
  * the run that was replaced, so this is exact where a border really is shared
  * and does nothing where it merely passes nearby.
  */
-export function reshapeTerritoryBoundary(territoryId: UUID, stroke: LineString, tolerance: number): boolean {
+export function reshapeTerritoryBoundary(
+  territoryId: UUID,
+  stroke: LineString,
+  tolerance: number,
+  /** Leave the complaining to the caller, which has another thing to try. */
+  quiet = false,
+): boolean {
   const project = getProject();
   const target = project.territories[territoryId];
   if (!target || target.locked) return false;
 
   const result = reshapeBoundary(target.geometry, stroke, tolerance);
   if (!result) {
-    toast('Draw over a border, starting and finishing on the same outline.', 'warn');
+    if (!quiet) toast('Draw over a border, starting and finishing on the same outline.', 'warn');
     return false;
   }
 

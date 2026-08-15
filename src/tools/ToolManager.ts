@@ -35,6 +35,7 @@ import {
   moveSettlement,
   paintTerritory,
   reshapeTerritoryBoundary,
+  subdivisionFromStroke,
   splitTerritoryWithLine,
   updateTerritoryGeometry,
 } from '@/state/commands';
@@ -606,11 +607,25 @@ export class ToolManager {
           // A stroke that began nowhere near a border is not a reshape.
           if (best > tolerance * 4) targetId = undefined;
         }
+        // A stroke drawn inside a state is a new border rather than a move of
+        // an old one, and makes a subdivision bounded by what was drawn. Tried
+        // after the reshape, not before: a stroke that runs along an existing
+        // outline is unambiguous, and a shape drawn inside one is what is left.
         if (!targetId) {
-          useUIStore.getState().toast('Start the stroke on the border you want to redraw.', 'warn');
+          if (subdivisionFromStroke(wgs)) return;
+          useUIStore
+            .getState()
+            .toast('Start the stroke on a border to redraw it, or draw a shape inside a state.', 'warn');
           return;
         }
-        reshapeTerritoryBoundary(targetId, wgs, tolerance);
+        if (reshapeTerritoryBoundary(targetId, wgs, tolerance, true)) return;
+        if (subdivisionFromStroke(wgs)) return;
+        useUIStore
+          .getState()
+          .toast(
+            'Draw over a border, starting and finishing on the same outline — or draw a shape inside a state to make a subdivision of it.',
+            'warn',
+          );
       }, 0);
     });
     this.add(draw);

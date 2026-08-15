@@ -29,7 +29,7 @@ export const TOOLS: ToolDef[] = [
   { id: 'pan', label: 'Pan', key: 'H', icon: <IconHand />, hint: 'Drag to pan the map.' },
   { id: 'territory', label: 'Territory', key: 'R', icon: <IconTerritory />, hint: 'Click to place vertices, double-click to close the polygon.' },
   { id: 'vertex', label: 'Edit vertices', key: 'A', icon: <IconVertex />, hint: 'Drag vertices. Click an edge to add one. Alt-click to remove. Neighbours that share a vertex move with it.' },
-  { id: 'reshape', label: 'Redraw border', key: 'N', icon: <IconVertex />, hint: 'Hold and draw over a border to redraw that stretch by hand. Neighbours sharing it follow.' },
+  { id: 'reshape', label: 'Redraw border', key: 'N', icon: <IconVertex />, hint: 'Hold and draw over a border to redraw that stretch by hand; neighbours sharing it follow. Draw a shape inside a state instead and it becomes a subdivision of it.' },
   { id: 'paint', label: 'Paint territory', key: 'B', icon: <IconPaint />, hint: 'Choose a state in the Inspector, then drag across subdivisions to assign them.' },
   { id: 'fill', label: 'Fill land', key: 'G', icon: <IconBucket />, hint: 'Click ground and it goes to one realm — wilderness joins the realm beside it, and land somebody holds changes hands. Select a realm first to choose which, and the flood stops at any river or boundary the map is drawing.' },
   { id: 'cut', label: 'Split', key: 'C', icon: <IconCut />, hint: 'Draw a line across a territory to cut it in two.' },

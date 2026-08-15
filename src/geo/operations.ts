@@ -42,6 +42,27 @@ export function normalizePoly(g: Poly | null | undefined): Poly | null {
   return g;
 }
 
+/**
+ * Resolve a self-crossing outline into a valid region.
+ *
+ * Freehand strokes cross themselves — a hand drawing a loop overshoots the
+ * start, and a shape traced round a county doubles back on itself somewhere.
+ * A ring like that is not a polygon: its area is signed nonsense and every
+ * boolean after it inherits the problem. Passing it through the clipper against
+ * itself splits it at its own crossings and hands back the region it encloses,
+ * which is what the person drawing it meant.
+ */
+export function makeValid(g: Poly): Poly | null {
+  const n = normalizePoly(g);
+  if (!n) return null;
+  try {
+    const merged = turf.union(collection([n, n]));
+    return merged ? normalizePoly(merged.geometry as Poly) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Split a MultiPolygon into its constituent Polygons (§5: islands, exclaves). */
 export function explode(g: Poly): Polygon[] {
   if (g.type === 'Polygon') return [g];

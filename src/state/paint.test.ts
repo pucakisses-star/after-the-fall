@@ -15,9 +15,15 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import type { Polygon } from 'geojson';
 import { createProject } from '@/model/project';
 import { useProjectStore, makeTerritory } from './projectStore';
-import { addTerritory, createTerritoryFromSelection, paintTerritory } from './commands';
+import {
+  addTerritory,
+  createTerritoryFromSelection,
+  paintTerritory,
+  subdivisionFromStroke,
+} from './commands';
 import { useUIStore } from './uiStore';
 import { inheritedFill } from '@/model/resolveStyle';
+import { areaKm2 } from '@/geo/operations';
 import { colorDistance } from '@/model/color';
 import type { Territory } from '@/model/types';
 
@@ -140,6 +146,17 @@ describe('drawing a border inside a state', () => {
     expect(current(county).borderKind).toBe('county');
   });
 
+  it('trims a subdivision to the state it belongs to', () => {
+    // The realm runs to x=2. A shape drawn over its edge is still a member —
+    // nine tenths of it is inside — and the part hanging over the neighbour is
+    // not ground it has any claim to.
+    const { realm } = setup();
+    const id = addTerritory(rect(1.5, 0.5, 2.05, 1.5))!;
+    expect(current(id).parentId).toBe(realm.id);
+    const lons = JSON.stringify(current(id).geometry).match(/-?\d+\.?\d*/g)!.map(Number).filter((_, i) => i % 2 === 0);
+    expect(Math.max(...lons)).toBeCloseTo(2, 5);
+  });
+
   it('leaves a shape drawn on open ground sovereign', () => {
     setup();
     const id = addTerritory(rect(10, 10, 12, 12))!;
@@ -177,5 +194,47 @@ describe('drawing a border inside a state', () => {
     addTerritory(rect(0.2, 0.2, 1, 1));
     useProjectStore.getState().undo();
     expect(Object.keys(useProjectStore.getState().project.territories).length).toBe(before);
+  });
+});
+
+/**
+ * The redraw tool's other half (spec §5, §7).
+ *
+ * A stroke along an existing outline moves that outline. A stroke drawn inside a
+ * state is a new border, and makes a subdivision bounded by what was drawn —
+ * which is what the tool called "Redraw border" is usually reached for.
+ */
+describe('a border drawn inside a state with the redraw tool', () => {
+  const stroke = (coords: [number, number][]) => ({ type: 'LineString' as const, coordinates: coords });
+
+  it('closes the stroke and makes a subdivision of the state it lands in', () => {
+    const { realm } = setup();
+    // Deliberately left open: a hand drawing a loop does not land on its start.
+    const id = subdivisionFromStroke(stroke([[0.3, 0.3], [1.5, 0.3], [1.5, 1.5], [0.3, 1.5], [0.35, 0.4]]))!;
+    expect(id).toBeTruthy();
+    expect(current(id).parentId).toBe(realm.id);
+    expect(current(id).borderKind).toBe('provincial');
+  });
+
+  it('survives a stroke that crosses itself, as freehand always does', () => {
+    const { realm } = setup();
+    const id = subdivisionFromStroke(
+      stroke([[0.3, 0.3], [1.5, 0.3], [1.5, 1.5], [0.3, 1.5], [0.3, 0.2], [0.6, 0.35]]),
+    )!;
+    expect(id).toBeTruthy();
+    expect(current(id).parentId).toBe(realm.id);
+    expect(areaKm2(current(id).geometry)).toBeGreaterThan(0);
+  });
+
+  it('refuses a loop drawn on open ground', () => {
+    // Not a subdivision of anything, and not a licence to invent a country out
+    // of a scribble in the sea.
+    setup();
+    expect(subdivisionFromStroke(stroke([[20, 20], [21, 20], [21, 21], [20, 21]]))).toBeNull();
+  });
+
+  it('refuses a stroke too short to enclose anything', () => {
+    setup();
+    expect(subdivisionFromStroke(stroke([[0.3, 0.3], [0.4, 0.4]]))).toBeNull();
   });
 });
