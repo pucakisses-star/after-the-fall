@@ -6,6 +6,7 @@ import {
   areaKm2,
   difference,
   dissolve,
+  dropHairlines,
   explode,
   interiorPoint,
   intersection,
@@ -190,5 +191,39 @@ describe('interiorPoint', () => {
     // Anywhere inside is acceptable; the notch spans x>3, 3<y<7.
     const inNotch = x > 3 && y > 3 && y < 7;
     expect(inNotch).toBe(false);
+  });
+});
+
+describe('dropHairlines', () => {
+  /** The shape a cut leaves behind: 30m wide, and 550km from end to end. */
+  const ribbon = rect(1.99985, 0, 2.00015, 5);
+
+  it('throws away a ribbon however much ground it adds up to', () => {
+    // Eighteen square kilometres, which passes any area threshold anybody would
+    // set, and is still thirty metres wide.
+    expect(areaKm2(ribbon)).toBeGreaterThan(15);
+    expect(dropHairlines(ribbon, 0.2)).toBeNull();
+  });
+
+  it('keeps a territory', () => {
+    const county = rect(0, 0, 1, 1);
+    expect(dropHairlines(county, 0.2)).not.toBeNull();
+  });
+
+  it('keeps the ground and drops the ribbon when a shape is both', () => {
+    const both: MultiPolygon = {
+      type: 'MultiPolygon',
+      coordinates: [rect(0, 0, 1, 1).coordinates, ribbon.coordinates],
+    };
+    const kept = dropHairlines(both, 0.2)!;
+    expect(kept.type).toBe('Polygon');
+    expect(areaKm2(kept)).toBeCloseTo(areaKm2(rect(0, 0, 1, 1)), -2);
+  });
+
+  it('measures width rather than size, so a small country survives', () => {
+    // Smaller than the ribbon in area, and a hundred times its width.
+    const microstate = rect(0, 0, 0.03, 0.03);
+    expect(areaKm2(microstate)).toBeLessThan(areaKm2(ribbon));
+    expect(dropHairlines(microstate, 0.2)).not.toBeNull();
   });
 });

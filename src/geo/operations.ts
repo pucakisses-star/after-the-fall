@@ -226,6 +226,49 @@ export function removeTinyParts(g: Poly, minKm2: number): Poly | null {
   );
 }
 
+/**
+ * Drop the parts of a shape that are ribbons rather than ground (spec §58).
+ *
+ * Judged by mean width — area over perimeter — and not by area, because the
+ * shape this exists to remove is long. Cutting a territory along a line that
+ * does not divide it leaves the width of the cut behind: thirty metres by five
+ * hundred kilometres is eighteen square kilometres, which passes any sane area
+ * threshold and is still not a territory. It draws as a border hanging in the
+ * middle of a neighbour and stopping where the river stopped.
+ *
+ * Returns null when nothing survives, which is the honest answer for a shape
+ * that was only ever a hairline.
+ */
+export function dropHairlines(g: Poly, minWidthKm: number): Poly | null {
+  const parts = explode(g).filter((p) => {
+    const edge = perimeterKm(p);
+    return edge <= 0 || areaKm2(p) / edge >= minWidthKm;
+  });
+  if (parts.length === 0) return null;
+  return normalizePoly(
+    parts.length === 1
+      ? parts[0]
+      : { type: 'MultiPolygon', coordinates: parts.map((p) => p.coordinates) },
+  );
+}
+
+/** Total length of every ring of a polygon, in km. */
+function perimeterKm(g: Poly): number {
+  let total = 0;
+  const rings = g.type === 'Polygon' ? g.coordinates : g.coordinates.flat();
+  for (const ring of rings) {
+    for (let i = 1; i < ring.length; i++) {
+      const [x1, y1] = ring[i - 1];
+      const [x2, y2] = ring[i];
+      // Degrees of longitude shrink toward the poles, so the same span of
+      // longitude is less ground in the Arctic than at the equator.
+      const lonScale = Math.cos((((y1 + y2) / 2) * Math.PI) / 180);
+      total += Math.hypot((x2 - x1) * lonScale, y2 - y1) * 111.32;
+    }
+  }
+  return total;
+}
+
 // ---------------------------------------------------------------------------
 // Splitting a polygon with a line (§5 "cut polygons with a line", "split a territory")
 // ---------------------------------------------------------------------------

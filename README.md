@@ -267,6 +267,15 @@ read as a frontier following the river rather than a corridor of no-man's-land b
 line divides anything: a river that peters out mid-continent leaves the two sides connected around
 its end and the fill goes round it, which is the truth about that river.
 
+That last case had a bug in it worth recording. A line that does not divide a territory still leaves
+the width of the cut behind, and the old owner was left holding exactly that: a ribbon thirty metres
+wide and five hundred kilometres long — eighteen square kilometres, which passes any area threshold
+anybody would set, and is still not a territory. It drew as a border hanging in the middle of its
+neighbour, stopping dead where the river stopped. So what a fill leaves behind is now judged by mean
+width rather than by area, and anything under two hundred metres across goes to the realm that
+received the fill: an order of magnitude above the line the bucket cuts with, and two orders below
+the narrowest thing anybody would draw as a state.
+
 Two things about it were wrong until the real coastline was pointed at them. Clipping land to a
 search window gives every landmass a straight artificial edge along that window, and dissolving the
 clipped pieces welds any two that reach the same edge — filling in Iceland came back as 3.4 million

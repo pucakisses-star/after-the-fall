@@ -16,6 +16,7 @@ import {
   bbox,
   difference,
   dissolve,
+  dropHairlines,
   explode,
   interiorPoint,
   intersection,
@@ -629,14 +630,25 @@ export function fillLandAt(
   }
   if (owner?.locked) return { filled: false, message: `${owner.name} is locked.` };
 
-  const merged = union([target.geometry, region.geometry]);
+  // What the old owner has left, once the width of the cut itself is taken out
+  // of it. A line that does not divide a territory — a river that peters out
+  // inside it — otherwise leaves the owner holding the slit: a ribbon thirty
+  // metres wide and hundreds of kilometres long, which is not ground, and which
+  // draws as a border hanging in the middle of its neighbour and stopping dead
+  // where the river stopped. Null means nothing is left worth holding.
+  const left = owner ? difference(owner.geometry, region.geometry) : null;
+  const remainder = left ? dropHairlines(left, FILL_MIN_WIDTH_KM) : null;
+
+  // Taken from the far side rather than being the region as found, so that
+  // whatever the old owner is not keeping is exactly what the new one gains —
+  // the ribbon included. A fill neither creates nor destroys ground.
+  const taken = owner ? (remainder ? difference(owner.geometry, remainder) : owner.geometry) : region.geometry;
+  if (!taken) return { filled: false, message: 'Could not work out what that fill would move.' };
+
+  const merged = union([target.geometry, taken]);
   if (!merged) return { filled: false, message: 'Could not merge that ground into the realm.' };
 
-  // What the old owner has left. Null means the fill took the whole of it, and a
-  // territory with no ground is not a territory — it goes, with its name.
-  const remainder = owner ? difference(owner.geometry, region.geometry) : null;
-
-  const area = Math.round(areaKm2(region.geometry));
+  const area = Math.round(areaKm2(taken));
   commit(owner ? 'Fill territory' : 'Fill unclaimed land', (r) => {
     if (owner) {
       if (remainder) {
@@ -665,6 +677,15 @@ export function fillLandAt(
 
 /** @deprecated The bucket fills claimed ground too now; call `fillLandAt`. */
 export const fillUnclaimedAt = fillLandAt;
+
+/**
+ * Thinner than this and what a fill left behind is the cut, not a territory.
+ *
+ * Two hundred metres of mean width: an order of magnitude above the line the
+ * bucket cuts with, and two orders below the narrowest thing anybody would draw
+ * as a state.
+ */
+export const FILL_MIN_WIDTH_KM = 0.2;
 
 /**
  * How close a region's vertex has to be to a territory's edge to count as

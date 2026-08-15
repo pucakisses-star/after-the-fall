@@ -106,6 +106,32 @@ describe('filling claimed land', () => {
     expect(result.message).toContain('is gone');
   });
 
+  it('leaves no ribbon behind when the line does not divide the ground', () => {
+    // The bug this pins: a river that peters out inside a territory does not
+    // divide it, so the fill takes everything except the width of the cut —
+    // and the owner was left holding that: thirty metres by five hundred
+    // kilometres, drawn as a border hanging in the middle of its neighbour and
+    // stopping dead where the river stopped.
+    const { west, east } = setup();
+    const total = areaOf(west.id) + areaOf(east.id);
+    const stub = [[2, -1], [2, 5]];
+
+    const result = fillLandAt([1, 8], [CONTINENT], east.id, [stub]);
+    expect(result.filled).toBe(true);
+    expect(current(west.id)).toBeUndefined();
+    expect(areaOf(east.id)).toBeCloseTo(total, -3);
+  });
+
+  it('gives the width of the cut to whichever side keeps the ground', () => {
+    // Where the line *does* divide, both sides survive and the ribbon still has
+    // to go somewhere: to the new owner, so the two meet along one line rather
+    // than either losing it or sharing an overlap.
+    const { west, east } = setup();
+    const total = areaOf(west.id) + areaOf(east.id);
+    fillLandAt([1, 5], [CONTINENT], east.id, [MERIDIAN]);
+    expect(areaOf(west.id) + areaOf(east.id)).toBeCloseTo(total, -3);
+  });
+
   it('undoes in one step', () => {
     const { west, east } = setup();
     const before = areaOf(west.id);
