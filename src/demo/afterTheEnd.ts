@@ -1111,6 +1111,7 @@ function makeLabel(init: {
   manualPosition?: boolean;
   hidden?: boolean;
   rotation?: number;
+  fixedSize?: boolean;
   style?: Partial<TextStyle>;
 }): MapLabel {
   return {
@@ -1132,6 +1133,7 @@ function makeLabel(init: {
     offset: init.offset ?? [0, 0],
     rotation: init.rotation ?? 0,
     ignoreCollisions: false,
+    fixedSize: init.fixedSize ?? false,
     maxWidth: null,
   };
 }

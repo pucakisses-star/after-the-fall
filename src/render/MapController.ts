@@ -886,6 +886,7 @@ export class MapController {
    * whatever zoom you happen to be at.
    */
   private scaleToPlate(project: MapProject, label: MapLabel, style: TextStyle): TextStyle {
+    if (label.fixedSize) return style;
     if (!label.attachedToId || !project.territories[label.attachedToId]) return style;
     const resolution = this.map.getView().getResolution() ?? 1;
     const metersPerPixel = resolution * metersPerUnit(project.projection?.units);

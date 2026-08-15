@@ -500,6 +500,7 @@ function makeDemoLabel(init: {
   attachedToId?: string;
   offset?: [number, number];
   manualPosition?: boolean;
+  fixedSize?: boolean;
 }): MapLabel {
   return {
     id: newId(),
@@ -520,6 +521,7 @@ function makeDemoLabel(init: {
     styleOverrides: {},
     pathId: null,
     ignoreCollisions: false,
+    fixedSize: init.fixedSize ?? false,
     maxWidth: null,
   };
 }

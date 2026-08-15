@@ -446,6 +446,16 @@ export interface MapLabel extends FeatureBase {
   pathId: UUID | null;
   /** Exempt this label from collision checks (§13). */
   ignoreCollisions: boolean;
+  /**
+   * Draw at the style's own size whatever the zoom (§42).
+   *
+   * A territory's name is normally an inscription across the land: it is laid
+   * out against the shape and then travels with the map, so it spans its realm
+   * at every scale. That is wrong for a name you have placed and sized by hand —
+   * a note, a title, a caption on one feature — which should stay the size you
+   * set it. Setting this pins it.
+   */
+  fixedSize: boolean;
   /** Explicit line breaks the user typed (§10). */
   maxWidth: number | null;
 }

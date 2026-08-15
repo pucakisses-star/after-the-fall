@@ -274,6 +274,7 @@ export function makeLabel(project: MapProject, anchor: Point, init: Partial<MapL
     styleOverrides: init.styleOverrides ?? {},
     pathId: init.pathId ?? null,
     ignoreCollisions: init.ignoreCollisions ?? false,
+    fixedSize: init.fixedSize ?? false,
     maxWidth: init.maxWidth ?? null,
   };
 }

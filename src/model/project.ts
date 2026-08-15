@@ -5,7 +5,16 @@
 import { newId } from './ids';
 import { createDefaultStyleSheet, inferRelationship } from './defaults';
 import { defaultProjection, findPreset } from '@/geo/projections';
-import type { LayerKind, MapLayer, MapProject, ProjectionSettings, StyleSheet, Territory, UUID } from './types';
+import type {
+  LayerKind,
+  MapLabel,
+  MapLayer,
+  MapProject,
+  ProjectionSettings,
+  StyleSheet,
+  Territory,
+  UUID,
+} from './types';
 
 export const SCHEMA_VERSION = 1;
 
@@ -201,6 +210,21 @@ function migrateBasemap(basemap: MapProject['basemap']): MapProject['basemap'] {
   return out;
 }
 
+/**
+ * Give every label the fixed-size flag (spec §42).
+ *
+ * Absent, it reads as false at runtime, which is the same answer — but a
+ * document that carries the field is one the inspector can round-trip without
+ * writing it for the first time on an unrelated edit.
+ */
+function migrateLabels(labels: Record<UUID, MapLabel>): Record<UUID, MapLabel> {
+  const out: Record<UUID, MapLabel> = {};
+  for (const [id, l] of Object.entries(labels)) {
+    out[id] = typeof l.fixedSize === 'boolean' ? l : { ...l, fixedSize: false };
+  }
+  return out;
+}
+
 /** Resolve the default layer for a given kind, creating nothing. */
 export function findLayerByKind(project: MapProject, kind: LayerKind): MapLayer | undefined {
   const candidates = Object.values(project.layers).filter((l) => l.kind === kind);
@@ -241,12 +265,12 @@ export function migrate(raw: unknown): MapProject {
     styles,
     settlements: p.settlements ?? {},
     linearFeatures: p.linearFeatures ?? {},
-    labels: p.labels ?? {},
     basemap: migrateBasemap(p.basemap ?? []),
     legend: p.legend ?? createProject().legend,
     compass: p.compass ?? createProject().compass,
     politicalCohesion: p.politicalCohesion ?? 'strong',
     territories: migrateTerritories(p.territories ?? {}),
+    labels: migrateLabels(p.labels ?? {}),
   };
 }
 

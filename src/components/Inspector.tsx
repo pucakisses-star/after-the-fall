@@ -619,6 +619,7 @@ function LabelInspector({ label: l }: { label: MapLabel }) {
     update({ styleOverrides: { ...l.styleOverrides, ...changes } }, 'Edit label style');
 
   const paths = Object.values(project.linearFeatures);
+  const attachedToTerritory = !!l.attachedToId && !!project.territories[l.attachedToId];
 
   return (
     <>
@@ -811,6 +812,21 @@ function LabelInspector({ label: l }: { label: MapLabel }) {
           />
           Exempt from collision warnings
         </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={l.fixedSize}
+            onChange={(e) => update({ fixedSize: e.target.checked }, 'Fixed label size')}
+          />
+          Fixed size (do not scale with zoom)
+        </label>
+        <p className="hint" style={{ marginTop: -2 }}>
+          {l.fixedSize
+            ? 'Drawn at the size set above whatever the zoom.'
+            : attachedToTerritory
+              ? 'Grows and shrinks with the land it names, so it spans its territory at every scale.'
+              : 'Only names attached to a territory scale with the map; this one is already fixed.'}
+        </p>
       </Section>
 
       <Section title="Actions">

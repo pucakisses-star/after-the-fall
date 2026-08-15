@@ -337,3 +337,26 @@ describe('acceptance: the Midwest Confederation', () => {
     ).toHaveLength(members.length - 1);
   });
 });
+
+describe('label sizing', () => {
+  it('defaults a label to scaling with the map, and migrates one that predates the flag', () => {
+    // A territory's name is an inscription across the land, so it travels with
+    // the map by default; the flag is the opt-out for a name placed by hand.
+    const old = {
+      ...createProject(),
+      labels: {
+        a: { id: 'a', text: 'Somewhere', fixedSize: undefined } as unknown as Record<string, unknown>,
+      },
+    };
+    const loaded = migrate(JSON.parse(JSON.stringify(old)));
+    expect(loaded.labels.a.fixedSize).toBe(false);
+  });
+
+  it('leaves a label that already carries the flag alone', () => {
+    const doc = {
+      ...createProject(),
+      labels: { a: { id: 'a', text: 'Pinned', fixedSize: true } as unknown as Record<string, unknown> },
+    };
+    expect(migrate(JSON.parse(JSON.stringify(doc))).labels.a.fixedSize).toBe(true);
+  });
+});
