@@ -172,6 +172,24 @@ export function clipToLand(shape: Polygon | MultiPolygon, index: LandIndex): Pol
 }
 
 /**
+ * Is there ground under a point?
+ *
+ * Asked of the same diced index the trimming uses, so a box test throws away all
+ * but a piece or two before any ring is walked. Lakes count as water: a ring
+ * inside a landmass is a hole in it, and an island inside that lake is land
+ * again, which is why the index keeps whole polygons rather than loose rings.
+ */
+export function landContains(index: LandIndex, point: Position): boolean {
+  const near: number[] = [];
+  for (let i = 0; i < index.parts.length; i++) {
+    const box = index.boxes[i];
+    if (point[0] < box[0] || point[0] > box[2] || point[1] < box[1] || point[1] > box[3]) continue;
+    near.push(i);
+  }
+  return insideLand(index, near, point);
+}
+
+/**
  * Land parts from reference geometries, which is the form `indexLand` wants.
  *
  * Kept as polygons rather than flattened to rings because a trim has to know

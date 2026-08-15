@@ -20,7 +20,8 @@
  * Nothing here knows about any particular continent or set of realms.
  */
 
-import { clipToLand, indexLand, type LandPolygon } from './coastline';
+import { clipToLand, indexLand, landContains, type Box, type LandIndex, type LandPolygon } from './coastline';
+import { dropSlivers, interiorPoint, normalizePoly } from './operations';
 import { indexRivers, snapToRivers, type RiverIndex } from './riverSnap';
 
 /** Everything the frontier dressing needs to put a border on a river. */
@@ -637,12 +638,104 @@ export function growRealms(
     if (!outline) return;
     // A realm whose whole claim is trimmed away had nothing but the sea-side
     // overhang of a cell or two, and is better absent than drawn as a slick.
-    const final = coast ? clipToLand(outline, coast) : outline;
+    const trimmed = coast ? clipToLand(outline, coast) : outline;
+    // Trimming a lattice-grown outline against a coastline traced from other
+    // data leaves splinters wherever the two run close and nearly parallel —
+    // metre-wide threads, a few square metres of "territory", drawn as black
+    // hairs and specks lying off the coast. They are residue of the boolean
+    // rather than ground: no feature the coastline describes is that thin.
+    const final = trimmed && dropSlivers(trimmed, COAST_SPLINTER_KM);
     if (final) shapes.set(seed.id, final);
   });
 
+  if (coast) closeTracingHoles(shapes, coast);
+
   const held = taken.reduce((a, b) => a + b, 0);
   return { shapes, claimed, wilderness: 1 - held / Math.max(1, grid.landCount) };
+}
+
+/**
+ * How thin a piece of realm has to be before it is residue rather than ground.
+ *
+ * A hundred metres, which is about where a 1:10 million coastline stops meaning
+ * anything: at that scale a hundred metres is a hundredth of a millimetre on the
+ * sheet, well inside the error of the trace itself. Real islets are wider than
+ * this and survive; the threads a boolean leaves between two nearly-parallel
+ * boundaries are not, and do not.
+ */
+const COAST_SPLINTER_KM = 0.1;
+
+/**
+ * Fill the pockets of unheld land the tracing shut inside a realm.
+ *
+ * `fillEnclaves` has already handed every enclosed patch of the lattice to
+ * somebody, so a finished realm should have no unclaimed hole in it. Dressing
+ * the frontier can make one anyway: an arc that snaps to a river and doubles
+ * back leaves a bow in the ring, and a bow becomes a hole the moment the ring is
+ * made valid. What it looks like on the map is a wedge of empty ground sitting
+ * inside a country with a border drawn all the way round it.
+ *
+ * Both tests are needed and neither can be dropped. A hole over water is a lake
+ * and stays a lake. A hole another realm sits in is an enclave — a free city
+ * inside a duchy, a county inside its parent — and stays an enclave. What is
+ * left is land the map has drawn a country around and given to nobody, which
+ * belongs to the country around it.
+ */
+function closeTracingHoles(shapes: Map<string, Polygon | MultiPolygon>, coast: LandIndex): void {
+  const all = [...shapes.entries()].map(([id, geometry]) => ({ id, geometry, box: boxOfShape(geometry) }));
+
+  for (const realm of all) {
+    const parts = realm.geometry.type === 'Polygon' ? [realm.geometry.coordinates] : realm.geometry.coordinates;
+    let closed = 0;
+    const kept = parts.map((rings) =>
+      rings.filter((ring, index) => {
+        if (index === 0) return true;
+        const at = interiorPoint({ type: 'Polygon', coordinates: [ring] });
+        if (!landContains(coast, at)) return true;
+        if (all.some((other) => other.id !== realm.id && shapeContains(other, at))) return true;
+        closed++;
+        return false;
+      }),
+    );
+    if (!closed) continue;
+    const patched = normalizePoly(
+      kept.length === 1
+        ? { type: 'Polygon', coordinates: kept[0] }
+        : { type: 'MultiPolygon', coordinates: kept },
+    );
+    if (patched) shapes.set(realm.id, patched);
+  }
+}
+
+function shapeContains(realm: { geometry: Polygon | MultiPolygon; box: Box }, at: Position): boolean {
+  if (at[0] < realm.box[0] || at[0] > realm.box[2] || at[1] < realm.box[1] || at[1] > realm.box[3]) return false;
+  const parts = realm.geometry.type === 'Polygon' ? [realm.geometry.coordinates] : realm.geometry.coordinates;
+  return parts.some(
+    (rings) => pointInRing(rings[0], at) && !rings.slice(1).some((hole) => pointInRing(hole, at)),
+  );
+}
+
+function pointInRing(ring: Position[], [x, y]: Position): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 2; i < ring.length - 1; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function boxOfShape(g: Polygon | MultiPolygon): Box {
+  const box: Box = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const ring of g.type === 'Polygon' ? g.coordinates : g.coordinates.flat()) {
+    for (const [x, y] of ring) {
+      if (x < box[0]) box[0] = x;
+      if (y < box[1]) box[1] = y;
+      if (x > box[2]) box[2] = x;
+      if (y > box[3]) box[3] = y;
+    }
+  }
+  return box;
 }
 
 /**

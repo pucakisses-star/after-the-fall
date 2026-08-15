@@ -247,6 +247,54 @@ export function removeTinyParts(g: Poly, minKm2: number): Poly | null {
   );
 }
 
+/**
+ * Drop the parts of a shape that are narrower than `maxWidthKm`.
+ *
+ * Not the same question as `removeTinyParts`, and the difference matters. Area
+ * cannot tell a small island from a long thin scrap: a 2 km² piece of a county
+ * cut off by a river meander is ground somebody lives on, and a 2 km² ribbon a
+ * metre wide and two thousand kilometres long is a boolean's rounding error. The
+ * second one is what a near-miss between two boundaries leaves behind, and on
+ * the map it is a black thread lying across a country, because a shape with no
+ * interior is all outline.
+ *
+ * Width is measured as area over half the perimeter, which is the width of a
+ * ribbon however it bends — the bounding box would call a meandering sliver fat
+ * because it doubles back. Holes are left out of both terms so that a realm
+ * drawn round an enclave is not mistaken for a thread.
+ */
+export function dropSlivers(g: Poly, maxWidthKm: number): Poly | null {
+  const parts = explode(g).filter((p) => meanWidthKm(p) > maxWidthKm);
+  if (parts.length === 0) return null;
+  return normalizePoly(
+    parts.length === 1
+      ? parts[0]
+      : { type: 'MultiPolygon', coordinates: parts.map((p) => p.coordinates) },
+  );
+}
+
+/** Area over half the perimeter of the outer ring: how wide the part is, in km. */
+function meanWidthKm(part: Polygon): number {
+  const outer: Polygon = { type: 'Polygon', coordinates: [part.coordinates[0]] };
+  const half = ringLengthKm(part.coordinates[0]) / 2;
+  return half > 0 ? areaKm2(outer) / half : 0;
+}
+
+function ringLengthKm(ring: Position[]): number {
+  let total = 0;
+  for (let i = 1; i < ring.length; i++) {
+    const [x1, y1] = ring[i - 1];
+    const [x2, y2] = ring[i];
+    // Degrees of longitude are shorter away from the equator.
+    const lon = (x2 - x1) * Math.cos(((y1 + y2) / 2) * (Math.PI / 180));
+    total += Math.hypot(lon, y2 - y1);
+  }
+  return total * KM_PER_DEGREE;
+}
+
+/** Kilometres in a degree of latitude. */
+const KM_PER_DEGREE = 111.32;
+
 // ---------------------------------------------------------------------------
 // Splitting a polygon with a line (§5 "cut polygons with a line", "split a territory")
 // ---------------------------------------------------------------------------

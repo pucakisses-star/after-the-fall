@@ -6,6 +6,7 @@ import {
   areaKm2,
   difference,
   dissolve,
+  dropSlivers,
   explode,
   interiorPoint,
   intersection,
@@ -150,6 +151,40 @@ describe('cleanup helpers', () => {
 
   it('returns null when every part is below the threshold', () => {
     expect(removeTinyParts(rect(0, 0, 0.001, 0.001), 1000)).toBeNull();
+  });
+
+  it('drops a thread but keeps a small island of the same area', () => {
+    // The distinction area alone cannot make. Both of these are about a tenth
+    // of a square kilometre: one is a scrap of land, the other is a metre-wide
+    // hair four degrees long, which is what a boolean leaves when two
+    // boundaries almost coincide and what the map draws as a black line lying
+    // across a country.
+    const islet = rect(0, 0, 0.00631, 0.00631);
+    const thread = rect(5, 5, 9, 5.00001);
+    expect(areaKm2(islet)).toBeCloseTo(areaKm2(thread), 1);
+
+    const both: MultiPolygon = {
+      type: 'MultiPolygon',
+      coordinates: [islet.coordinates, thread.coordinates],
+    };
+    const kept = dropSlivers(both, 0.03) as Polygon;
+    expect(kept.type).toBe('Polygon');
+    expect(kept.coordinates[0][0][0]).toBeLessThan(1);
+  });
+
+  it('keeps a realm drawn all the way round an enclave', () => {
+    // Holes have to stay out of the measurement. A ring-shaped country has a
+    // perimeter twice the length its outline suggests, and counting the inner
+    // ring would call the whole realm a thread.
+    const ring: Polygon = {
+      type: 'Polygon',
+      coordinates: [rect(0, 0, 4, 4).coordinates[0], rect(1, 1, 3, 3).coordinates[0]],
+    };
+    expect(dropSlivers(ring, 0.03)).not.toBeNull();
+  });
+
+  it('returns null when the whole shape is thread', () => {
+    expect(dropSlivers(rect(0, 0, 4, 0.00001), 0.03)).toBeNull();
   });
 
   it('reduces the vertex count when simplifying', () => {

@@ -16,6 +16,7 @@ import {
   bbox,
   difference,
   dissolve,
+  dropSlivers,
   explode,
   makeValid,
   interiorPoint,
@@ -30,7 +31,7 @@ import {
 import type { Poly } from '@/geo/operations';
 import { propagateVertexEdit, repairTopology, type RepairOptions } from '@/geo/topology';
 import { boundaryFollows, reshapeBoundary } from '@/geo/reshape';
-import { neighbourHoldingMostOf, regionAt } from '@/geo/floodFill';
+import { BARRIER_WIDTH_KM, neighbourHoldingMostOf, regionAt } from '@/geo/floodFill';
 import { recolor, type RecolorOptions } from '@/geo/palette';
 import type { Recorder } from './history';
 import type { MapLabel, MapLayer, MapProject, PoliticalRelationship, Settlement, Territory, UUID } from '@/model/types';
@@ -694,20 +695,25 @@ export function fillLandAt(
   }
   if (owner?.locked) return { filled: false, message: `${owner.name} is locked.` };
 
-  // The region as found, and the old owner keeps the exact complement of it.
+  // What the old owner keeps, and then — exactly — what it does not.
   //
-  // Nothing is filtered out of either side here, and that is deliberate. An
-  // earlier version threw away what looked like scraps — parts under two
-  // hundred metres across — and handed them to the realm that received the
-  // fill, which is right for a scrap beside the ground it received and wrong
-  // for one on the far side of the river: that one arrives as a black speck
-  // lying inside its neighbour. The cut is repaired where it is made, in
-  // `cutByWalls`, so there are no scraps to sort out by the time they get here.
-  const taken = region.geometry;
-  const left = owner ? difference(owner.geometry, taken) : null;
+  // The order matters. Working out the two sides independently is what leaves
+  // threads on the map: the region comes back from a buffer and the remainder
+  // from a subtraction, and where those two boundaries almost but not quite
+  // agree the subtraction leaves a metre-wide splinter that belongs to nobody
+  // and draws as a black hook lying across the ground. So the remainder is
+  // cleaned of anything narrower than the line that cut it, and the ground that
+  // changes hands is then defined as everything the old owner no longer holds.
+  // Nothing is dropped from the map — a splinter is absorbed by the realm beside
+  // it, which is the realm it was cut away from.
+  const cut = owner ? difference(owner.geometry, region.geometry) : null;
+  const kept = cut && dropSlivers(cut, BARRIER_WIDTH_KM);
   // A boolean that cancels two shapes leaves a ring with no area. Not ground,
   // and not something to leave a realm holding.
-  const remainder = left && areaKm2(left) > 0 ? left : null;
+  const remainder = kept && areaKm2(kept) > 0 ? kept : null;
+  const taken = owner
+    ? (remainder ? difference(owner.geometry, remainder) : owner.geometry) ?? region.geometry
+    : region.geometry;
 
   const merged = union([target.geometry, taken]);
   if (!merged) return { filled: false, message: 'Could not merge that ground into the realm.' };

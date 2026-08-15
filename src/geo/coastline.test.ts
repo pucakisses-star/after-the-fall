@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { boundsOf, clipToLand, indexLand, landPolygonsOf, type LandPolygon } from './coastline';
+import { boundsOf, clipToLand, indexLand, landContains, landPolygonsOf, type LandPolygon } from './coastline';
 import { areaKm2, intersection } from './operations';
 import type { MultiPolygon, Polygon, Position } from 'geojson';
 
@@ -89,6 +89,22 @@ describe('clipToLand', () => {
 
   it('returns nothing when there is no land at all', () => {
     expect(clipToLand(square(1, 1, 2, 2), indexLand([], [-5, -5, 15, 15]))).toBeNull();
+  });
+});
+
+describe('landContains', () => {
+  // The same three-layer case: land, a lake in it, an island in the lake.
+  const withLake: LandPolygon = [
+    [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]],
+    [[3, 3], [7, 3], [7, 7], [3, 7], [3, 3]],
+  ];
+  const idx = indexLand([withLake, [[[4, 4], [6, 4], [6, 6], [4, 6], [4, 4]]]], [-5, -5, 15, 15]);
+
+  it('answers for ground, water and an island in the water', () => {
+    expect(landContains(idx, [1, 1])).toBe(true);
+    expect(landContains(idx, [3.5, 3.5])).toBe(false);
+    expect(landContains(idx, [5, 5])).toBe(true);
+    expect(landContains(idx, [20, 20])).toBe(false);
   });
 });
 

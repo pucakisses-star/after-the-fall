@@ -148,9 +148,50 @@ function cutByWalls(shape: Poly, walls: Position[][], point: [number, number]): 
   // The growth can pick up a crumb across a narrow neck, so the part under the
   // point is taken again rather than assumed.
   for (const part of explode(healed)) {
-    if (containsPoint(part, point)) return normalizePoly(part);
+    if (containsPoint(part, point)) return closeCutPockets(normalizePoly(part), whole);
   }
-  return normalizePoly(chosen);
+  return closeCutPockets(normalizePoly(chosen), whole);
+}
+
+/**
+ * Fill in the pockets the cut punched, and only those.
+ *
+ * Where two barrier lines cross — a confluence, a river braiding round an
+ * island, a road bridging a stream — the strips subtracted for them enclose a
+ * scrap of ground between them. It is wider than the strips are, so growing the
+ * kept piece back by one width does not reach it, and it survives as a hole: a
+ * ring of border a few hundred metres across, drawn as a little circle sitting
+ * inside a country with nothing in it.
+ *
+ * A hole belongs to the cut if the ground under it was solid before the cut.
+ * That test is exact rather than a threshold, which is what makes it safe to
+ * apply with no size limit at all: a territory can legitimately have a hole in
+ * it — an enclave, a free city, a lake somebody excluded — and every one of
+ * those was a hole before the cut too, so none of them is touched.
+ */
+function closeCutPockets(part: Polygon | MultiPolygon | null, before: Poly): Polygon | MultiPolygon | null {
+  if (!part) return null;
+  const polys = part.type === 'Polygon' ? [part.coordinates] : part.coordinates;
+  const kept = polys.map((rings) => [
+    rings[0],
+    ...rings.slice(1).filter((hole) => !polyContains(before, averageOf(hole))),
+  ]);
+  return normalizePoly(
+    kept.length === 1
+      ? { type: 'Polygon', coordinates: kept[0] }
+      : { type: 'MultiPolygon', coordinates: kept },
+  );
+}
+
+/** The average of a ring's vertices — inside it for the pockets this is asked about. */
+function averageOf(ring: Position[]): [number, number] {
+  let x = 0;
+  let y = 0;
+  for (const [px, py] of ring) {
+    x += px;
+    y += py;
+  }
+  return [x / ring.length, y / ring.length];
 }
 
 /** Kilometres in a degree of latitude, for turning a map tolerance into a buffer. */
@@ -164,6 +205,15 @@ const DEGREE_KM = 111.32;
  * afterwards cannot reconnect the two sides it separated.
  */
 const WALL_WIDTH = 0.0003;
+
+/**
+ * The same width in kilometres, for the caller.
+ *
+ * What the fill leaves behind is measured against the knife that made it:
+ * anything the cut produced that is narrower than the cut itself is residue
+ * rather than ground.
+ */
+export const BARRIER_WIDTH_KM = WALL_WIDTH * DEGREE_KM;
 
 /**
  * The barrier lines as one polygon, built only where they meet the region.

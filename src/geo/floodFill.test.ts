@@ -247,6 +247,39 @@ describe('regionAt', () => {
     expect(areaKm2(result!.geometry) / areaKm2(CONTINENT)).toBeGreaterThan(0.99);
   });
 
+  it('does not leave a pocket where two lines cross', () => {
+    // A confluence: two lines meeting inside the ground. The strips subtracted
+    // for them enclose a scrap between them, wider than the strips are, which
+    // survived the grow-back as a hole — a little ring of border sitting inside
+    // a country with nothing in it.
+    const claimed = [{ id: 'all', geometry: CONTINENT }];
+    const forked = [
+      [[5, -1], [5, 4], [3, 8], [3, 11]],
+      [[5, -1], [5, 4], [7, 8], [7, 11]],
+    ];
+    const region = regionAt([1, 5], [CONTINENT], claimed, forked)!;
+    const holes = (region.geometry.type === 'Polygon' ? [region.geometry.coordinates] : region.geometry.coordinates)
+      .reduce((n, rings) => n + rings.length - 1, 0);
+    expect(holes).toBe(0);
+  });
+
+  it('leaves a hole that was there before the cut alone', () => {
+    // An enclave — a free city, a lake somebody excluded — is a hole in the
+    // ground before anything is cut, and stays one after.
+    const withHole: Polygon = {
+      type: 'Polygon',
+      coordinates: [
+        CONTINENT.coordinates[0],
+        [[2, 2], [2, 3], [3, 3], [3, 2], [2, 2]],
+      ],
+    };
+    const claimed = [{ id: 'all', geometry: withHole }];
+    const region = regionAt([1, 8], [withHole], claimed, [meridian])!;
+    const holes = (region.geometry.type === 'Polygon' ? [region.geometry.coordinates] : region.geometry.coordinates)
+      .reduce((n, rings) => n + rings.length - 1, 0);
+    expect(holes).toBe(1);
+  });
+
   it('is not confused by a line that misses the region entirely', () => {
     const elsewhere = [[100, 0], [100, 10]];
     const result = regionAt([5, 5], [CONTINENT], [], [elsewhere]);
