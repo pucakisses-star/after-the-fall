@@ -27,7 +27,8 @@ import { linesOf, loadBasemap, pointsOf, polygonsOf } from '@/geo/basemap';
 import { memberCountFor, pickSeats, subdivideRealm, type SubdivisionSeat } from '@/geo/subdivide';
 import { fitLabel } from '@/render/labelFit';
 import { relationshipInfo } from '@/model/defaults';
-import { areaKm2, bbox, interiorPoint } from '@/geo/operations';
+import { areaKm2, bbox, interiorPoint, intersection } from '@/geo/operations';
+import { landPolygonsOf } from '@/geo/coastline';
 import { recolor } from '@/geo/palette';
 import { DEFAULT_GROWTH, growRealms, type LandPolygon, type RealmSeed } from '@/geo/realmGrowth';
 import { PALETTES, STYLE_IDS, defaultFixedSize } from '@/model/defaults';
@@ -71,7 +72,6 @@ interface Empire {
 
 const A = PALETTES['historical-atlas'];
 const M = PALETTES.muted;
-const P = PALETTES.pastel;
 
 const EMPIRES: Empire[] = [
   {
@@ -343,189 +343,20 @@ const EMPIRES: Empire[] = [
       { name: 'Kingdom of Yucatán', short: 'Yucatán', type: 'kingdom', seat: [-89.62, 20.97], weight: 0.8, capital: true },
       { name: 'Captaincy of Cozumel', short: 'Cozumel', type: 'march', seat: [-86.92, 20.51], weight: 0.4 },
       { name: 'Ajawil of Chiapas', short: 'Chiapas', type: 'principality', seat: [-93.12, 16.75], weight: 0.6 },
-      { name: 'Kingdom of Péten', short: 'Péten', type: 'kingdom', seat: [-89.89, 16.92], weight: 0.7 },
-    ],
-  },
-  {
-    name: 'Centroamérica',
-    short: 'CENTROAMÉRICA',
-    type: 'confederation',
-    color: M[6],
-    label: [-85.0, 11.6],
-    realms: [
-      { name: 'Duchy of Guatemala', short: 'Guatemala', type: 'duchy', seat: [-90.51, 14.63], weight: 0.7, capital: true },
-      { name: 'Ajawil of Verapazes', short: 'Verapazes', type: 'principality', seat: [-90.37, 15.47], weight: 0.4 },
-      { name: 'Duchy of Salvador', short: 'Salvador', type: 'duchy', seat: [-89.19, 13.69], weight: 0.5 },
-      { name: 'Marquisate of Atlántida', short: 'Atlántida', type: 'march', seat: [-87.99, 15.50], weight: 0.6 },
-      { name: 'County of Comayagua', short: 'Comayagua', type: 'county', seat: [-87.21, 14.08], weight: 0.4 },
-      { name: 'Kingdom of Moskitia', short: 'Moskitia', type: 'kingdom', seat: [-83.77, 12.01], weight: 0.7 },
-      { name: 'Duchy of Nicaragua', short: 'Nicaragua', type: 'duchy', seat: [-86.25, 12.14], weight: 0.6 },
-      { name: 'Duchy of Las Brumas', short: 'Las Brumas', type: 'duchy', seat: [-84.09, 9.93], weight: 0.6 },
-      { name: 'Captaincy of San Andrés', short: 'San Andrés', type: 'march', seat: [-79.55, 9.00], weight: 0.6 },
-    ],
-  },
-  {
-    name: 'Caribbean Empire',
-    short: 'CARIBBEAN',
-    type: 'empire',
-    color: M[7],
-    label: [-74.0, 23.4],
-    realms: [
-      { name: 'Kingdom of Cuba', short: 'Cuba', type: 'kingdom', seat: [-82.37, 23.11], weight: 0.9, capital: true },
-      { name: 'Captaincy of Tortuga', short: 'Tortuga', type: 'march', seat: [-72.33, 18.54], weight: 0.5 },
-      { name: 'Kingdom of Santo Domingo', short: 'Santo Domingo', type: 'kingdom', seat: [-69.93, 18.49], weight: 0.5 },
-      { name: 'Kingdom of Jamaica', short: 'Jamaica', type: 'kingdom', seat: [-76.79, 17.99], weight: 0.4 },
-      { name: 'Flotilla of the Leeward Isles', short: 'Leeward Isles', type: 'march', seat: [-77.35, 25.06], weight: 0.5 },
-      { name: 'Kingdom of Gran Trinidad', short: 'Gran Trinidad', type: 'kingdom', seat: [-61.51, 10.65], weight: 0.5 },
-    ],
-  },
-  {
-    name: 'Gran Colombia',
-    short: 'GRAN COLOMBIA',
-    type: 'confederation',
-    color: P[0],
-    label: [-73.5, 5.4],
-    realms: [
-      { name: 'High Chiefdom of Cundinamarca', short: 'Cundinamarca', type: 'tribal-confederacy', seat: [-74.07, 4.71], weight: 0.9, capital: true },
-      { name: 'High Chiefdom of Vallecafé', short: 'Vallecafé', type: 'tribal-confederacy', seat: [-75.57, 6.24], weight: 0.8 },
-      { name: 'High Chiefdom of Cauca', short: 'Cauca', type: 'tribal-confederacy', seat: [-76.53, 3.44], weight: 0.8 },
-      { name: 'Republic of Cartagena', short: 'Cartagena', type: 'republic', seat: [-75.51, 10.39], weight: 0.7 },
-      { name: 'Kingdom of Zulia', short: 'Zulia', type: 'kingdom', seat: [-71.61, 10.65], weight: 0.8 },
-      { name: 'Kingdom of Venezuela', short: 'Venezuela', type: 'kingdom', seat: [-66.90, 10.49], weight: 1.1 },
-      { name: 'Kingdom of Puente Grande', short: 'Puente Grande', type: 'kingdom', seat: [-70.20, 8.60], weight: 0.7 },
-    ],
-  },
-  {
-    name: 'The Guyanas',
-    short: 'GUYANAS',
-    type: 'confederation',
-    color: P[3],
-    label: [-58.5, 4.0],
-    realms: [
-      { name: 'Kingdom of Guyana', short: 'Guyana', type: 'kingdom', seat: [-58.16, 6.80], weight: 0.9, capital: true },
-      { name: 'Kingdom of Bolívar', short: 'Bolívar', type: 'kingdom', seat: [-63.55, 8.12], weight: 1.1 },
-      { name: 'High Chiefdom of Gran Sabana', short: 'Gran Sabana', type: 'tribal-confederacy', seat: [-61.40, 5.60], weight: 0.8 },
-      { name: 'High Chiefdom of Roraima', short: 'Roraima', type: 'tribal-confederacy', seat: [-60.67, 2.82], weight: 0.9 },
-    ],
-  },
-  {
-    name: 'Amazonia',
-    short: 'AMAZONIA',
-    type: 'confederation',
-    color: P[2],
-    label: [-64.0, -5.0],
-    realms: [
-      { name: 'Chiefdom of Manaus', short: 'Manaus', type: 'tribal-confederacy', seat: [-60.02, -3.10], weight: 1.6, capital: true },
-      { name: 'Chiefdom of Solimões', short: 'Solimões', type: 'tribal-confederacy', seat: [-69.94, -4.22], weight: 1.4 },
-      { name: 'Chiefdom of Belém', short: 'Belém', type: 'tribal-confederacy', seat: [-48.50, -1.46], weight: 1.3 },
-      { name: 'Chiefdom of Rondônia', short: 'Rondônia', type: 'tribal-confederacy', seat: [-63.90, -8.76], weight: 1.2 },
-    ],
-  },
-  {
-    name: 'Empire of Brasil',
-    short: 'BRASIL',
-    type: 'empire',
-    color: P[4],
-    label: [-43.0, -20.5],
-    realms: [
-      { name: 'Kingdom of Rio', short: 'Rio', type: 'kingdom', seat: [-43.20, -22.91], weight: 0.8, capital: true },
-      { name: 'Kingdom of São Paulo', short: 'São Paulo', type: 'kingdom', seat: [-46.63, -23.55], weight: 0.9 },
-      { name: 'Kingdom of Bahia', short: 'Bahia', type: 'kingdom', seat: [-38.51, -12.97], weight: 1.1 },
-      { name: 'Duchy of Pernambuco', short: 'Pernambuco', type: 'duchy', seat: [-34.88, -8.05], weight: 0.9 },
-      { name: 'Duchy of Minas', short: 'Minas', type: 'duchy', seat: [-43.94, -19.92], weight: 0.9 },
-    ],
-  },
-  {
-    name: 'The Cerrado',
-    short: 'CERRADO',
-    type: 'confederation',
-    color: P[6],
-    label: [-51.0, -12.0],
-    realms: [
-      { name: 'Chiefdom of Goiás', short: 'Goiás', type: 'tribal-confederacy', seat: [-49.25, -16.68], weight: 1.2, capital: true },
-      { name: 'Chiefdom of Mato Grosso', short: 'Mato Grosso', type: 'tribal-confederacy', seat: [-56.10, -15.60], weight: 1.3 },
-      { name: 'Chiefdom of Tocantins', short: 'Tocantins', type: 'tribal-confederacy', seat: [-48.33, -10.18], weight: 1.1 },
-      { name: 'Chiefdom of Piauí', short: 'Piauí', type: 'tribal-confederacy', seat: [-42.80, -5.09], weight: 1.1 },
-    ],
-  },
-  {
-    name: 'Perulivia',
-    short: 'PERULIVIA',
-    type: 'confederation',
-    color: P[8],
-    label: [-72.5, -13.0],
-    realms: [
-      { name: 'Kingdom of Lima', short: 'Lima', type: 'kingdom', seat: [-77.03, -12.05], weight: 0.9, capital: true },
-      { name: 'High Chiefdom of Cusco', short: 'Cusco', type: 'tribal-confederacy', seat: [-71.97, -13.53], weight: 1.0 },
-      { name: 'High Chiefdom of Titicaca', short: 'Titicaca', type: 'tribal-confederacy', seat: [-68.15, -16.50], weight: 1.0 },
-      { name: 'Kingdom of Quito', short: 'Quito', type: 'kingdom', seat: [-78.47, -0.18], weight: 0.9 },
-      { name: 'Duchy of Guayaquil', short: 'Guayaquil', type: 'duchy', seat: [-79.90, -2.17], weight: 0.6 },
-      { name: 'Chiefdom of Sucre', short: 'Sucre', type: 'tribal-confederacy', seat: [-65.26, -19.03], weight: 0.9 },
-    ],
-  },
-  {
-    name: 'Kingdom of Chile',
-    short: 'CHILE',
-    type: 'kingdom',
-    color: P[10],
-    label: [-71.6, -29.0],
-    realms: [
-      { name: 'Kingdom of Santiago', short: 'Santiago', type: 'kingdom', seat: [-70.65, -33.46], weight: 0.7, capital: true },
-      { name: 'Duchy of Atacama', short: 'Atacama', type: 'duchy', seat: [-70.40, -23.65], weight: 1.0 },
-      { name: 'Duchy of Valdivia', short: 'Valdivia', type: 'duchy', seat: [-73.25, -39.81], weight: 0.7 },
-    ],
-  },
-  {
-    name: 'La Plata',
-    short: 'LA PLATA',
-    type: 'confederation',
-    color: P[1],
-    label: [-63.5, -32.5],
-    realms: [
-      { name: 'Republic of Buenos Aires', short: 'Buenos Aires', type: 'republic', seat: [-58.38, -34.60], weight: 1.0, capital: true },
-      { name: 'Duchy of Córdoba', short: 'Córdoba', type: 'duchy', seat: [-64.18, -31.42], weight: 1.0 },
-      { name: 'Duchy of Cuyo', short: 'Cuyo', type: 'duchy', seat: [-68.84, -32.89], weight: 0.9 },
-      { name: 'Kingdom of the Banda Oriental', short: 'Banda Oriental', type: 'kingdom', seat: [-56.16, -34.90], weight: 0.7 },
-      { name: 'Duchy of Litoral', short: 'Litoral', type: 'duchy', seat: [-60.70, -32.95], weight: 0.7 },
-    ],
-  },
-  {
-    name: 'Gran Chaco',
-    short: 'GRAN CHACO',
-    type: 'confederation',
-    color: P[5],
-    label: [-59.5, -22.5],
-    realms: [
-      { name: 'Chiefdom of Asunción', short: 'Asunción', type: 'tribal-confederacy', seat: [-57.58, -25.28], weight: 1.0, capital: true },
-      { name: 'Chiefdom of Chaco Boreal', short: 'Chaco Boreal', type: 'tribal-confederacy', seat: [-60.50, -22.00], weight: 1.1 },
-      { name: 'Chiefdom of Tucumán', short: 'Tucumán', type: 'tribal-confederacy', seat: [-65.22, -26.82], weight: 0.9 },
-    ],
-  },
-  {
-    name: 'Patagonia',
-    short: 'PATAGONIA',
-    type: 'confederation',
-    color: P[7],
-    label: [-68.0, -46.0],
-    realms: [
-      { name: 'Chiefdom of Nahuel Huapi', short: 'Nahuel Huapi', type: 'tribal-confederacy', seat: [-71.31, -41.13], weight: 1.1, capital: true },
-      { name: 'Chiefdom of Chubut', short: 'Chubut', type: 'tribal-confederacy', seat: [-65.10, -43.30], weight: 1.1 },
-      { name: 'Chiefdom of Magallanes', short: 'Magallanes', type: 'tribal-confederacy', seat: [-70.92, -53.16], weight: 1.0 },
     ],
   },
 ];
 
 /** Seas and gulfs, so the water is not anonymous (§12). */
 const WATER_LABELS: { text: string; lon: number; lat: number; kind: MapLabel['kind'] }[] = [
-  { text: 'Atlantic Ocean', lon: -40, lat: 22, kind: 'ocean' },
-  { text: 'Pacific Ocean', lon: -132, lat: 5, kind: 'ocean' },
+  { text: 'Atlantic Ocean', lon: -45, lat: 33, kind: 'ocean' },
+  { text: 'Pacific Ocean', lon: -140, lat: 27, kind: 'ocean' },
   { text: 'Gulf of Mexico', lon: -90.5, lat: 25.2, kind: 'water' },
   { text: 'Caribbean Sea', lon: -75.5, lat: 14.5, kind: 'water' },
   { text: 'Hudson Bay', lon: -85.5, lat: 59.5, kind: 'water' },
   { text: 'Gulf of Alaska', lon: -146, lat: 56.5, kind: 'water' },
   { text: 'Labrador Sea', lon: -55.5, lat: 59.5, kind: 'water' },
   { text: 'Gulf of California', lon: -111.5, lat: 27.5, kind: 'water' },
-  { text: 'Drake Passage', lon: -66, lat: -58.5, kind: 'water' },
 ];
 
 export interface AfterTheEndResult {
@@ -534,10 +365,64 @@ export interface AfterTheEndResult {
   zoom: number;
 }
 
-const CENTER: [number, number] = [-80, 10];
-const ZOOM = 2.5;
+const CENTER: [number, number] = [-100, 40];
+const ZOOM = 2.6;
 /** The New World, with sea room. Nothing outside it is loaded or drawable. */
 const AMERICAS: [number, number, number, number] = [-172, -58, -30, 76];
+
+/**
+ * The ground the realms are grown on: North America down to Mexico's southern
+ * border, and no further.
+ *
+ * The setting's realms stop there, and so does the growth — a realm grows until
+ * it meets another or runs out of land, so with nothing seeded beyond it the
+ * Mexican and Yucatec crowns would simply keep going and take Central America
+ * and the isthmus between them. Cutting the land is what makes the border a
+ * shore as far as the growth is concerned.
+ *
+ * The edge traces borders rather than lines of latitude, because a rectangle
+ * anywhere here costs something real: drawn along Chiapas it takes the Yucatán
+ * off, and drawn along the Yucatán it hands over Guatemala. So it runs up the
+ * Guatemalan border from the Pacific, along the Belizean line to Chetumal, out
+ * through the channel between the Yucatán and Cuba, and then east between the
+ * Florida Keys and the Bahamas.
+ *
+ * The land beyond it is still drawn — it is the same coastline it always was —
+ * it simply belongs to nobody.
+ */
+const ANGLO_AMERICA: Polygon = {
+  type: 'Polygon',
+  coordinates: [
+    [
+      [-180, 14.0], // open Pacific, south of everything Mexican
+      [-95.0, 14.0],
+      [-92.25, 14.53], // where the Guatemalan border meets the Pacific
+      [-91.2, 15.1],
+      [-90.45, 16.07],
+      [-91.0, 16.2],
+      [-90.99, 17.82], // north up the Usumacinta
+      [-89.14, 17.82], // the Guatemala–Belize tripoint
+      [-89.14, 18.49],
+      [-88.3, 18.49], // Chetumal Bay, and out into the Caribbean
+      [-86.5, 18.3],
+      [-85.7, 20.5], // the channel: east of Cozumel, west of Cuba
+      [-85.5, 23.0],
+      [-84.0, 24.0], // north of Cuba
+      [-81.5, 24.3], // south of the Dry Tortugas
+      [-80.0, 25.0], // south of the Keys
+      [-79.0, 26.0],
+      [-78.5, 27.5], // west of Grand Bahama
+      [-75.0, 30.0],
+      [-20, 30],
+      [-20, 85],
+      [-180, 85],
+      [-180, 14.0],
+    ],
+  ],
+};
+
+/** The box the growth lattice covers: the mask above, and nothing below it. */
+const NORTH_AMERICA: [number, number, number, number] = [-172, 13, -30, 76];
 
 /**
  * Build the map. Async because it fetches the real coastline to grow on;
@@ -551,14 +436,15 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
     zoom: ZOOM,
     workingExtent: AMERICAS,
   });
-  project.meta.subtitle = 'The realms of the New World';
+  project.meta.subtitle = 'The realms of North America';
   project.meta.dateLine = 'In the Year 2666';
   project.meta.author = 'After the Fall — a map of the After the End setting';
   project.meta.notes =
     'Realm names, their tier and the empire each belongs to follow the After the End realm list. ' +
     'The shapes are grown outward from each realm\'s seat of power rather than traced from modern ' +
-    'administrative boundaries, and the land nobody claimed is left as wilderness. Every border ' +
-    'is an ordinary editable territory.';
+    'administrative boundaries, and the land nobody claimed is left as wilderness. The plate covers ' +
+    'North America down to Mexico\'s southern border; the isthmus, the Caribbean and South America ' +
+    'are drawn but unclaimed. Every border is an ordinary editable territory.';
   project.oceanColor = '#c6dae6';
   project.landColor = '#eae3d3';
   // The Americas at Natural Earth's finest published scale — coastline, inland
@@ -604,7 +490,7 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
   let rivers: Position[][] = [];
   let towns: SubdivisionSeat[] = [];
   try {
-    land = coastlinePolygons(await loadBasemap('world-land-10m'));
+    land = northOfTheBorder(coastlinePolygons(await loadBasemap('world-land-10m')));
     // Rivers are what a frontier settles on when it has the choice, so the
     // growth is given them; without them the borders ignore the one feature a
     // reader expects them to follow.
@@ -623,7 +509,7 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
       seeds.push({ id: realm.name, seeds: [realm.seat, ...(realm.also ?? [])], weight: realm.weight });
     }
   }
-  const grown = growRealms(land, seeds, { extent: AMERICAS, ...DEFAULT_GROWTH }, rivers);
+  const grown = growRealms(land, seeds, { extent: NORTH_AMERICA, ...DEFAULT_GROWTH }, rivers);
 
   /**
    * Every realm is its own sovereign.
@@ -1061,6 +947,43 @@ function coastlinePolygons(features: Awaited<ReturnType<typeof loadBasemap>>): L
     const g = f.geometry as Polygon | MultiPolygon;
     const polys = g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates];
     for (const poly of polys) out.push(poly);
+  }
+  return out;
+}
+
+/**
+ * Cut the coastline down to the land the realms may grow on.
+ *
+ * Most of what goes is whole: South America, Cuba, Hispaniola and every other
+ * island south of the line are separate polygons and fail on their extent
+ * alone, which costs a comparison each. Only a shape that straddles the border
+ * — the North American mainland, which carries Mexico and Central America with
+ * it — is worth a boolean, and there are two or three of those.
+ */
+function northOfTheBorder(land: LandPolygon[]): LandPolygon[] {
+  const [, south, , north] = ANGLO_AMERICA.coordinates[0].reduce(
+    (b, [x, y]) => [Math.min(b[0], x), Math.min(b[1], y), Math.max(b[2], x), Math.max(b[3], y)],
+    [Infinity, Infinity, -Infinity, -Infinity],
+  );
+  // Above this every point of the mask's own edge is behind you, so a shape
+  // that starts here is wholly inside it and needs no cutting.
+  const clear = 30.1;
+
+  const out: LandPolygon[] = [];
+  for (const poly of land) {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const [, y] of poly[0]) {
+      if (y < lo) lo = y;
+      if (y > hi) hi = y;
+    }
+    if (hi <= south || lo >= north) continue;
+    if (lo >= clear) {
+      out.push(poly);
+      continue;
+    }
+    const kept = intersection({ type: 'Polygon', coordinates: poly }, ANGLO_AMERICA);
+    if (kept) out.push(...landPolygonsOf([kept]));
   }
   return out;
 }

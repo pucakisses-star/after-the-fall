@@ -496,13 +496,17 @@ export function createDefaultStyleSheet(): StyleSheet {
     // doing work: a country's name is the one thing on the plate that is not
     // geography, and setting it in a face the rivers and regions do not use is
     // the oldest way of saying so without a box or a colour.
+    // No halo. Every other name on the plate carries one because it crosses
+    // things it has to stay legible against; a country's name sits on its own
+    // fill, and a halo there prints a pale ghost around letters that had
+    // nothing to survive.
     defaultTextStyle({
       fontFamily: SANS,
       fontSize: 17,
       tracking: 6,
       transform: 'uppercase',
       color: '#241d13',
-      haloWidth: 1.2,
+      haloWidth: 0,
     }),
   );
   text(

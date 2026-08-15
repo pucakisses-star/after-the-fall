@@ -767,7 +767,7 @@ function LabelInspector({ label: l }: { label: MapLabel }) {
               used to make it smaller again. */}
           <Slider
             value={style.fontSize}
-            min={5}
+            min={1}
             max={Math.max(80, Math.ceil(style.fontSize / 20) * 20)}
             step={0.5}
             onChange={(v) => setStyle({ fontSize: v })}

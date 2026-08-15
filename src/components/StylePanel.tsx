@@ -305,7 +305,10 @@ function TextStyleEditor({ value, onChange }: { value: TextStyle; onChange: (v: 
         </select>
       </Field>
       <Field label="Size">
-        <Slider value={value.fontSize} min={5} max={80} step={0.5} onChange={(v) => onChange({ ...value, fontSize: v })} suffix="px" />
+        {/* Down to 1px: a name on a canton the size of a fingernail is set in
+            type nobody would choose for anything else, and the control should
+            not be the thing that stops you. */}
+        <Slider value={value.fontSize} min={1} max={80} step={0.5} onChange={(v) => onChange({ ...value, fontSize: v })} suffix="px" />
       </Field>
       <Field label="Tracking">
         <Slider value={value.tracking} min={-3} max={40} step={0.5} onChange={(v) => onChange({ ...value, tracking: v })} suffix="px" />

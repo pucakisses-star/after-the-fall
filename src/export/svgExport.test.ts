@@ -62,6 +62,16 @@ function sampleProject(): MapProject {
   });
   project.labels[label.id] = label;
 
+  // A city name as well as a country name: the two are set differently on
+  // purpose — a country's sits on its own fill and carries no halo, a city's
+  // crosses whatever it lands on and carries one — so a fixture with only one
+  // of them cannot check either rule.
+  const cityLabel = makeLabel(project, { type: 'Point', coordinates: [5, 5] }, {
+    kind: 'city',
+    text: 'Alpha City',
+  });
+  project.labels[cityLabel.id] = cityLabel;
+
   return project;
 }
 
@@ -103,7 +113,8 @@ describe('exportSvg', () => {
     expect(svg).toContain('ALPHA');
     // Tracking must survive as a real SVG attribute (§42, §43).
     expect(svg).toContain('letter-spacing=');
-    // And a halo must be painted behind the glyph, not over it.
+    // And where there is a halo it must be painted behind the glyph, not over
+    // it — which is the city name, the country name having none.
     expect(svg).toContain('paint-order="stroke"');
   });
 
