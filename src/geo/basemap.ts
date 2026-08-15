@@ -52,6 +52,14 @@ export const BUILTIN_BASEMAPS: BasemapSource[] = [
     role: 'countries',
   },
   {
+    id: 'americas-elevation',
+    name: 'Elevation',
+    url: 'data/world/elevation-americas.json',
+    format: 'topojson',
+    objectName: 'elevation',
+    role: 'elevation',
+  },
+  {
     id: 'world-lakes-10m',
     name: 'Lakes',
     url: 'data/world/lakes-10m.json',
@@ -117,6 +125,7 @@ export const BUILTIN_BASEMAPS: BasemapSource[] = [
 export const BASEMAP_SIZES: Record<string, string> = {
   'world-land-10m': '2.9 MB',
   'world-countries-10m': '3.5 MB',
+  'americas-elevation': '660 KB',
   'world-lakes-10m': '1.9 MB',
   'world-rivers-10m': '2.0 MB',
   'world-roads-10m': '2.6 MB',

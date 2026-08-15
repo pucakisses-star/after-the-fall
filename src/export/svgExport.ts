@@ -27,6 +27,7 @@ import {
   placeDotVisible,
   placeLabelVisible,
   placeRankStyle,
+  elevationTint,
   riverRankStyle,
   roadClass,
   roadRankStyle,
@@ -287,6 +288,7 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
 
   // --- basemap land ---------------------------------------------------------
   const terrain: string[] = [];
+  const basemapElevation: string[] = [];
   const basemapRivers: string[] = [];
   const basemapRoads: string[] = [];
   const basemapPlaces: string[] = [];
@@ -342,6 +344,37 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
             basemapRivers.push(
               `<g id="basemap-${esc(entry.sourceId)}" fill="none" stroke-linecap="round" ` +
                 `stroke-linejoin="round" opacity="${entry.opacity}">${inner}</g>`,
+            );
+          }
+          continue;
+        }
+
+        if (role === 'elevation') {
+          // One group per band, lowest first, so the higher tints paint over the
+          // lower ones exactly as they do on screen.
+          const byBand = new Map<number, string[]>();
+          for (const f of features) {
+            if (!isPolygonFeature(f)) continue;
+            const band = Number((f.properties as Record<string, unknown> | undefined)?.band);
+            if (!Number.isFinite(band)) continue;
+            const d = polygonToPath(f.geometry as Polygon | MultiPolygon, p);
+            if (!d) continue;
+            const bucket = byBand.get(band);
+            if (bucket) bucket.push(d);
+            else byBand.set(band, [d]);
+          }
+          if (byBand.size) {
+            const inner = [...byBand.entries()]
+              .sort((a, b) => a[0] - b[0])
+              .map(([band, ds]) =>
+                `<g fill="${elevationTint(band)}" data-band="${band}">` +
+                  ds.map((d) => `<path d="${d}"/>`).join('') +
+                  `</g>`,
+              )
+              .join('');
+            basemapElevation.push(
+              `<g id="basemap-${esc(entry.sourceId)}" stroke="none" fill-rule="evenodd" ` +
+                `opacity="${entry.opacity}">${inner}</g>`,
             );
           }
           continue;
@@ -445,6 +478,9 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
     }
   }
   groups.push(group('terrain', terrain));
+  // Relief over the land it describes, under everything political — the same
+  // place `BASEMAP_Z` puts it on screen.
+  groups.push(group('elevation', basemapElevation));
   // `waterOverlay` holds the lakes that belong above the political fills; it is
   // emitted after the territories group below, mirroring the screen.
   const waterOverlay = lakeLayers;

@@ -162,7 +162,8 @@ export function basemapStyle(fill: string, stroke: string, width = 0.5): Style {
 }
 
 export type BasemapRole =
-  | 'land' | 'countries' | 'states' | 'counties' | 'lakes' | 'rivers' | 'roads' | 'places' | 'custom';
+  | 'land' | 'elevation' | 'countries' | 'states' | 'counties'
+  | 'lakes' | 'rivers' | 'roads' | 'places' | 'custom';
 
 /**
  * Draw order for reference geography, interleaved with the document's own layers
@@ -179,6 +180,9 @@ export type BasemapRole =
  */
 export const BASEMAP_Z: Record<BasemapRole, number> = {
   land: -100,
+  // Relief sits on the land it describes and under every political line drawn
+  // over it, which is where an atlas puts hypsometric tints.
+  elevation: -90,
   countries: -80,
   states: -78,
   counties: -76,
@@ -210,6 +214,8 @@ export function basemapRoleStyle(
     case 'rivers':
       // A style *function*, not a fixed style: width follows importance.
       return basemapRiverStyle();
+    case 'elevation':
+      return basemapElevationStyle();
     case 'roads':
       return basemapRoadStyle(metersPerUnit(project.projection?.units));
     case 'places':
@@ -217,6 +223,51 @@ export function basemapRoleStyle(
     default:
       return basemapStyle('rgba(0,0,0,0)', '#a89c86', 0.4);
   }
+}
+
+/**
+ * Hypsometric tints for the elevation bands.
+ *
+ * Each band is the ground *at or above* its threshold rather than a slice
+ * between two, so they nest and are drawn lowest first, the higher tints
+ * painting over the lower ones — which is how the ladder is laid down on paper
+ * and what lets a basin inside a plateau show through as a hole.
+ *
+ * The ramp is the conventional one, kept muted: this is a wash under a political
+ * map, and anything more saturated fights the territory fills that are the point
+ * of the plate. No outline at all, because a band edge is a smooth change in
+ * ground, not a boundary, and drawing it as a line makes 8-arc-minute sampling
+ * look like a claim about where a mountain starts.
+ */
+export function basemapElevationStyle(): StyleFunction {
+  const cache = new Map<number, Style>();
+  return (feature) => {
+    const props =
+      (feature.get('basemap') as { properties?: Record<string, unknown> } | undefined)?.properties ?? {};
+    const band = Number(props.band);
+    if (!Number.isFinite(band)) return undefined;
+
+    let style = cache.get(band);
+    if (!style) {
+      style = new Style({
+        fill: new Fill({ color: elevationTint(band) }),
+        // Within the one layer, higher ground draws over lower.
+        zIndex: band,
+      });
+      cache.set(band, style);
+    }
+    return style;
+  };
+}
+
+/** The tint for a band threshold in metres, shared with the SVG exporter. */
+export function elevationTint(band: number): string {
+  if (band >= 4000) return '#9c6b4c';
+  if (band >= 3000) return '#b8875f';
+  if (band >= 2000) return '#cfa878';
+  if (band >= 1000) return '#ddc794';
+  if (band >= 500) return '#d8d5a4';
+  return '#c8d4ae';
 }
 
 /**

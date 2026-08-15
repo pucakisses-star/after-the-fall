@@ -162,6 +162,9 @@ export function createProject(opts: NewProjectOptions = {}): MapProject {
       { sourceId: 'world-land-10m', visible: true, opacity: 1 },
       { sourceId: 'world-lakes-10m', visible: true, opacity: 1 },
       { sourceId: 'world-countries-10m', visible: false, opacity: 1 },
+      // Off by default: hypsometric tints change the whole character of a plate,
+      // which is a decision for the map's author rather than a default.
+      { sourceId: 'americas-elevation', visible: false, opacity: 1 },
       { sourceId: 'world-rivers-10m', visible: false, opacity: 1 },
       { sourceId: 'world-roads-10m', visible: false, opacity: 1 },
       { sourceId: 'world-places-10m', visible: true, opacity: 1 },

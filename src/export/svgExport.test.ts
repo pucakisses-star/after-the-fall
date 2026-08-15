@@ -6,7 +6,7 @@ import { createProject } from '@/model/project';
 import { registerUserSource } from '@/geo/basemap';
 import { makeLabel, makeSettlement, makeTerritory } from '@/state/projectStore';
 import { DEFAULT_SVG_OPTIONS, exportSvg } from './svgExport';
-import { roadRankStyle } from '@/render/olStyles';
+import { elevationTint, roadRankStyle } from '@/render/olStyles';
 import { STYLE_IDS } from '@/model/defaults';
 import type { MapProject } from '@/model/types';
 
@@ -335,6 +335,44 @@ describe('exportSvg', () => {
     });
     expect(wide).toContain(`stroke="${trunk.color}"`);
     expect(wide).not.toContain(`stroke="${minor.color}"`);
+  });
+
+  it('exports elevation bands lowest-first, under the territories (§66)', async () => {
+    registerUserSource(
+      {
+        id: 'test-elevation',
+        name: 'Test relief',
+        url: 'memory://test-elevation',
+        format: 'geojson',
+        role: 'elevation',
+      },
+      [
+        {
+          type: 'Feature',
+          properties: { band: 2000 },
+          geometry: { type: 'Polygon', coordinates: [[[14.9, 4.9], [15.1, 4.9], [15.1, 5.1], [14.9, 5.1], [14.9, 4.9]]] },
+        },
+        {
+          type: 'Feature',
+          properties: { band: 200 },
+          geometry: { type: 'Polygon', coordinates: [[[14, 4], [16, 4], [16, 6], [14, 6], [14, 4]]] },
+        },
+      ],
+    );
+    const project = sampleProject();
+    project.basemap = [{ sourceId: 'test-elevation', visible: true, opacity: 1 }];
+    const svg = await exportSvg(project, { ...OPTIONS, includeBasemap: true });
+
+    expect(svg).toContain('<g id="elevation">');
+    expect(svg).toContain('id="basemap-test-elevation"');
+    expect(svg).toContain(`fill="${elevationTint(200)}"`);
+    expect(svg).toContain(`fill="${elevationTint(2000)}"`);
+    // Lowest band first, so the higher tint paints over it — the same order the
+    // screen draws them in, and the reason a band is "at or above" rather than a
+    // slice between two thresholds.
+    expect(svg.indexOf('data-band="200"')).toBeLessThan(svg.indexOf('data-band="2000"'));
+    // And the whole group sits under the political fills.
+    expect(svg.indexOf('<g id="elevation">')).toBeLessThan(svg.indexOf('<g id="territories">'));
   });
 
   it('handles an empty project without throwing', async () => {

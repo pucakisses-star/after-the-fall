@@ -164,6 +164,7 @@ are ever loaded, and nothing is downloaded from the internet at runtime.
 |---|---|---|
 | World coastlines | Global | 2.9 MB |
 | Country boundaries | Global | 3.5 MB |
+| Elevation | The Americas | 660 KB |
 | Lakes | Global | 1.9 MB |
 | Rivers | Global | 2.0 MB |
 | Highways | The Americas | 2.6 MB |
@@ -286,6 +287,28 @@ drawn on top of its colour or it disappears underneath, which is both how atlase
 only way the layer is usable for tracing. Lakes convert into water-styled territories and rivers
 into editable river features, so reference water can become part of the document in one step. Lakes
 are never trimmed to the land, for the obvious reason.
+
+**Elevation is the one dataset here nobody publishes as vectors**, so `scripts/build-elevation.mjs`
+makes them: it pulls a coarse public-domain digital elevation model (NOAA's ETOPO 2022, subset and
+decimated server-side by ERDDAP — the whole model is 478 MB of HDF5 and this needs about forty of
+CSV), thresholds it into hypsometric bands at 200, 500, 1000, 2000, 3000 and 4000 m, and traces each
+band's outline into polygons. The Americas at 8 arc-minutes comes to 660 KB.
+
+Vectors rather than a relief raster because everything downstream assumes them: the SVG exporter
+draws the same geometry the screen does, style classes colour it, and the crop clips it. A raster
+would need its own path through all three and would still print worse at plate sizes.
+
+Each band is the ground *at or above* its threshold rather than a slice between two, so the bands
+nest and are drawn lowest first, the higher tints painting over the lower — which is how the ladder
+goes down on paper, and what lets a basin inside a plateau show through as a traced hole. The tracer
+walks the boundary between inside and outside cells keeping the inside on its left, so an outer ring
+comes back counter-clockwise and a hole clockwise, which is what GeoJSON wants and means nothing has
+to be reversed afterwards.
+
+The sampling is deliberately coarse. These are background tints under a political map, not a terrain
+model; finer sampling costs megabytes and shows as noise along every band edge at the zoom anyone
+reads state names at. The layer is off by default, because hypsometric tints change the character of
+a whole plate and that is the author's decision, not a default.
 
 **The lakes layer is three Natural Earth files, not one.** The main one stops at scalerank 9, which
 is a bigger lake than it sounds: Atitlán, Lake George, the Quabbin Reservoir and most of the
@@ -678,8 +701,8 @@ Stated plainly rather than stubbed out:
 * **Legend creator (§26)** — the SVG export emits an empty `<g id="legend">` so the structure is
   there, but there is no legend editor.
 * **Compass rose (§28)** and **coordinate index (§29)**.
-* **Terrain (§18)** beyond importing polygons as territories and a mountain symbol — no hillshading,
-  contours or relief.
+* **Terrain (§18)** beyond the hypsometric elevation layer and a mountain symbol — no hillshading or
+  slope shading.
 * **PDF export (§48)** — SVG into a print pipeline is the current answer.
 * **Masking/clipping (§46)** and **border labels (§44)**.
 * **Shapefile import** — GeoJSON, TopoJSON, KML, GPX and CSV are supported instead.
