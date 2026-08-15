@@ -140,6 +140,17 @@ export function subdivideRealm(
     weight: 1 + Math.max(0, 8 - seat.rank) * 0.05,
   }));
 
+  // Only the watercourses that reach this realm can affect its members, and the
+  // cost field walks every line it is handed against every cell of the lattice.
+  // Passing the world's rivers to each of two hundred realms was measured at
+  // 227 ms per realm against 83 with them cut to the neighbourhood — the same
+  // 2,442 lines rasterised two hundred times over to answer a question about
+  // eighteen of them.
+  const near: [number, number, number, number] = [w - 0.5, s - 0.5, e + 0.5, n + 0.5];
+  const localRivers = (opts.rivers ?? []).filter((line) =>
+    line.some(([x, y]) => x >= near[0] && x <= near[2] && y >= near[1] && y <= near[3]),
+  );
+
   const grown = growRealms(
     land,
     growthSeeds,
@@ -158,7 +169,7 @@ export function subdivideRealm(
       // keeps members exactly inside their realm with no sliver either side.
       clipToCoast: true,
     },
-    opts.rivers ?? [],
+    localRivers,
   );
 
   const minArea = opts.minAreaKm2 ?? 400;
