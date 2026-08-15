@@ -44,11 +44,19 @@ import {
   resolveTerritoryStyle,
   resolveTextStyle,
 } from '@/model/resolveStyle';
-import { layerEffective } from '@/model/hierarchy';
+import { depthOf, layerEffective } from '@/model/hierarchy';
 import { visibleInTime } from '@/model/timeline';
 import { toCss } from '@/model/color';
 import { computeBorders } from './borders';
-import { basemapRoleStyle, BASEMAP_Z, clearStyleCaches, lineStyle, territoryStyle } from './olStyles';
+import {
+  basemapRoleStyle,
+  BASEMAP_Z,
+  clearStyleCaches,
+  lineStyle,
+  metersPerUnit,
+  territoryLabelVisible,
+  territoryStyle,
+} from './olStyles';
 import { drawSymbol } from './symbols';
 import { drawText, drawTextOnPath, boxContains, type TextBox } from './textRenderer';
 import { useProjectStore } from '@/state/projectStore';
@@ -825,6 +833,32 @@ export class MapController {
     ];
   }
 
+  /**
+   * Whether a territory's name is worth drawing at the current scale (spec §28).
+   *
+   * A realm divided into duchies and counties has an order of magnitude more
+   * names than one that stops at the realm, and drawn all at once they are not a
+   * map but a mat of white halos with a continent somewhere underneath. An atlas
+   * solves this the same way every time: the plate showing two continents names
+   * the realms, and the plate showing one region names what is inside them.
+   *
+   * Depth in the hierarchy decides it, not the label's own size or the realm's
+   * rank: a sovereign is always named, and what is inside it waits until there
+   * is a plate showing the inside. That is what keeps a small sovereign visible
+   * beside a large duchy that belongs to somebody.
+   *
+   * Only territory labels are gated. Ocean, river and city names have their own
+   * rules, and a label the user placed by hand is never second-guessed.
+   */
+  private labelEarnsItsPlace(project: MapProject, label: MapLabel): boolean {
+    const owner = label.attachedToId ? project.territories[label.attachedToId] : undefined;
+    if (!owner) return true;
+
+    const resolution = this.map.getView().getResolution() ?? 1;
+    const metersPerPixel = resolution * metersPerUnit(project.projection?.units);
+    return territoryLabelVisible(depthOf(project, owner.id), metersPerPixel);
+  }
+
   private styleLabel(f: Feature<Geometry>): Style[] {
     const project = useProjectStore.getState().project;
     const id = f.getId() as UUID;
@@ -832,6 +866,7 @@ export class MapController {
     if (!label) return [];
     const style = resolveTextStyle(project, label);
     const selected = useUIStore.getState().selection.includes(id);
+    if (!selected && !this.labelEarnsItsPlace(project, label)) return [];
     const pathPixels = label.pathId ? this.labelPathPixels(project, label) : null;
 
     return [

@@ -392,9 +392,16 @@ export function createDefaultStyleSheet(): StyleSheet {
   text(
     STYLE_IDS.textCountry,
     'Country label',
-    defaultTextStyle({ fontSize: 17, tracking: 6, transform: 'uppercase', color: '#241d13', haloWidth: 3 }),
+    defaultTextStyle({ fontSize: 17, tracking: 6, transform: 'uppercase', color: '#241d13', haloWidth: 1.2 }),
   );
-  text(STYLE_IDS.textRegion, 'Region label', defaultTextStyle({ fontSize: 12, tracking: 1.6, italic: true, color: '#4a3d2b' }));
+  text(
+    STYLE_IDS.textRegion,
+    'Region label',
+    // A halo, not a pill. Three pixels of white behind every name turned the map
+    // into a field of UI chips; just over one keeps the name legible where it
+    // crosses a border without printing a box around it.
+    defaultTextStyle({ fontSize: 12, tracking: 1.6, italic: true, color: '#4a3d2b', haloWidth: 1.2 }),
+  );
   // The line under a special vassal's name — "Vassal of the M.C." Smaller and
   // lighter than the name it belongs to, because it is an annotation on that
   // name rather than a second name (spec §12).
@@ -403,11 +410,15 @@ export function createDefaultStyleSheet(): StyleSheet {
     'Relationship note',
     defaultTextStyle({ fontSize: 8, tracking: 0.3, italic: true, color: '#5c5040', haloWidth: 2 }),
   );
-  text(STYLE_IDS.textCity, 'City label', defaultTextStyle({ fontSize: 11, tracking: 0.2, align: 'left' }));
+  text(
+    STYLE_IDS.textCity,
+    'City label',
+    defaultTextStyle({ fontSize: 11, tracking: 0.2, align: 'left', haloWidth: 1.5 }),
+  );
   text(
     STYLE_IDS.textCapital,
     'Capital label',
-    defaultTextStyle({ fontSize: 12, fontWeight: 600, tracking: 0.4, align: 'left' }),
+    defaultTextStyle({ fontSize: 12, fontWeight: 600, tracking: 0.4, align: 'left', haloWidth: 1.5 }),
   );
   text(
     STYLE_IDS.textOcean,

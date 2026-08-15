@@ -547,6 +547,27 @@ export function placeLabelVisible(labelRank: number, metersPerPixel: number): bo
   return clampRank(labelRank, 8) <= zoomish - 1;
 }
 
+/**
+ * Whether a territory's name is worth drawing at this scale (spec §28).
+ *
+ * Keyed on depth in the political hierarchy rather than on rank, because that is
+ * the question actually being asked: a realm is named on the plate that shows
+ * the realm, and what is *inside* it is named on the plate that shows the
+ * inside. Rank cannot answer it — a kingdom's premier duchy and an independent
+ * duchy carry the same rank and belong at opposite ends of this decision.
+ *
+ * Sovereigns are always named. Each level down waits for about two and a half
+ * more zoom steps, which is what lets a map of four hundred member states read
+ * as thirty realms from a hemisphere away and as a feudal patchwork up close.
+ *
+ * Shared with the SVG exporter, so a printed plate names what the screen named.
+ */
+export function territoryLabelVisible(depth: number, metersPerPixel: number): boolean {
+  if (depth <= 0) return true;
+  const zoomish = Math.max(0, 14 - Math.log2(Math.max(metersPerPixel, 1e-9)));
+  return zoomish >= depth * 2.5;
+}
+
 /** Stroke width and colour for a river rank, shared with the SVG exporter. */
 export function riverRankStyle(rank: number): { width: number; color: string } {
   const r = Number.isFinite(rank) ? Math.max(0, Math.min(11, Math.round(rank))) : 9;

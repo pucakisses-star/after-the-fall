@@ -23,15 +23,24 @@
  * ordinary editable territory, which is the point of the application.
  */
 
-import { linesOf, loadBasemap, polygonsOf } from '@/geo/basemap';
+import { linesOf, loadBasemap, pointsOf, polygonsOf } from '@/geo/basemap';
+import { memberCountFor, pickSeats, subdivideRealm, type SubdivisionSeat } from '@/geo/subdivide';
 import { relationshipInfo } from '@/model/defaults';
-import { dissolve, interiorPoint } from '@/geo/operations';
+import { areaKm2, dissolve, interiorPoint } from '@/geo/operations';
 import { recolor } from '@/geo/palette';
 import { DEFAULT_GROWTH, growRealms, type LandPolygon, type RealmSeed } from '@/geo/realmGrowth';
 import { PALETTES, STYLE_IDS } from '@/model/defaults';
 import { createProject, findLayerByKind } from '@/model/project';
 import { newId } from '@/model/ids';
-import type { MapLabel, MapProject, PoliticalType, Settlement, Territory, TextStyle } from '@/model/types';
+import type {
+  MapLabel,
+  MapProject,
+  PoliticalRelationship,
+  PoliticalType,
+  Settlement,
+  Territory,
+  TextStyle,
+} from '@/model/types';
 import type { LineString, MultiLineString, MultiPolygon, Polygon, Position } from 'geojson';
 
 /** A vassal realm: a name, a seat, and how far its writ runs. */
@@ -593,12 +602,17 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
 
   let land: LandPolygon[];
   let rivers: Position[][] = [];
+  let towns: SubdivisionSeat[] = [];
   try {
     land = coastlinePolygons(await loadBasemap('world-land-10m'));
     // Rivers are what a frontier settles on when it has the choice, so the
     // growth is given them; without them the borders ignore the one feature a
     // reader expects them to follow.
     rivers = riverLines(await loadBasemap('world-rivers-10m'));
+    // Towns, which become the seats the members of each realm grow from. A
+    // duchy named after a real town, centred on it, is what stops the internal
+    // geography reading as an arbitrary partition of a shape.
+    towns = townSeats(await loadBasemap('world-places-10m'));
   } catch {
     return { project, center: CENTER, zoom: ZOOM };
   }
@@ -774,6 +788,29 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
     }
   }
 
+  /**
+   * Now divide every realm into the states it is made of (spec §7).
+   *
+   * Last, and deliberately: the realms have their final colours by this point,
+   * so every member inherits the tint its parent actually ended up with rather
+   * than the group colour it was born with. Members are grown, not partitioned —
+   * see `geo/subdivide.ts` — so their frontiers bend and settle onto rivers
+   * instead of cutting the realm up with straight lines.
+   */
+  let memberCount = 0;
+  for (const parent of Object.values(project.territories)) {
+    // Only realms, not the members about to be created, and not an empire —
+    // an empire's members are its vassal realms, which have their own.
+    if (parent.parentId) continue;
+    if (parent.politicalType === 'empire') continue;
+    memberCount += addMembers(project, parent, towns, rivers, territoryLayer.id, regionLabels.id);
+  }
+  for (const parent of Object.values(project.territories)) {
+    if (parent.relationship !== 'vassal' || !parent.parentId) continue;
+    memberCount += addMembers(project, parent, towns, rivers, territoryLayer.id, regionLabels.id);
+  }
+  if (memberCount) console.debug(`After the End: ${memberCount} member states`);
+
   for (const w of WATER_LABELS) {
     const label = makeLabel({
       layerId: waterLabels.id,
@@ -887,6 +924,142 @@ function addCapital(
     styleClassId: STYLE_IDS.textCapital,
     offset: [10, 0],
   });
+}
+
+/**
+ * Turn a realm into a realm *and its members* (spec §7).
+ *
+ * The realm keeps its shape and becomes the parent: its fill still washes across
+ * the whole of it, and its name still spans it. The members are grown inside it
+ * and drawn over it, taking their colours from it through the ordinary
+ * inheritance path, so what you see zoomed out is one realm and what you find on
+ * zooming in is the duchies and counties it is made of.
+ */
+function addMembers(
+  project: MapProject,
+  parent: Territory,
+  towns: SubdivisionSeat[],
+  rivers: Position[][],
+  layerId: string,
+  regionLabelLayerId: string,
+): number {
+  const wanted = memberCountFor(areaKm2(parent.geometry));
+  if (wanted < 2) return 0;
+
+  const inside = towns.filter((t) => pointInside(t.point, parent.geometry));
+  const seats = pickSeats(inside, wanted, parent.geometry);
+  if (seats.length < 2) return 0;
+
+  const members = subdivideRealm(parent.geometry, seats, { rivers });
+  if (members.length < 2) return 0;
+
+  for (const m of members) {
+    const title = memberTitle(m.order, members.length, m.seat);
+    const info = relationshipInfo(title.relationship);
+    const id = newId();
+    project.territories[id] = {
+      id,
+      layerId,
+      name: title.name,
+      shortName: m.seat.name,
+      politicalType: title.type,
+      relationship: title.relationship,
+      parentId: parent.id,
+      liegeId: parent.id,
+      capitalId: null,
+      notes: '',
+      locked: false,
+      hidden: false,
+      timeline: { start: null, end: null },
+      geometry: m.geometry,
+      styleClassId: STYLE_IDS.territoryDefault,
+      // A free city picks its own colour; everything else is a shade of the
+      // realm, which is what makes the realm perceptible across its members.
+      styleOverrides: info.ownColor ? { fillColor: FREE_CITY_COLOR } : {},
+      inheritParentColor: !info.ownColor,
+      borderKind: info.border,
+      labelId: null,
+    };
+    attachLabel(project, id, 'territories', {
+      layerId: regionLabelLayerId,
+      kind: 'region',
+      text: title.name,
+      coords: interiorPoint(m.geometry),
+      styleClassId: STYLE_IDS.textRegion,
+      style: nameStyle(m.geometry, title.name),
+    });
+  }
+  return members.length;
+}
+
+/** The contrasting red a free city is drawn in, as on the reference plate. */
+const FREE_CITY_COLOR = '#c1272d';
+
+/** Ray-casting point-in-polygon, holes included. */
+function pointInside([x, y]: [number, number], g: Polygon | MultiPolygon): boolean {
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  for (const poly of polys) {
+    if (!ringHas(poly[0], x, y)) continue;
+    let hole = false;
+    for (let i = 1; i < poly.length; i++) if (ringHas(poly[i], x, y)) { hole = true; break; }
+    if (!hole) return true;
+  }
+  return false;
+}
+
+function ringHas(ring: Position[], x: number, y: number): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** Populated places as candidate seats for a realm's members. */
+function townSeats(features: Awaited<ReturnType<typeof loadBasemap>>): SubdivisionSeat[] {
+  const out: SubdivisionSeat[] = [];
+  for (const f of pointsOf(features)) {
+    const props = (f.properties ?? {}) as Record<string, unknown>;
+    const name = typeof props.name === 'string' ? props.name : '';
+    if (!name) continue;
+    const g = f.geometry;
+    const c = g.type === 'Point' ? g.coordinates : g.coordinates[0];
+    if (!c) continue;
+    out.push({ name, point: [c[0], c[1]], rank: Number(props.scalerank ?? 10) });
+  }
+  return out;
+}
+
+/**
+ * The titles a realm's members carry, largest first.
+ *
+ * A feudal map is not a grid of equal counties: it has one premier duchy, a
+ * handful of counties under it, and cantons and baronies filling the gaps, and
+ * the ladder is what makes the internal geography read as a hierarchy rather
+ * than as an administrative partition. The last member of a large realm is its
+ * free city where the town is important enough to have been one — a small
+ * contrasting enclave inside its own realm.
+ */
+function memberTitle(order: number, count: number, seat: SubdivisionSeat): {
+  name: string;
+  type: PoliticalType;
+  relationship: PoliticalRelationship;
+} {
+  if (order === 0) return { name: `Duchy of ${seat.name}`, type: 'duchy', relationship: 'constituent' };
+  if (order === count - 1 && count >= 4 && seat.rank <= 6) {
+    return { name: `Free City of ${seat.name}`, type: 'city-state', relationship: 'free-city' };
+  }
+  // One vassal per realm of any size: the point of the distinction is lost if
+  // half the members carry it.
+  if (order === 2 && count >= 4) {
+    return { name: `County of ${seat.name}`, type: 'county', relationship: 'vassal' };
+  }
+  if (order === 1) return { name: `County of ${seat.name}`, type: 'county', relationship: 'constituent' };
+  return order % 2
+    ? { name: `Canton of ${seat.name}`, type: 'province', relationship: 'constituent' }
+    : { name: `Barony of ${seat.name}`, type: 'barony', relationship: 'constituent' };
 }
 
 /** Every watercourse, as plain polylines. */
