@@ -273,14 +273,28 @@ read as a frontier following the river rather than a corridor of no-man's-land b
 line divides anything: a river that peters out mid-continent leaves the two sides connected around
 its end and the fill goes round it, which is the truth about that river.
 
-That last case had a bug in it worth recording. A line that does not divide a territory still leaves
-the width of the cut behind, and the old owner was left holding exactly that: a ribbon thirty metres
-wide and five hundred kilometres long — eighteen square kilometres, which passes any area threshold
-anybody would set, and is still not a territory. It drew as a border hanging in the middle of its
-neighbour, stopping dead where the river stopped. So what a fill leaves behind is now judged by mean
-width rather than by area, and anything under two hundred metres across goes to the realm that
-received the fill: an order of magnitude above the line the bucket cuts with, and two orders below
-the narrowest thing anybody would draw as a state.
+The width of that cut caused two bugs before it was dealt with properly, and both drew the same way:
+a black line inside somebody's country, following a river, stopping where the river stopped.
+
+The first was a line that does not divide a territory at all. It still left the width of the cut
+behind, and the old owner was left holding exactly that — a ribbon thirty metres wide and five
+hundred kilometres long, eighteen square kilometres, which passes any area threshold anybody would
+set and is still not a territory. Judging what a fill leaves behind by mean width rather than by area
+deals with that one: under two hundred metres across is the cut, not ground.
+
+The second was worse, because the ribbons are *connected to each other* along the river network. A
+ribbon attached to a real body is not a thin part any test can throw away — it is a finger of one
+realm's ground reaching deep into its neighbour, and whichever side kept the cut grew a hand of them.
+So the cut is now given back: the piece under the pointer is grown by half the width that was
+removed, and clipped to the shape it came from. The piece on the other side grows by the same half,
+so the two meet in the middle of the strip rather than overlapping across it, and a slit is closed
+from both of its sides at once. Nothing is left over to belong to anybody.
+
+Not by splitting along the lines, which is the obvious answer and does not survive contact with the
+data: a county here is crossed sixty times by six river features, and the noding that a
+polygonize-based split needs cannot be relied on through that — measured, it silently declined to
+divide anything. A boolean can. Verified over ten fills on the demo map: no interior rings, no part
+under 200m wide, every fill inside 800ms.
 
 Two things about it were wrong until the real coastline was pointed at them. Clipping land to a
 search window gives every landmass a straight artificial edge along that window, and dissolving the

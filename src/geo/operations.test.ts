@@ -220,6 +220,13 @@ describe('dropHairlines', () => {
     expect(areaKm2(kept)).toBeCloseTo(areaKm2(rect(0, 0, 1, 1)), -2);
   });
 
+  it('throws away what a boolean leaves when two shapes cancel', () => {
+    // No area and no perimeter: a degenerate ring, which was surviving the
+    // width test because zero over zero is not less than anything.
+    const degenerate: Polygon = { type: 'Polygon', coordinates: [[[1, 1], [1, 1], [1, 1], [1, 1]]] };
+    expect(dropHairlines(degenerate, 0.2)).toBeNull();
+  });
+
   it('measures width rather than size, so a small country survives', () => {
     // Smaller than the ribbon in area, and a hundred times its width.
     const microstate = rect(0, 0, 0.03, 0.03);

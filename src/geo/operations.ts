@@ -263,7 +263,11 @@ export function removeTinyParts(g: Poly, minKm2: number): Poly | null {
 export function dropHairlines(g: Poly, minWidthKm: number): Poly | null {
   const parts = explode(g).filter((p) => {
     const edge = perimeterKm(p);
-    return edge <= 0 || areaKm2(p) / edge >= minWidthKm;
+    const area = areaKm2(p);
+    // A part with no perimeter and no area is what a boolean leaves when two
+    // shapes cancel: not ground, and not something to leave a territory holding.
+    if (!(edge > 0) || !(area > 0)) return false;
+    return area / edge >= minWidthKm;
   });
   if (parts.length === 0) return null;
   return normalizePoly(
@@ -313,7 +317,7 @@ function perimeterKm(g: Poly): number {
  * Returns `null` when the cutter does not actually divide the polygon.
  */
 export function splitPolygon(target: Poly, cutter: LineString): Poly[] | null {
-  const viaPolygonize = splitByPolygonize(target, cutter);
+  const viaPolygonize = splitByPolygonize(target, [cutter]);
   if (viaPolygonize && viaPolygonize.length >= 2) return viaPolygonize;
 
   const viaBuffer = splitByThinBuffer(target, cutter);
@@ -322,7 +326,24 @@ export function splitPolygon(target: Poly, cutter: LineString): Poly[] | null {
   return null;
 }
 
-function splitByPolygonize(target: Poly, cutter: LineString): Poly[] | null {
+/**
+ * Grow a polygon outward by `km`, all round.
+ *
+ * Used to reabsorb a cut: subtract a hairline from a shape to divide it, and the
+ * hairline is ground that has left the map. Growing the piece you kept back over
+ * it and clipping to the original puts it back without reconnecting what the cut
+ * separated, so long as the growth is no wider than the cut.
+ */
+export function dilate(g: Poly, km: number): Poly | null {
+  try {
+    const grown = turf.buffer(feat(g), km, { units: 'kilometers' });
+    return grown ? normalizePoly(grown.geometry as Poly) : null;
+  } catch {
+    return null;
+  }
+}
+
+function splitByPolygonize(target: Poly, cutters: LineString[]): Poly[] | null {
   try {
     const boundary = turf.polygonToLine(feat(target));
     const boundaryLines: LineString[] = [];
@@ -336,17 +357,22 @@ function splitByPolygonize(target: Poly, cutter: LineString): Poly[] | null {
       for (const f of boundary.features) pushLine(f.geometry as LineString);
     }
 
-    // Node the cutter against the boundary, then discard the parts outside the
+    // Node each cutter against the boundary, then discard the parts outside the
     // polygon — a cutter that overshoots is the normal case, not an error.
-    const cutFeature = turf.lineString(cutter.coordinates);
     const cutPieces: LineString[] = [];
-    for (const bl of boundaryLines) {
-      const split = turf.lineSplit(cutFeature, turf.lineString(bl.coordinates));
-      if (split.features.length > 1) {
-        for (const f of split.features) cutPieces.push(f.geometry as LineString);
+    for (const cutter of cutters) {
+      if (cutter.coordinates.length < 2) continue;
+      const cutFeature = turf.lineString(cutter.coordinates);
+      let pieces: LineString[] = [];
+      for (const bl of boundaryLines) {
+        const split = turf.lineSplit(cutFeature, turf.lineString(bl.coordinates));
+        if (split.features.length > 1) {
+          for (const f of split.features) pieces.push(f.geometry as LineString);
+        }
       }
+      cutPieces.push(...(pieces.length ? pieces : [cutter]));
     }
-    const insideCut = (cutPieces.length ? cutPieces : [cutter]).filter((ls) => {
+    const insideCut = cutPieces.filter((ls) => {
       const mid = turf.along(turf.lineString(ls.coordinates), turf.length(turf.lineString(ls.coordinates)) / 2);
       return turf.booleanPointInPolygon(mid, feat(target));
     });

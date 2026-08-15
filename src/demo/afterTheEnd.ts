@@ -538,7 +538,11 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
       let seatStateId: string | null = null;
       for (const realm of empire.realms) {
         const shape = grown.shapes.get(realm.name);
-        if (!shape) continue;
+        // A realm boxed in by its neighbours and trimmed away by the coast has
+        // no ground, and a state with no ground is a name and a colour with
+        // nothing under them — invisible on the plate until something tries to
+        // edit it. The Oligarchy of Niagara was one, in every build until now.
+        if (!shape || !(areaKm2(shape) > 0)) continue;
         const id = newId();
         if (realm === seatRealm) seatStateId = id;
         const state: Territory = {
@@ -788,6 +792,8 @@ function addMembers(
 
   const created: Territory[] = [];
   for (const m of members) {
+    // Same rule as the realms above: no ground, no state.
+    if (!(areaKm2(m.geometry) > 0)) continue;
     const title = memberTitle(m.order, members.length, m.seat);
     const info = relationshipInfo(title.relationship);
     const id = newId();

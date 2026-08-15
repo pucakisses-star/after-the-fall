@@ -22,7 +22,7 @@
  * grows until it stops, or until it hits the cap and says so.
  */
 
-import { clipToBox, difference, explode, normalizePoly } from './operations';
+import { clipToBox, difference, dilate, explode, intersection, normalizePoly } from './operations';
 import { distanceToBoundary } from './reshape';
 import type { MultiPolygon, Polygon, Position } from 'geojson';
 import type { Poly } from './operations';
@@ -101,36 +101,64 @@ export function regionAt(
 }
 
 /**
- * Take the walls out of a shape and return the part under the point.
+ * Cut a shape along the barrier lines and return the part under the point.
  *
- * The gap a wall leaves is the width it was drawn at — tens of metres, well
- * under the resolution of anything on the plate — so what the reader sees is a
- * frontier that follows the river rather than a strip of no-man's-land along it.
+ * The cut is made by subtracting a hairline of the lines, which is robust and
+ * fast where nothing else is: a river network arrives as dozens of separate
+ * features crossing a county sixty times between them, and the noding a
+ * polygonize-based split needs cannot be relied on to survive that. A boolean
+ * can.
+ *
+ * The hairline is then given back. That is the whole of the second half of this
+ * function and it is not tidiness: the ribbons a subtracted wall leaves are
+ * connected to each other along the river, so whichever side ends up holding
+ * them ends up with fingers of ground reaching deep into its neighbour, drawn as
+ * a black line inside somebody else's country that follows a river and stops
+ * where the river stops. Growing the piece back by exactly the width that was
+ * cut, and clipping it to the shape it came from, reabsorbs every slit, notch
+ * and finger without reconnecting the two sides — the growth is no wider than
+ * the gap between them.
+ *
+ * A line that fails to divide the shape therefore leaves it whole, which is the
+ * right answer for a river that peters out inside the country it was drawn
+ * across: the two sides are connected around its end.
  */
 function cutByWalls(shape: Poly, walls: Position[][], point: [number, number]): Polygon | MultiPolygon | null {
-  let open: Poly | null = normalizePoly(shape);
-  if (!open) return null;
+  const whole = normalizePoly(shape);
+  if (!whole) return null;
 
-  const wall = wallPolygon(walls, bboxOf(shape));
-  if (wall) {
-    const cut = difference(open, wall);
-    if (!cut) return null;
-    open = cut;
-  }
+  const wall = wallPolygon(walls, bboxOf(whole));
+  const cut = wall ? difference(whole, wall) : whole;
+  if (!cut) return null;
 
-  for (const part of explode(open)) {
+  const chosen = explode(cut).find((part) => containsPoint(part, point));
+  if (!chosen) return null;
+  if (!wall) return normalizePoly(chosen);
+
+  // Half the width, because the piece on the other side of the cut grows by
+  // the same half: the two meet in the middle of the strip instead of
+  // overlapping across it, and a slit is closed from both of its sides at once.
+  const grown = dilate(chosen, (WALL_WIDTH / 2) * DEGREE_KM);
+  const healed = grown && intersection(whole, grown);
+  if (!healed) return normalizePoly(chosen);
+
+  // The growth can pick up a crumb across a narrow neck, so the part under the
+  // point is taken again rather than assumed.
+  for (const part of explode(healed)) {
     if (containsPoint(part, point)) return normalizePoly(part);
   }
-  return null;
+  return normalizePoly(chosen);
 }
+
+/** Kilometres in a degree of latitude, for turning a map tolerance into a buffer. */
+const DEGREE_KM = 111.32;
 
 /**
  * How wide a barrier line is drawn when it is cut out of a region, in degrees.
  *
  * About thirty metres: thick enough that the boolean has real geometry to work
- * with rather than a degenerate sliver, and thin enough that the strip it leaves
- * between two realms is a hundredth of a pixel on the closest plate anybody
- * draws. The frontier reads as following the river, which is what it is doing.
+ * with rather than a degenerate sliver, and narrow enough that giving it back
+ * afterwards cannot reconnect the two sides it separated.
  */
 const WALL_WIDTH = 0.0003;
 

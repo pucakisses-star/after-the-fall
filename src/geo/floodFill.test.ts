@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { neighbourHoldingMostOf, regionAt, unclaimedRegionAt } from './floodFill';
 import { areaKm2 } from './operations';
-import type { Polygon } from 'geojson';
+import type { MultiPolygon, Polygon } from 'geojson';
 
 /** An axis-aligned rectangle, counter-clockwise. */
 function box(x0: number, y0: number, x1: number, y1: number): Polygon {
@@ -18,6 +18,12 @@ function box(x0: number, y0: number, x1: number, y1: number): Polygon {
     type: 'Polygon',
     coordinates: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]],
   };
+}
+
+/** Every longitude of a geometry — parsed, not regexed out of its JSON. */
+function lonsOf(g: Polygon | MultiPolygon): number[] {
+  const rings = g.type === 'Polygon' ? g.coordinates : g.coordinates.flat();
+  return rings.flat().map(([x]) => x);
 }
 
 /** A continent from 0,0 to 10,10, with nothing on it. */
@@ -203,21 +209,33 @@ describe('regionAt', () => {
     const claimed = [{ id: 'all', geometry: CONTINENT }];
     const left = regionAt([2, 5], [CONTINENT], claimed, [meridian])!;
     const right = regionAt([8, 5], [CONTINENT], claimed, [meridian])!;
-    const lons = (g: typeof left.geometry) => JSON.stringify(g).match(/-?\d+\.?\d*/g)!.map(Number).filter((_, i) => i % 2 === 0);
-    expect(Math.max(...lons(left.geometry))).toBeLessThan(5.01);
-    expect(Math.min(...lons(right.geometry))).toBeGreaterThan(4.99);
+    expect(Math.max(...lonsOf(left.geometry))).toBeLessThan(5.01);
+    expect(Math.min(...lonsOf(right.geometry))).toBeGreaterThan(4.99);
   });
 
-  it('leaves a gap no wider than the line it was cut with', () => {
-    // The two halves must still meet, to the eye and to the map: a fill that
-    // leaves a visible strip of no-man's-land along every river is not a
-    // frontier following the river.
+  it('leaves no ground between the two sides', () => {
+    // The cut is subtracted and then given back, half to each side, so the two
+    // meet in the middle of it and the halves add back up to the whole. The
+    // first version kept the ribbon: thirty metres of ground per line, running
+    // the length of the river network, which whichever realm held it turned
+    // into fingers reaching into its neighbour.
     const claimed = [{ id: 'all', geometry: CONTINENT }];
     const left = regionAt([2, 5], [CONTINENT], claimed, [meridian])!;
     const right = regionAt([8, 5], [CONTINENT], claimed, [meridian])!;
     const lost = 1 - (areaKm2(left.geometry) + areaKm2(right.geometry)) / areaKm2(CONTINENT);
-    expect(lost).toBeGreaterThan(0);
-    expect(lost).toBeLessThan(0.0002);
+    expect(Math.abs(lost)).toBeLessThan(1e-4);
+  });
+
+  it('leaves a shape untouched by a line that does not divide it', () => {
+    // Not "all but the slit the cut made": nothing at all. A ribbon of ground
+    // thirty metres wide and five hundred kilometres long is not a territory,
+    // and it draws as a border hanging in the middle of a country.
+    const claimed = [{ id: 'all', geometry: CONTINENT }];
+    const stub = [[5, -1], [5, 5]];
+    const whole = regionAt([2, 5], [CONTINENT], claimed, [stub])!;
+    // To within the rounding of a subtract-and-restore round trip: forty square
+    // metres of a million and a quarter square kilometres.
+    expect(areaKm2(whole.geometry) / areaKm2(CONTINENT)).toBeCloseTo(1, 9);
   });
 
   it('ignores a line that does not divide the ground', () => {
