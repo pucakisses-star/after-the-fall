@@ -10,6 +10,10 @@ import { useProjectStore } from '@/state/projectStore';
 
 const MODES: { value: PaletteMode; label: string }[] = [
   { value: 'historical-atlas', label: 'Historical atlas' },
+  { value: 'after-the-event', label: 'After the End plates' },
+  { value: 'imperial-patchwork', label: 'Imperial patchwork' },
+  { value: 'jewel', label: 'Jewel' },
+  { value: 'sepia', label: 'Sepia' },
   { value: 'pastel', label: 'Pastel' },
   { value: 'muted', label: 'Muted' },
   { value: 'vibrant', label: 'Vibrant' },

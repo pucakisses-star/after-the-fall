@@ -302,7 +302,17 @@ export function settlementTypeInfo(t: SettlementType) {
 // Palettes (spec §22)
 // ---------------------------------------------------------------------------
 
-export type PaletteMode = 'pastel' | 'muted' | 'vibrant' | 'historical-atlas' | 'monochromatic' | 'random';
+export type PaletteMode =
+  | 'pastel'
+  | 'muted'
+  | 'vibrant'
+  | 'historical-atlas'
+  | 'after-the-event'
+  | 'imperial-patchwork'
+  | 'jewel'
+  | 'sepia'
+  | 'monochromatic'
+  | 'random';
 
 export const PALETTES: Record<Exclude<PaletteMode, 'random' | 'monochromatic'>, string[]> = {
   pastel: [
@@ -311,7 +321,7 @@ export const PALETTES: Record<Exclude<PaletteMode, 'random' | 'monochromatic'>, 
   ],
   muted: [
     '#c4a68f', '#9fae8c', '#8fa3b5', '#c2b382', '#a894ab', '#8fb0a8',
-    '#c9a887', '#a2a9c0', '#b3b992', '#bf94a2', '#93b3bd', '#c5b79a',
+    '#d2a06e', '#a2a9c0', '#b3b992', '#bf94a2', '#93b3bd', '#c5b79a',
   ],
   vibrant: [
     '#d9694e', '#5f9e56', '#4b7fbd', '#d9ab3e', '#8a5fa8', '#3fa393',
@@ -321,6 +331,49 @@ export const PALETTES: Record<Exclude<PaletteMode, 'random' | 'monochromatic'>, 
   'historical-atlas': [
     '#dcc9a4', '#b9c4a2', '#c9b7c2', '#a8bcc4', '#ddb99a', '#c2c8b0',
     '#cbb894', '#adbdb2', '#d4bdb0', '#b6b7c9', '#d9cdb0', '#bfae9c',
+  ],
+  /**
+   * The fan-made After the End plates: saturated but earthed, never fluorescent.
+   *
+   * Twenty rather than twelve on purpose. The graph colourer only guarantees
+   * that *neighbours* differ, so a short list satisfies it while still printing
+   * the same eight colours across a continent — which is what makes a map of a
+   * hundred and thirty states read as eight blocs. More hues cost nothing and
+   * buy variety two realms apart, where the eye actually notices repetition.
+   */
+  'after-the-event': [
+    '#4c9aa8', '#b8405f', '#4aac52', '#9aad3e', '#d98d3e', '#7093c6',
+    '#8a5a3e', '#a5382f', '#9c88b8', '#8fa08c', '#3f6aab', '#d4a950',
+    '#c98d9c', '#6f7a3e', '#d98d7c', '#b8a87a', '#57b6c6', '#a8546f',
+    '#7fae66', '#c46a3a',
+  ],
+  /**
+   * The Holy Roman Empire of America plate: a dense pastel patchwork where every
+   * county carries its own tint and the empire is held together by its frame and
+   * its borders rather than by colour.
+   *
+   * Twenty-four light tints with a few saturated accents, which is what stops a
+   * wash of pastels going flat over a whole map.
+   */
+  'imperial-patchwork': [
+    '#e9dfa8', '#bfe0c4', '#f0c8d4', '#cfc4e6', '#f2d3b0', '#bcd4ee',
+    '#d8e4ae', '#eec9c2', '#c2e2e0', '#e4d0e8', '#f0e3c0', '#c8d8bc',
+    '#e8bcc8', '#b8cde2', '#ded0a8', '#cbe6d2', '#e6c6e0', '#f6d7a4',
+    '#aecfd8', '#ddc0a6', '#c4c8e8', '#e0e8bc', '#d24a4a', '#c8489a',
+  ],
+  /**
+   * Deep inks for a map printed dark: a night plate, or a realm map meant to
+   * look like enamel rather than paper.
+   */
+  jewel: [
+    '#2f5d78', '#7a2f46', '#3d6b4a', '#6b5a2a', '#4a3a6b', '#2a6b6b',
+    '#8a4a2a', '#3a4a7a', '#6b3a5a', '#4a6b2a', '#7a5a3a', '#2a5a4a',
+    '#5a2a4a', '#3a6b7a', '#6b4a2a', '#4a2a5a',
+  ],
+  /** One ink, many washes — an engraved plate tinted by hand. */
+  sepia: [
+    '#d9c4a0', '#c4a882', '#e0d2b4', '#b09068', '#cdb694', '#a88458',
+    '#e6dcc4', '#bfa176', '#d2bb96', '#9c7a4e', '#dccdb0', '#b59a72',
   ],
 };
 
