@@ -9,14 +9,16 @@
 import type { LineString, Polygon, MultiPolygon, Position } from 'geojson';
 import { newId } from '@/model/ids';
 import { STYLE_IDS, politicalTypeInfo, relationshipInfo } from '@/model/defaults';
-import { descendantsOf, relationshipSubtitle, wouldCreateCycle } from '@/model/hierarchy';
+import { depthOf, descendantsOf, relationshipSubtitle, wouldCreateCycle } from '@/model/hierarchy';
 import { inheritedFill, resolveTerritoryStyle } from '@/model/resolveStyle';
 import {
   areaKm2,
+  bbox,
   difference,
   dissolve,
   explode,
   interiorPoint,
+  intersection,
   normalizePoly,
   removeTinyParts,
   simplify,
@@ -68,6 +70,67 @@ export function selectedTerritories(project = getProject()): Territory[] {
 // Creation
 // ---------------------------------------------------------------------------
 
+/**
+ * How much of a new shape has to lie inside an existing one to be part of it.
+ *
+ * Not all of it, because a border drawn by hand along a coast or against an
+ * existing frontier will cross it by a pixel here and there, and a rule that
+ * says "entirely inside" would answer "sovereign" for a province anybody
+ * looking at the map would call a province. Not much less either: a shape half
+ * in and half out is a new state overlapping an old one, which is a different
+ * thing and not something to guess about.
+ */
+const ENCLOSED_SHARE = 0.9;
+
+/**
+ * The territory a newly drawn shape belongs inside, if any (spec §7).
+ *
+ * The *smallest* one that contains it, because containment is nested: a border
+ * drawn inside a county inside a duchy belongs to the county, and the duchy is
+ * its grandparent rather than its parent.
+ *
+ * Locked territories are skipped — a lock means "do not let anything happen to
+ * this", and quietly gaining a member is something happening to it.
+ */
+function enclosingTerritory(project: MapProject, shape: Poly): Territory | null {
+  const area = areaKm2(shape);
+  if (!(area > 0)) return null;
+  const box = bbox(shape);
+
+  let best: Territory | null = null;
+  let bestArea = Infinity;
+  for (const t of Object.values(project.territories)) {
+    if (t.hidden || t.locked) continue;
+    const other = bbox(t.geometry);
+    if (other[0] > box[2] || other[2] < box[0] || other[1] > box[3] || other[3] < box[1]) continue;
+
+    const shared = intersection(t.geometry, shape);
+    if (!shared || areaKm2(shared) < area * ENCLOSED_SHARE) continue;
+
+    const size = areaKm2(t.geometry);
+    if (size < bestArea) {
+      best = t;
+      bestArea = size;
+    }
+  }
+  return best;
+}
+
+/**
+ * Draw a territory (spec §5, §7).
+ *
+ * A border drawn inside a state is a border *of* that state: it makes a
+ * subdivision, not a rival sovereign sitting on top of it. So a shape that lands
+ * inside an existing territory joins it — as a member, with the colour and the
+ * lighter border weight that go with being one — and only a shape drawn on open
+ * ground stands alone. Redrawing a state's own outline is a different gesture
+ * with its own tool, and is unaffected: this is what happens when you draw a new
+ * line rather than move an existing one.
+ *
+ * The rank of the new border follows the depth it lands at, which is what stops
+ * a county inside a duchy inside a kingdom from being drawn with the same weight
+ * of line as the kingdom's own frontier.
+ */
 export function addTerritory(geometry: Polygon | MultiPolygon, init: Partial<Territory> = {}): UUID | null {
   const project = getProject();
   const cleaned = normalizePoly(geometry);
@@ -76,9 +139,18 @@ export function addTerritory(geometry: Polygon | MultiPolygon, init: Partial<Ter
     return null;
   }
   const ui = useUIStore.getState();
+  const host = init.parentId === undefined ? enclosingTerritory(project, cleaned) : null;
+  const inherited: Partial<Territory> = host
+    ? {
+        parentId: host.id,
+        ...membershipPatch(),
+        borderKind: depthOf(project, host.id) === 0 ? 'provincial' : 'county',
+      }
+    : {};
   const territory = makeTerritory(project, cleaned, {
     politicalType: ui.draftPoliticalType,
     name: init.name ?? nextName(project, 'territories', 'New Territory'),
+    ...inherited,
     ...init,
   });
   const label = makeLabel(project, { type: 'Point', coordinates: interiorPoint(cleaned) }, {
@@ -87,12 +159,16 @@ export function addTerritory(geometry: Polygon | MultiPolygon, init: Partial<Ter
     attachedToId: territory.id,
   });
 
-  commit('Draw territory', (r) => {
+  commit(host ? 'Draw subdivision' : 'Draw territory', (r) => {
     r.set('territories', { ...territory, labelId: label.id });
     r.set('labels', label);
     // Inside the command, so redo restores this selection too.
     useUIStore.getState().selectAndReveal([territory.id]);
   });
+  // Said out loud, because a shape that quietly became somebody's province is a
+  // surprise, and the Parent field in the inspector is not where you are looking
+  // when you finish drawing.
+  if (host) toast(`${territory.name} is a subdivision of ${host.name}.`, 'success');
   return territory.id;
 }
 

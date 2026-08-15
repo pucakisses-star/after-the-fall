@@ -226,6 +226,21 @@ other are different questions. It now varies hue, saturation and lightness from 
 of the territory's id — three axes because four siblings spread along one would collide about half
 the time, and from the id so a saved map opens in the colours it was saved in.
 
+**A border drawn inside a state makes a subdivision of it.** Draw with the territory tool (**R**)
+inside an existing territory and the new shape joins it — as a member, with the inherited colour and
+the lighter border weight that go with being one — rather than as a rival sovereign lying on top of
+it with a full international frontier around it. The smallest containing territory is the parent,
+because containment is nested: a border drawn inside a county inside a duchy belongs to the county.
+The border rank follows the depth it lands at, provincial under a sovereign and county below that.
+
+Nine tenths of the new shape has to be inside for it to count. Not all of it, because a border drawn
+by hand along an existing frontier crosses it by a pixel here and there, and "entirely inside" would
+answer *sovereign* for something anybody looking at the map would call a province; not much less,
+because a shape half in and half out is a new state overlapping an old one, which is a different
+thing and not something to guess about. Redrawing a state's own outline is a different gesture with
+its own tool and is unaffected — this is what happens when you draw a new line rather than move an
+existing one.
+
 **The paint bucket fills land, claimed or not.** Click ground with the bucket (**G**) and it goes to
 one realm — the whole connected patch of it, out to the coast and up to whatever anyone else already
 claims. Which realm receives it is the question the generator already answers when it hands a

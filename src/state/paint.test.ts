@@ -15,7 +15,7 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import type { Polygon } from 'geojson';
 import { createProject } from '@/model/project';
 import { useProjectStore, makeTerritory } from './projectStore';
-import { createTerritoryFromSelection, paintTerritory } from './commands';
+import { addTerritory, createTerritoryFromSelection, paintTerritory } from './commands';
 import { useUIStore } from './uiStore';
 import { inheritedFill } from '@/model/resolveStyle';
 import { colorDistance } from '@/model/color';
@@ -102,5 +102,80 @@ describe('createTerritoryFromSelection', () => {
       expect(child.parentId).toBe(id);
       expect(child.relationship).toBe('constituent');
     }
+  });
+});
+
+/**
+ * Drawing a border inside a state (spec §5, §7).
+ *
+ * A border drawn inside a state is a border *of* that state. The alternative —
+ * what this used to do — is a second sovereign lying on top of the first, which
+ * renders as a full international frontier around a province and reads as two
+ * countries claiming the same ground.
+ */
+describe('drawing a border inside a state', () => {
+  it('makes a subdivision of the state it was drawn in', () => {
+    const { realm } = setup();
+    const id = addTerritory(rect(0.2, 0.2, 1, 1))!;
+    expect(current(id).parentId).toBe(realm.id);
+    expect(current(id).relationship).toBe('constituent');
+    expect(current(id).inheritParentColor).toBe(true);
+  });
+
+  it('draws its border at provincial weight, not as a frontier', () => {
+    setup();
+    const id = addTerritory(rect(0.2, 0.2, 1, 1))!;
+    expect(current(id).borderKind).toBe('provincial');
+  });
+
+  it('goes a rank lighter again inside a subdivision', () => {
+    const { realm } = setup();
+    const province = addTerritory(rect(0.1, 0.1, 1.9, 1.9))!;
+    expect(current(province).parentId).toBe(realm.id);
+
+    const county = addTerritory(rect(0.5, 0.5, 1, 1))!;
+    // The smallest container is the parent, so a county inside a province
+    // belongs to the province and not to the realm above it.
+    expect(current(county).parentId).toBe(province);
+    expect(current(county).borderKind).toBe('county');
+  });
+
+  it('leaves a shape drawn on open ground sovereign', () => {
+    setup();
+    const id = addTerritory(rect(10, 10, 12, 12))!;
+    expect(current(id).parentId).toBeNull();
+    expect(current(id).relationship).toBe('sovereign');
+  });
+
+  it('does not adopt a shape that only half overlaps a state', () => {
+    // Half in, half out is a new state overlapping an old one — a different
+    // thing, and not something to guess about.
+    setup();
+    const id = addTerritory(rect(1, 0.5, 3, 1.5))!;
+    expect(current(id).parentId).toBeNull();
+  });
+
+  it('leaves a locked state alone', () => {
+    const { realm } = setup();
+    useProjectStore.getState().loadProject(
+      {
+        ...useProjectStore.getState().project,
+        territories: {
+          ...useProjectStore.getState().project.territories,
+          [realm.id]: { ...current(realm.id), locked: true },
+        },
+      },
+      null,
+    );
+    const id = addTerritory(rect(0.2, 0.2, 1, 1))!;
+    expect(current(id).parentId).toBeNull();
+  });
+
+  it('undoes in one step, subdivision and name together', () => {
+    setup();
+    const before = Object.keys(useProjectStore.getState().project.territories).length;
+    addTerritory(rect(0.2, 0.2, 1, 1));
+    useProjectStore.getState().undo();
+    expect(Object.keys(useProjectStore.getState().project.territories).length).toBe(before);
   });
 });
