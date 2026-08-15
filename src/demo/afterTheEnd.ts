@@ -583,7 +583,6 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
   const territoryLayer = findLayerByKind(project, 'territory')!;
   const settlementLayer = findLayerByKind(project, 'settlement')!;
   const countryLabels = Object.values(project.layers).find((l) => l.name === 'Country Labels')!;
-  const regionLabels = Object.values(project.layers).find((l) => l.name === 'Region Labels')!;
   const cityLabels = Object.values(project.layers).find((l) => l.name === 'City Labels')!;
   const waterLabels = Object.values(project.layers).find((l) => l.name === 'Water Labels')!;
 
@@ -700,50 +699,55 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
     }
   }
 
-  // Colour the states so no two neighbours share a tint. They came out of the
-  // same group and carried its colour, which would have drawn the old bloc all
-  // over again in a different way — the graph colourer is exactly the tool for
-  // "many small states, each distinct from the ones it touches".
+  /**
+   * Break every realm into the states it was made of (spec §7).
+   *
+   * The realms produced above are scaffolding: each is grown from a seat, then
+   * divided among its towns, and then *replaced* by those divisions. What
+   * survives is the bottom level — the duchies, counties, cantons, baronies and
+   * free cities — each of them sovereign. A realm too small to divide keeps its
+   * own ground and stays a state itself, so no ground is lost.
+   */
+  let memberCount = 0;
+  const successors: Territory[] = [];
+  for (const parent of [...sovereignStates]) {
+    if (!project.territories[parent.id]) continue;
+    const made = addMembers(
+      project,
+      parent,
+      towns,
+      rivers,
+      territoryLayer.id,
+      countryLabels.id,
+      successors,
+      parent.styleOverrides.fillColor ?? '#d8d2c4',
+    );
+    memberCount += made;
+    if (made === 0) successors.push(parent);
+  }
+  if (memberCount) console.debug(`After the End: ${successors.length} states`);
+
+  // Colour the final states so no two neighbours share a tint — and it has to be
+  // here, after every realm has been broken up, because the states being
+  // coloured did not exist until then. The graph colourer is exactly the tool
+  // for "many small states, each distinct from the ones it touches", and with
+  // the realms gone that is the entire map.
   //
-  // The After the End plates rather than the muted school-atlas inks the map
-  // used to wear. With no empires left there is no bloc for a quiet palette to
-  // hold together, and a hundred and eighty sovereigns each need to be told
-  // apart from their neighbours at a glance: twenty saturated-but-earthed hues
-  // do that where twelve pale ones ran together.
-  if (sovereignStates.length) {
-    const colors = recolor(sovereignStates, (t) => t.styleOverrides.fillColor ?? '#d8d2c4', {
+  // The After the End plates rather than the muted school-atlas inks: a quiet
+  // palette was there to hold blocs together, and there are no blocs left.
+  if (successors.length) {
+    const colors = recolor(successors, (t) => t.styleOverrides.fillColor ?? '#d8d2c4', {
       mode: 'after-the-event',
     });
     for (const [id, color] of colors) {
       const t = project.territories[id];
-      if (t) project.territories[id] = { ...t, styleOverrides: { ...t.styleOverrides, fillColor: color } };
+      // A free city keeps its contrasting red; it is meant to stand out from
+      // whatever surrounds it rather than to differ politely from it.
+      if (t && t.styleOverrides.fillColor !== FREE_CITY_COLOR) {
+        project.territories[id] = { ...t, styleOverrides: { ...t.styleOverrides, fillColor: color } };
+      }
     }
   }
-
-  /**
-   * Now divide every realm into the states it is made of (spec §7).
-   *
-   * Last, and deliberately: the realms have their final colours by this point,
-   * so every member inherits the tint its parent actually ended up with rather
-   * than the group colour it was born with. Members are grown, not partitioned —
-   * see `geo/subdivide.ts` — so their frontiers bend and settle onto rivers
-   * instead of cutting the realm up with straight lines.
-   */
-  let memberCount = 0;
-  for (const parent of Object.values(project.territories)) {
-    // Only realms, not the members about to be created, and not an empire —
-    // an empire's members are its vassal realms, which have their own.
-    if (parent.parentId) continue;
-    if (parent.politicalType === 'empire') continue;
-    memberCount += addMembers(project, parent, towns, rivers, territoryLayer.id, regionLabels.id);
-  }
-  for (const parent of Object.values(project.territories)) {
-    if (parent.relationship !== 'vassal' || !parent.parentId) continue;
-    // A vassal realm's members sit two levels under the empire, so their names
-    // are set smaller again and appear a zoom step later.
-    memberCount += addMembers(project, parent, towns, rivers, territoryLayer.id, regionLabels.id, 2);
-  }
-  if (memberCount) console.debug(`After the End: ${memberCount} member states`);
 
   for (const w of WATER_LABELS) {
     const label = makeLabel({
@@ -847,13 +851,21 @@ function addCapital(
 }
 
 /**
- * Turn a realm into a realm *and its members* (spec §7).
+ * Break a realm up into the states it was made of (spec §7).
  *
- * The realm keeps its shape and becomes the parent: its fill still washes across
- * the whole of it, and its name still spans it. The members are grown inside it
- * and drawn over it, taking their colours from it through the ordinary
- * inheritance path, so what you see zoomed out is one realm and what you find on
- * zooming in is the duchies and counties it is made of.
+ * The realm does not survive this. Its members are grown inside its outline and
+ * then *replace* it: each becomes a sovereign in its own right, the realm's own
+ * territory and name are deleted, and its capital is handed to whichever member
+ * now holds the ground it stands on.
+ *
+ * The realms this runs over are the growth engine's output, so its shapes are
+ * still what decides where the states are — a collapsed world's states are the
+ * pieces the old realms fell into, not an unrelated partition of the continent.
+ * What is gone is the crown above them.
+ *
+ * A realm too small to divide keeps its ground and stays a state itself, which
+ * is why this returns 0 rather than deleting anything in that case: the
+ * alternative is a hole in the map where a small realm used to be.
  */
 function addMembers(
   project: MapProject,
@@ -861,8 +873,10 @@ function addMembers(
   towns: SubdivisionSeat[],
   rivers: Position[][],
   layerId: string,
-  regionLabelLayerId: string,
-  depth = 1,
+  countryLabelLayerId: string,
+  /** Every successor state is appended here, for the final recolouring. */
+  out: Territory[],
+  seedColor: string,
 ): number {
   const wanted = memberCountFor(areaKm2(parent.geometry));
   if (wanted < 2) return 0;
@@ -886,19 +900,23 @@ function addMembers(
   const members = subdivideRealm(parent.geometry, seats, { rivers });
   if (members.length < 2) return 0;
 
+  const created: Territory[] = [];
   for (const m of members) {
     const title = memberTitle(m.order, members.length, m.seat);
     const info = relationshipInfo(title.relationship);
     const id = newId();
-    project.territories[id] = {
+    const state: Territory = {
       id,
       layerId,
       name: title.name,
       shortName: m.seat.name,
       politicalType: title.type,
-      relationship: title.relationship,
-      parentId: parent.id,
-      liegeId: parent.id,
+      // Sovereign, not a member: there is no longer a realm above it to be a
+      // member of. The title still says what kind of state it is — a duchy, a
+      // county, a free city — because that is what it was when the world ended.
+      relationship: 'sovereign',
+      parentId: null,
+      liegeId: null,
       capitalId: null,
       notes: '',
       locked: false,
@@ -906,21 +924,47 @@ function addMembers(
       timeline: { start: null, end: null },
       geometry: m.geometry,
       styleClassId: STYLE_IDS.territoryDefault,
-      // A free city picks its own colour; everything else is a shade of the
-      // realm, which is what makes the realm perceptible across its members.
-      styleOverrides: info.ownColor ? { fillColor: FREE_CITY_COLOR } : {},
-      inheritParentColor: !info.ownColor,
-      borderKind: info.border,
+      // A free city keeps the contrasting red it is drawn with everywhere;
+      // everything else is recoloured against its neighbours once the whole map
+      // exists, which cannot be done until every realm has been broken up.
+      styleOverrides: info.ownColor ? { fillColor: FREE_CITY_COLOR } : { fillColor: seedColor },
+      inheritParentColor: false,
+      borderKind: 'international',
       labelId: null,
     };
+    project.territories[id] = state;
+    created.push(state);
     attachLabel(project, id, 'territories', {
-      layerId: regionLabelLayerId,
-      kind: 'region',
+      layerId: countryLabelLayerId,
+      kind: 'country',
       coords: interiorPoint(m.geometry),
-      styleClassId: STYLE_IDS.textRegion,
-      ...nameLayout(m.geometry, title.name, depth),
+      styleClassId: STYLE_IDS.textCountry,
+      ...nameLayout(m.geometry, title.name, 0),
     });
   }
+
+  // The realm itself goes, along with every name that pointed at it.
+  //
+  // By attachment rather than by `parent.labelId`: the territory handed in here
+  // is the snapshot taken when it was created, and its label was attached to the
+  // *stored* record a moment later — so the snapshot's `labelId` is still null
+  // and reading it left the old realm's name printed across its successors.
+  delete project.territories[parent.id];
+  for (const label of Object.values(project.labels)) {
+    if (label.attachedToId === parent.id) delete project.labels[label.id];
+  }
+
+  // Its capital is still a city; hand it to whichever successor holds the ground
+  // it stands on, rather than leaving it pointing at a realm that no longer
+  // exists.
+  for (const settlement of Object.values(project.settlements)) {
+    if (settlement.ownerId !== parent.id) continue;
+    const [x, y] = settlement.geometry.coordinates as [number, number];
+    const heir = created.find((c) => pointInside([x, y], c.geometry));
+    project.settlements[settlement.id] = { ...settlement, ownerId: heir?.id ?? null };
+  }
+
+  out.push(...created);
   return members.length;
 }
 

@@ -13,8 +13,8 @@ following the river, graticule, frame, title block and scale bar — is produced
 ![The editor](docs/editor.png)
 
 *The editor on first launch: the realms of the post-apocalyptic Americas, with the tool palette,
-layer/hierarchy tree, map and object inspector. Every realm is an ordinary territory, arranged in a
-realm → member hierarchy and editable like anything you draw.*
+layer/hierarchy tree, map and object inspector. Every state is an ordinary territory, editable like
+anything you draw.*
 
 ---
 
@@ -36,18 +36,20 @@ Americas of the Crusader Kings total conversion — so the feature set is visibl
 real subject. **New** starts a blank map, one seeded with real geography, or the smaller
 north-eastern demonstration map.
 
-A hundred and eighty-seven sovereign states span both continents, each divided into the duchies,
-counties, cantons and baronies it is made of — around four hundred member states in all — built by
-the same public API the UI uses: territories arranged into the realm → member hierarchy, given the
-border tiers, and labelled by the ordinary label engine.
+Four hundred and eighteen sovereign states span both continents — duchies, counties, cantons,
+baronies and free cities, none of them holding any of the others — built by the same public API the
+UI uses: territories given their border tiers and labelled by the ordinary label engine.
 
-**No realm is drawn as a bloc.** The realm table groups its realms under twenty-eight headings, and
+**Nothing holds anything else.** The realm table groups its realms under twenty-eight headings, and
 gathering every one of them into a single territory made two continents read as twenty-eight blocs
-however many realms were inside them — which is not what a collapsed world looks like. The map then
-kept the seven groups the setting calls empires and dissolved the rest; now none of them survives.
-A collapsed world is one with nobody left to hold an empire together, and the map says so: every
-realm stands alone with its own international frontier. The hierarchy that remains is the one
-*inside* each of them, which is where a feudal map's interest actually lies.
+however many realms were inside them. The map then kept the seven groups the setting calls empires;
+then it kept none of them, leaving the realms; and now it keeps none of the realms either. Each is
+grown from its seat, divided among its towns, and *replaced* by those divisions — so the realms are
+scaffolding, and what survives is the bottom level, every piece of it sovereign. A realm too small
+to divide keeps its own ground and stays a state itself, so nothing is lost.
+
+That is what a collapsed world looks like: no crowns, no blocs, four hundred small powers and the
+frontier between any two of them drawn exactly as heavily as any other.
 
 The states are coloured by the graph colourer (`geo/palette.ts`) so no two neighbours share a tint —
 carrying their old group's colour would only have drawn the bloc again by other means — using the
