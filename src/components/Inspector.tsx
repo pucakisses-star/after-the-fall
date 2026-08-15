@@ -5,7 +5,7 @@
  * undoable and every change updates the map immediately.
  */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useProjectStore, commit, getProject } from '@/state/projectStore';
 import { useUIStore } from '@/state/uiStore';
 import {
@@ -37,13 +37,16 @@ import { relationshipSubtitle } from '@/model/hierarchy';
 import { areaKm2 } from '@/geo/operations';
 import { formatArea } from '@/geo/topology';
 import { useMapController } from './MapContext';
+import type { MapController } from '@/render/MapController';
 import { ProjectPanel } from './ProjectPanel';
 import { StylePanel } from './StylePanel';
 import { SYMBOL_SHAPES } from '@/render/symbols';
+import { pinnedText } from '@/render/labelFit';
 import type {
   HatchKind,
   LinearFeature,
   MapLabel,
+  MapProject,
   Settlement,
   SymbolShape,
   Territory,
@@ -610,6 +613,39 @@ function SettlementInspector({ settlement: s }: { settlement: Settlement }) {
 // Label (spec §10, §11, §12, §20, §42)
 // ---------------------------------------------------------------------------
 
+/**
+ * The factor the map would draw this label's type at if it were free to scale
+ * (spec §42), tracked across zoom so the panel never quotes a stale number.
+ *
+ * Asked as if the label were unpinned on purpose: the inspector needs the size
+ * the name would grow to, both to say so and to fold it into the style when the
+ * name is pinned. A pinned label's own scale is 1 by definition and would tell
+ * the panel nothing.
+ */
+function useLabelScale(
+  controller: MapController | null,
+  l: MapLabel,
+  project: MapProject,
+): number {
+  const read = () => controller?.labelScale({ ...l, fixedSize: false }, project) ?? 1;
+  const [scale, setScale] = useState(read);
+
+  useEffect(() => {
+    if (!controller) return;
+    const view = controller.map.getView();
+    const onChange = () => setScale((prev) => {
+      const next = read();
+      return Math.abs(next - prev) < 0.005 ? prev : next;
+    });
+    onChange();
+    view.on('change:resolution', onChange);
+    return () => view.un('change:resolution', onChange);
+    // Re-read when the label or the document behind it changes, not only on zoom.
+  }, [controller, l, project]);
+
+  return scale;
+}
+
 function LabelInspector({ label: l }: { label: MapLabel }) {
   const project = useProjectStore((s) => s.project);
   const style = resolveTextStyle(project, l);
@@ -620,6 +656,36 @@ function LabelInspector({ label: l }: { label: MapLabel }) {
 
   const paths = Object.values(project.linearFeatures);
   const attachedToTerritory = !!l.attachedToId && !!project.territories[l.attachedToId];
+
+  // What the map is currently multiplying this label's type size by (§42).
+  const controller = useMapController();
+  const scale = useLabelScale(controller, l, project);
+
+  /**
+   * Pin a name at the size it is drawn at, rather than at the size it is set to.
+   *
+   * An unpinned territory name is drawn at `style size × scale`, so pinning it
+   * naively snaps it to the style size — at a regional zoom that is a name
+   * suddenly 2.5× smaller, which looks like the switch broke something. Folding
+   * the scale into the style as the flag goes on (and dividing it back out as it
+   * comes off) leaves the glyphs exactly where they were through the click: what
+   * changes is what happens on the *next* zoom, which is the whole point.
+   */
+  const setFixedSize = (fixed: boolean) => {
+    const changes: Partial<MapLabel> = { fixedSize: fixed };
+    if (attachedToTerritory && Math.abs(scale - 1) > 0.01) {
+      const held = pinnedText(style, scale, fixed);
+      changes.styleOverrides = {
+        ...l.styleOverrides,
+        fontSize: held.fontSize,
+        tracking: held.tracking,
+        haloWidth: held.haloWidth,
+      };
+    }
+    commit(fixed ? 'Pin label size' : 'Let label scale', (r) =>
+      r.update<MapLabel>('labels', l.id, changes),
+    );
+  };
 
   return (
     <>
@@ -687,10 +753,12 @@ function LabelInspector({ label: l }: { label: MapLabel }) {
           </select>
         </Field>
         <Field label="Size">
-          <Slider value={style.fontSize} min={5} max={80} step={0.5} onChange={(v) => setStyle({ fontSize: v })} suffix="px" />
+          {/* Up to 160: a realm's name pinned at a regional zoom carries the
+              scale it was drawn at, which runs well past ordinary type sizes. */}
+          <Slider value={style.fontSize} min={5} max={160} step={0.5} onChange={(v) => setStyle({ fontSize: v })} suffix="px" />
         </Field>
         <Field label="Tracking">
-          <Slider value={style.tracking} min={-3} max={40} step={0.5} onChange={(v) => setStyle({ tracking: v })} suffix="px" />
+          <Slider value={style.tracking} min={-3} max={120} step={0.5} onChange={(v) => setStyle({ tracking: v })} suffix="px" />
         </Field>
         <Field label="Line height">
           <Slider value={style.lineHeight} min={0.8} max={2.4} step={0.05} onChange={(v) => setStyle({ lineHeight: v })} />
@@ -812,20 +880,26 @@ function LabelInspector({ label: l }: { label: MapLabel }) {
           />
           Exempt from collision warnings
         </label>
-        <label className="checkbox">
+        <label className={`checkbox${attachedToTerritory ? '' : ' checkbox--disabled'}`}>
           <input
             type="checkbox"
             checked={l.fixedSize}
-            onChange={(e) => update({ fixedSize: e.target.checked }, 'Fixed label size')}
+            // A name that does not scale in the first place has nothing to pin,
+            // and a live control that provably does nothing reads as a broken
+            // one. The hint below says which case this is.
+            disabled={!attachedToTerritory}
+            onChange={(e) => setFixedSize(e.target.checked)}
           />
           Fixed size (do not scale with zoom)
         </label>
         <p className="hint" style={{ marginTop: -2 }}>
-          {l.fixedSize
-            ? 'Drawn at the size set above whatever the zoom.'
-            : attachedToTerritory
-              ? 'Grows and shrinks with the land it names, so it spans its territory at every scale.'
-              : 'Only names attached to a territory scale with the map; this one is already fixed.'}
+          {!attachedToTerritory
+            ? 'Only names attached to a territory scale with the map; this one is already drawn at the size set above.'
+            : l.fixedSize
+              ? 'Pinned at the size set above whatever the zoom.'
+              : `Grows and shrinks with the land it names, so it spans its territory at every scale — drawn at ${
+                  Math.round(scale * 100)
+                }% of the size above at this zoom.`}
         </p>
       </Section>
 

@@ -228,3 +228,101 @@ export function fitLabel(
     lines,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Scaling a laid-out name with the map (spec §42)
+// ---------------------------------------------------------------------------
+
+/**
+ * The ground scale a name is composed for: 26 px per degree of latitude, which
+ * is a regional plate — one kingdom filling a window. Must match `PLATE_SCALE`
+ * in the demo builder, which is where the layouts above are baked.
+ */
+export const PLATE_METERS_PER_PIXEL = 111_320 / 26;
+
+/** Below this the name of a realm would vanish on a world view... */
+export const MIN_LABEL_SCALE = 0.2;
+/** ...and above it a single letter would fill the window at street level. */
+export const MAX_LABEL_SCALE = 2.5;
+
+/**
+ * How much bigger than its composed size an inscription is drawn at a given
+ * ground scale.
+ *
+ * A name laid out against a shape is only correct at the scale it was laid out
+ * for. Drawn at a fixed pixel size it spans two continents when you zoom out
+ * and shrinks to a caption when you zoom in, which is the difference between a
+ * name that belongs to a country and a name that floats over it. So the size
+ * travels with the map, between the two bounds above.
+ */
+export function labelZoomScale(metersPerPixel: number): number {
+  if (!(metersPerPixel > 0)) return 1;
+  return Math.max(MIN_LABEL_SCALE, Math.min(MAX_LABEL_SCALE, PLATE_METERS_PER_PIXEL / metersPerPixel));
+}
+
+/**
+ * The scale to draw a label's type at, gate included.
+ *
+ * Two kinds of name never scale: one the user has pinned, and one that is not
+ * an inscription across a shape at all — a city, a river, a note — which is an
+ * annotation to be read at whatever zoom you happen to be at.
+ */
+export function inscriptionScale(opts: {
+  /** `MapLabel.fixedSize`. */
+  pinned: boolean;
+  /** Whether the label names a territory in this document. */
+  attached: boolean;
+  metersPerPixel: number;
+}): number {
+  if (opts.pinned || !opts.attached) return 1;
+  return labelZoomScale(opts.metersPerPixel);
+}
+
+/** The parts of a text style that scaling touches. */
+export interface ScalableText {
+  fontSize: number;
+  tracking: number;
+  haloWidth: number;
+}
+
+/**
+ * Apply the zoom scale to a composed style — what the renderer draws.
+ *
+ * The halo is the exception: it thins with the map so a shrunken name does not
+ * become mostly outline, but it never thickens, because a halo is there to lift
+ * the text off the land rather than to be part of the letterform.
+ */
+export function scaledText<T extends ScalableText>(style: T, factor: number): T {
+  return {
+    ...style,
+    fontSize: style.fontSize * factor,
+    tracking: style.tracking * factor,
+    haloWidth: style.haloWidth * Math.min(1, factor),
+  };
+}
+
+/**
+ * Rewrite a style so that pinning — or unpinning — a name leaves it exactly the
+ * size it is on screen at that moment.
+ *
+ * Pinning naively snaps a name from `size × factor` to `size`, so at a regional
+ * zoom the switch labelled "do not scale with zoom" makes the name jump to 40%
+ * of what you were looking at: it reads as a switch that broke something rather
+ * than one that held something still. Folding the factor into the style as the
+ * flag goes on, and dividing it back out as it comes off, keeps the glyphs where
+ * they are through the click — what changes is what happens on the next zoom.
+ *
+ * `factor` is the scale the map *would* apply to this label, i.e. what
+ * `labelZoomScale` says at the current view, whichever way the flag is moving.
+ */
+export function pinnedText<T extends ScalableText>(style: T, factor: number, pin: boolean): T {
+  const k = pin ? factor : 1 / factor;
+  const halo = pin ? Math.min(1, factor) : 1 / Math.min(1, factor);
+  const round = (n: number) => Math.round(n * 100) / 100;
+  return {
+    ...style,
+    fontSize: round(style.fontSize * k),
+    tracking: round(style.tracking * k),
+    haloWidth: round(style.haloWidth * halo),
+  };
+}

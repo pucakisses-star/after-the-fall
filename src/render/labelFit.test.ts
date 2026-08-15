@@ -8,7 +8,18 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { breakTitle, dominantAxis, fitLabel } from './labelFit';
+import {
+  MAX_LABEL_SCALE,
+  MIN_LABEL_SCALE,
+  PLATE_METERS_PER_PIXEL,
+  breakTitle,
+  dominantAxis,
+  fitLabel,
+  inscriptionScale,
+  labelZoomScale,
+  pinnedText,
+  scaledText,
+} from './labelFit';
 import type { Polygon } from 'geojson';
 
 /** A rectangle rotated `deg` clockwise about its centre, at the equator. */
@@ -154,5 +165,104 @@ describe('fitLabel', () => {
     const small = fitLabel('Hudsonia', bar(8, 5, 0), 10, { depth: 1 });
     const large = fitLabel('Hudsonia', bar(8, 5, 0), 80, { depth: 1 });
     expect(large.fontSize).toBeGreaterThan(small.fontSize);
+  });
+});
+
+/**
+ * Pinning a name (spec §42).
+ *
+ * The switch is called "do not scale with zoom", and the complaint that drove
+ * these cases was that clicking it appeared to do nothing — because at ordinary
+ * working zooms the scale is already pegged at its ceiling, so the only visible
+ * effect was the name snapping to 40% of its drawn size. So what is asserted
+ * here is the pair of properties that make the switch legible: the size on
+ * screen does not change at the click, and it does not change afterwards either.
+ */
+describe('label zoom scale', () => {
+  const style = { fontSize: 40, tracking: 8, haloWidth: 2 };
+  /** What the renderer puts on screen for a style at a given ground scale. */
+  const drawn = (s: typeof style, mpp: number) => scaledText(s, labelZoomScale(mpp)).fontSize;
+
+  it('draws a name at its composed size on the plate it was composed for', () => {
+    expect(labelZoomScale(PLATE_METERS_PER_PIXEL)).toBeCloseTo(1, 6);
+  });
+
+  it('grows the name as the map is zoomed in and shrinks it on the way out', () => {
+    expect(labelZoomScale(PLATE_METERS_PER_PIXEL / 2)).toBeCloseTo(2, 6);
+    expect(labelZoomScale(PLATE_METERS_PER_PIXEL * 2)).toBeCloseTo(0.5, 6);
+  });
+
+  it('holds between a floor and a ceiling at the extremes', () => {
+    expect(labelZoomScale(PLATE_METERS_PER_PIXEL * 1000)).toBe(MIN_LABEL_SCALE);
+    expect(labelZoomScale(PLATE_METERS_PER_PIXEL / 1000)).toBe(MAX_LABEL_SCALE);
+    expect(labelZoomScale(0)).toBe(1);
+  });
+
+  it('thins a halo with the map but never thickens one', () => {
+    expect(scaledText(style, 0.5).haloWidth).toBeCloseTo(1, 6);
+    expect(scaledText(style, 2).haloWidth).toBeCloseTo(2, 6);
+  });
+
+  it('pins a name at the size it is drawn, not the size it is set to', () => {
+    // A regional zoom, where the scale is pegged at the ceiling: this is the
+    // case the switch used to make jump.
+    const mpp = PLATE_METERS_PER_PIXEL / 8;
+    const factor = labelZoomScale(mpp);
+    expect(factor).toBe(MAX_LABEL_SCALE);
+
+    const before = drawn(style, mpp);
+    const pinned = pinnedText(style, factor, true);
+    expect(pinned.fontSize).toBeCloseTo(before, 2); // pinned: drawn at its own size
+    expect(pinned.tracking).toBeCloseTo(style.tracking * factor, 2);
+  });
+
+  it('leaves a pinned name the same size at every zoom', () => {
+    const pinned = pinnedText(style, labelZoomScale(PLATE_METERS_PER_PIXEL / 8), true);
+    const sizes = [PLATE_METERS_PER_PIXEL * 40, PLATE_METERS_PER_PIXEL, PLATE_METERS_PER_PIXEL / 40].map(
+      (metersPerPixel) =>
+        scaledText(pinned, inscriptionScale({ pinned: true, attached: true, metersPerPixel })).fontSize,
+    );
+    expect(sizes).toEqual([pinned.fontSize, pinned.fontSize, pinned.fontSize]);
+  });
+
+  it('still scales an unpinned name over the same range', () => {
+    const sizes = [PLATE_METERS_PER_PIXEL * 4, PLATE_METERS_PER_PIXEL, PLATE_METERS_PER_PIXEL / 2].map(
+      (metersPerPixel) =>
+        scaledText(style, inscriptionScale({ pinned: false, attached: true, metersPerPixel })).fontSize,
+    );
+    expect(sizes).toEqual([10, 40, 80]);
+  });
+
+  it('leaves a name that is not an inscription alone whichever way the flag is set', () => {
+    for (const pinned of [true, false]) {
+      expect(inscriptionScale({ pinned, attached: false, metersPerPixel: PLATE_METERS_PER_PIXEL / 8 })).toBe(1);
+    }
+  });
+
+  it('unpins without a jump either, at whatever zoom it happens', () => {
+    const mpp = PLATE_METERS_PER_PIXEL / 8;
+    const pinned = pinnedText(style, labelZoomScale(mpp), true);
+
+    // Unpinned somewhere else entirely: what matters is that the name on screen
+    // is the same size the instant before and the instant after.
+    const elsewhere = PLATE_METERS_PER_PIXEL * 3;
+    const factor = labelZoomScale(elsewhere);
+    const loose = pinnedText(pinned, factor, false);
+    expect(drawn(loose, elsewhere)).toBeCloseTo(pinned.fontSize, 1);
+  });
+
+  it('returns to where it started after a pin and an unpin at one zoom', () => {
+    const factor = labelZoomScale(PLATE_METERS_PER_PIXEL / 4);
+    const round = pinnedText(pinnedText(style, factor, true), factor, false);
+    expect(round.fontSize).toBeCloseTo(style.fontSize, 1);
+    expect(round.tracking).toBeCloseTo(style.tracking, 1);
+    expect(round.haloWidth).toBeCloseTo(style.haloWidth, 1);
+  });
+
+  it('carries the halo through a pin at a zoomed-out scale', () => {
+    const mpp = PLATE_METERS_PER_PIXEL * 4; // factor 0.25, so the halo has thinned
+    const factor = labelZoomScale(mpp);
+    const pinned = pinnedText(style, factor, true);
+    expect(pinned.haloWidth).toBeCloseTo(scaledText(style, factor).haloWidth, 2);
   });
 });

@@ -58,20 +58,13 @@ import {
   territoryStyle,
 } from './olStyles';
 import { drawSymbol } from './symbols';
+import { inscriptionScale, scaledText } from './labelFit';
 import { drawText, drawTextOnPath, boxContains, type TextBox } from './textRenderer';
 import { useProjectStore } from '@/state/projectStore';
 import { useUIStore } from '@/state/uiStore';
 import type { MapLabel, MapProject, ProjectionSettings, TextStyle, TimelineRange, UUID } from '@/model/types';
 
 const geojson = new GeoJSON();
-
-/**
- * The scale territory labels are composed for, as metres per pixel.
- *
- * Must match `PLATE_SCALE` in the demo builder — 26 px per degree of latitude,
- * which is a regional plate: one kingdom filling a window.
- */
-const PLATE_METERS_PER_PIXEL = 111_320 / 26;
 
 /** Comparable form of a working extent, for spotting a change cheaply. */
 function extentKey(e: [number, number, number, number] | null | undefined): string {
@@ -885,21 +878,31 @@ export class MapController {
    * map rather than inscriptions across a shape, and are set to be read at
    * whatever zoom you happen to be at.
    */
-  private scaleToPlate(project: MapProject, label: MapLabel, style: TextStyle): TextStyle {
-    if (label.fixedSize) return style;
-    if (!label.attachedToId || !project.territories[label.attachedToId]) return style;
+  /**
+   * How much larger than its own type size a label is being drawn right now.
+   *
+   * 1 means the label is drawn at exactly the size in its style — which is the
+   * answer for everything that does not scale: pinned names, and names that are
+   * annotations rather than inscriptions across a shape.
+   *
+   * The inspector asks this so that pinning a name does not resize it. What is
+   * on screen is `style size × scale`; pinning multiplies the scale into the
+   * style and then stops scaling, which leaves the glyphs exactly where they
+   * were and makes the size box mean what it says.
+   */
+  labelScale(label: MapLabel, project = useProjectStore.getState().project): number {
     const resolution = this.map.getView().getResolution() ?? 1;
-    const metersPerPixel = resolution * metersPerUnit(project.projection?.units);
-    if (!(metersPerPixel > 0)) return style;
+    return inscriptionScale({
+      pinned: label.fixedSize,
+      attached: !!label.attachedToId && !!project.territories[label.attachedToId],
+      metersPerPixel: resolution * metersPerUnit(project.projection?.units),
+    });
+  }
 
-    const factor = Math.max(0.2, Math.min(2.5, PLATE_METERS_PER_PIXEL / metersPerPixel));
+  private scaleToPlate(project: MapProject, label: MapLabel, style: TextStyle): TextStyle {
+    const factor = this.labelScale(label, project);
     if (Math.abs(factor - 1) < 0.02) return style;
-    return {
-      ...style,
-      fontSize: style.fontSize * factor,
-      tracking: style.tracking * factor,
-      haloWidth: style.haloWidth * Math.min(1, factor),
-    };
+    return scaledText(style, factor);
   }
 
   private styleLabel(f: Feature<Geometry>): Style[] {

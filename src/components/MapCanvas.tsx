@@ -13,6 +13,7 @@ import type { MapContextValue } from './MapContext';
 import { MapOverlayControls } from './MapOverlayControls';
 import { ContextMenu } from './ContextMenu';
 import { useUIStore } from '@/state/uiStore';
+import { useProjectStore } from '@/state/projectStore';
 
 /**
  * Creates the map engine and returns it plus the ref to attach to the host div.
@@ -30,6 +31,17 @@ export function useMapEngine(): { value: MapContextValue; hostRef: React.RefObje
     const controller = new MapController(host);
     const tools = new ToolManager(controller);
     setValue({ controller, tools });
+
+    // A handle for driving the map from a dev console or a browser harness.
+    // Development only: nothing in the shipped build reaches for it.
+    if (import.meta.env.DEV) {
+      (window as unknown as { atf?: unknown }).atf = {
+        controller,
+        tools,
+        project: useProjectStore,
+        ui: useUIStore,
+      };
+    }
 
     // Keep the canvas sized to its container without a window resize listener.
     const observer = new ResizeObserver(() => controller.map.updateSize());
