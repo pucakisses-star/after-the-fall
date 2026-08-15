@@ -34,7 +34,7 @@ import {
 } from '@/geo/basemap';
 import { roadClass, routeShield } from '@/render/olStyles';
 import { commit, getProject, makeLabel, makeLinear, makeSettlement, makeTerritory } from '@/state/projectStore';
-import { territoryAt } from '@/state/commands';
+import { membershipPatch, territoryAt } from '@/state/commands';
 import { useUIStore, toast } from '@/state/uiStore';
 import type { BorderStyleKind, PoliticalType, Settlement, Territory, UUID } from '@/model/types';
 
@@ -748,8 +748,7 @@ export async function territoryFromBasemapFeatures(
           name: basemapFeatureName(f),
           politicalType: 'province',
           parentId: parent.id,
-          borderKind: 'provincial',
-          inheritParentColor: true,
+          ...membershipPatch(),
         });
         r.set('territories', child);
       }

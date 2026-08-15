@@ -345,7 +345,9 @@ export function createTerritoryFromSelection(init: Partial<Territory> = {}): UUI
       // Preserve the originals as children, demoted to a subordinate border weight.
       r.update<Territory>('territories', t.id, {
         parentId: parent.id,
-        inheritParentColor: true,
+        ...membershipPatch(),
+        // Each keeps whatever weight it already had, unless it was a sovereign
+        // frontier — which it no longer is.
         borderKind: t.borderKind === 'international' ? 'provincial' : t.borderKind,
       });
       // Their own labels become region labels rather than country labels.
@@ -442,7 +444,9 @@ export function paintTerritory(targetId: UUID, sourceIds: UUID[]): void {
     for (const s of sources) {
       r.update<Territory>('territories', s.id, {
         parentId: targetId,
-        inheritParentColor: true,
+        ...membershipPatch(),
+        // Painting assigns small subdivisions to a state, so their edges are
+        // county lines whatever the default for a constituent is.
         borderKind: 'county',
       });
     }
@@ -469,6 +473,32 @@ export function paintTerritory(targetId: UUID, sourceIds: UUID[]): void {
  * The coastline has to be supplied rather than fetched here, because loading it
  * is asynchronous and this has to stay a synchronous, undoable command.
  */
+/**
+ * The patch that makes a territory a member of the realm it is being given to.
+ *
+ * Every command that hands a territory a parent has to set its constitutional
+ * status at the same time, and the reason is not tidiness. Inheritance is driven
+ * by status, and a sovereign's variation is zero by definition — so a territory
+ * left `sovereign` while pointed at a parent and told to inherit takes that
+ * parent's *exact* fill and disappears into it. Painting a province into a realm
+ * looked like it had done nothing at all.
+ *
+ * Keeping the three fields together in one place is what stops the next command
+ * setting two of them and forgetting the third. `borderKind` is only a default:
+ * callers with a reason to draw a different weight say so after spreading this.
+ */
+export function membershipPatch(
+  relationship: PoliticalRelationship = 'constituent',
+): Partial<Territory> {
+  const info = relationshipInfo(relationship);
+  return {
+    relationship,
+    // A free city sits inside a realm without being a shade of it.
+    inheritParentColor: !info.ownColor,
+    borderKind: info.border,
+  };
+}
+
 export function fillUnclaimedAt(
   point: [number, number],
   land: Poly[],
