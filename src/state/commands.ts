@@ -6,7 +6,7 @@
  * point at it.
  */
 
-import type { LineString, Polygon, MultiPolygon } from 'geojson';
+import type { LineString, Polygon, MultiPolygon, Position } from 'geojson';
 import { newId } from '@/model/ids';
 import { STYLE_IDS, politicalTypeInfo, relationshipInfo } from '@/model/defaults';
 import { descendantsOf, relationshipSubtitle, wouldCreateCycle } from '@/model/hierarchy';
@@ -27,7 +27,7 @@ import {
 import type { Poly } from '@/geo/operations';
 import { propagateVertexEdit, repairTopology, type RepairOptions } from '@/geo/topology';
 import { boundaryFollows, reshapeBoundary } from '@/geo/reshape';
-import { neighbourHoldingMostOf, unclaimedRegionAt } from '@/geo/floodFill';
+import { neighbourHoldingMostOf, regionAt } from '@/geo/floodFill';
 import { recolor, type RecolorOptions } from '@/geo/palette';
 import type { Recorder } from './history';
 import type { MapLabel, MapLayer, MapProject, PoliticalRelationship, Settlement, Territory, UUID } from '@/model/types';
@@ -460,20 +460,6 @@ export function paintTerritory(targetId: UUID, sourceIds: UUID[]): void {
 }
 
 /**
- * Grow a realm over the unclaimed land under a point — the paint bucket
- * (spec §6, §57).
- *
- * Clicking wilderness hands the whole connected patch of it to a neighbour, out
- * to the coast and up to whatever anyone else already holds. Which neighbour is
- * decided the way the generator decides it when filling a landlocked pocket:
- * whoever holds most of that ground's edge already. An explicit selection wins
- * over that, because a user who selected a realm first has said which one they
- * mean.
- *
- * The coastline has to be supplied rather than fetched here, because loading it
- * is asynchronous and this has to stay a synchronous, undoable command.
- */
-/**
  * The patch that makes a territory a member of the realm it is being given to.
  *
  * Every command that hands a territory a parent has to set its constitutional
@@ -499,25 +485,57 @@ export function membershipPatch(
   };
 }
 
-export function fillUnclaimedAt(
+/**
+ * Give the ground under a point to one realm — the paint bucket (spec §6, §57).
+ *
+ * Wilderness joins a neighbour: the whole connected patch of it, out to the
+ * coast and up to whatever anyone else already holds. Ground somebody holds
+ * changes hands instead — the same click, the same region-finding, and the old
+ * owner loses exactly what the new one gains, so no ground is created or
+ * destroyed by a fill.
+ *
+ * Which realm receives it is decided the way the generator decides it when
+ * filling a landlocked pocket: whoever holds most of that ground's edge already.
+ * An explicit selection wins over that, because a user who selected a realm
+ * first has said which one they mean — and for claimed ground it is the only
+ * sensible answer, so a fill there without a selection asks for one rather than
+ * guessing which neighbour should annex a province.
+ *
+ * `walls` are lines the fill may not cross: rivers, boundaries, anything the map
+ * is drawing that the user has left switched on. They are cut out of the region
+ * before the patch under the pointer is chosen, which is what makes "give this
+ * realm everything on its side of the river" one click.
+ *
+ * The coastline and the walls have to be supplied rather than fetched here,
+ * because loading them is asynchronous and this has to stay a synchronous,
+ * undoable command.
+ */
+export function fillLandAt(
   point: [number, number],
   land: Poly[],
   preferredId: UUID | null = null,
+  walls: Position[][] = [],
 ): { filled: boolean; message: string } {
   const project = getProject();
   const claimed = Object.values(project.territories).filter((t) => !t.hidden);
 
-  if (territoryAt(project, point)) {
-    return { filled: false, message: 'That ground is already claimed — click land nobody holds.' };
-  }
-
-  const region = unclaimedRegionAt(point, land, claimed.map((t) => t.geometry));
+  const region = regionAt(point, land, claimed, walls);
   if (!region) {
-    return { filled: false, message: 'No unclaimed land there — that looks like open water.' };
+    return { filled: false, message: 'No land there — that looks like open water.' };
   }
 
-  // Whoever already surrounds it, unless the user picked somebody.
+  const owner = region.ownerId ? project.territories[region.ownerId] : null;
   const preferred = preferredId ? project.territories[preferredId] : undefined;
+
+  // Nobody would annex a province by accident, so claimed ground is only ever
+  // moved to a realm the user named.
+  if (owner && !preferred) {
+    return {
+      filled: false,
+      message: `That ground belongs to ${owner.name}. Select the realm it should join, then click again.`,
+    };
+  }
+
   const target =
     preferred && !preferred.locked
       ? preferred
@@ -530,23 +548,47 @@ export function fillUnclaimedAt(
     };
   }
   if (target.locked) return { filled: false, message: `${target.name} is locked.` };
+  if (owner && owner.id === target.id) {
+    return { filled: false, message: `${target.name} already holds that ground.` };
+  }
+  if (owner?.locked) return { filled: false, message: `${owner.name} is locked.` };
 
   const merged = union([target.geometry, region.geometry]);
   if (!merged) return { filled: false, message: 'Could not merge that ground into the realm.' };
 
-  commit('Fill unclaimed land', (r) => {
+  // What the old owner has left. Null means the fill took the whole of it, and a
+  // territory with no ground is not a territory — it goes, with its name.
+  const remainder = owner ? difference(owner.geometry, region.geometry) : null;
+
+  const area = Math.round(areaKm2(region.geometry));
+  commit(owner ? 'Fill territory' : 'Fill unclaimed land', (r) => {
+    if (owner) {
+      if (remainder) {
+        r.update<Territory>('territories', owner.id, { geometry: remainder });
+        syncAttachedLabel(r, owner.id, remainder);
+      } else {
+        for (const label of Object.values(getProject().labels)) {
+          if (label.attachedToId === owner.id) r.remove('labels', label.id);
+        }
+        r.remove('territories', owner.id);
+      }
+    }
     r.update<Territory>('territories', target.id, { geometry: merged });
     syncAttachedLabel(r, target.id, merged);
   });
 
-  const area = Math.round(areaKm2(region.geometry));
+  const from = owner ? ` from ${owner.name}` : '';
+  const gone = owner && !remainder ? ` ${owner.name} held nothing else, so it is gone.` : '';
   return {
     filled: true,
     message: region.truncated
-      ? `Added ${area.toLocaleString()} km² to ${target.name} — the region ran past the fill limit, so click again to continue.`
-      : `Added ${area.toLocaleString()} km² to ${target.name}.`,
+      ? `Added ${area.toLocaleString()} km²${from} to ${target.name} — the region ran past the fill limit, so click again to continue.`
+      : `Added ${area.toLocaleString()} km²${from} to ${target.name}.${gone}`,
   };
 }
+
+/** @deprecated The bucket fills claimed ground too now; call `fillLandAt`. */
+export const fillUnclaimedAt = fillLandAt;
 
 /**
  * How close a region's vertex has to be to a territory's edge to count as

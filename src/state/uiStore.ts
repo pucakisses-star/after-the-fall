@@ -58,6 +58,13 @@ export interface UIState {
   draftLabelKind: LabelKind;
   /** Territory the paint tool assigns subdivisions to (§56). */
   paintTargetId: UUID | null;
+  /**
+   * Whether the paint bucket stops at the lines the map is drawing (§57).
+   *
+   * On, because a fill that runs past the river you are looking at is a fill you
+   * have to undo; off is there for filling a whole island in one click.
+   */
+  fillStopsAtLines: boolean;
 
   snapEnabled: boolean;
   /** Snap radius in screen pixels. */
@@ -107,6 +114,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   draftLinearKind: 'river',
   draftLabelKind: 'region',
   paintTargetId: null,
+  fillStopsAtLines: true,
 
   snapEnabled: true,
   snapPixels: 12,

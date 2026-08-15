@@ -1,5 +1,5 @@
 /**
- * The paint bucket: flood-filling unclaimed land (spec §6, §57).
+ * The paint bucket: flood-filling land (spec §6, §57).
  *
  * The geometry is tested against a toy continent rather than the real coastline,
  * because what has to be right is the *rule* — fill stops at the coast, stops at
@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { neighbourHoldingMostOf, unclaimedRegionAt } from './floodFill';
+import { neighbourHoldingMostOf, regionAt, unclaimedRegionAt } from './floodFill';
 import { areaKm2 } from './operations';
 import type { Polygon } from 'geojson';
 
@@ -98,7 +98,7 @@ describe('unclaimedRegionAt', () => {
   it('says so rather than lying when it hits the cap', () => {
     // Capped below the size of the landmass: what comes back is a piece of
     // something bigger, and the caller is told.
-    const result = unclaimedRegionAt([5, 5], [CONTINENT], [], 4);
+    const result = unclaimedRegionAt([5, 5], [CONTINENT], [], [], 4);
     expect(result).not.toBeNull();
     expect(result!.truncated).toBe(true);
     expect(areaKm2(result!.geometry)).toBeLessThan(areaKm2(CONTINENT));
@@ -159,5 +159,79 @@ describe('neighbourHoldingMostOf', () => {
     const far = { id: 'far', geometry: box(50, 50, 60, 60) };
     expect(neighbourHoldingMostOf(region, [far], 0.03)).toBeNull();
     expect(neighbourHoldingMostOf(region, [], 0.03)).toBeNull();
+  });
+});
+
+describe('regionAt', () => {
+  const west = box(0, 0, 4, 10);
+  const east = box(6, 0, 10, 10);
+  /** A line down the middle of the continent, from coast to coast. */
+  const meridian = [[5, -1], [5, 11]];
+
+  it('answers with the owner when the ground is claimed', () => {
+    const result = regionAt([2, 5], [CONTINENT], [{ id: 'west', geometry: west }, { id: 'east', geometry: east }]);
+    expect(result?.ownerId).toBe('west');
+    expect(areaKm2(result!.geometry)).toBeCloseTo(areaKm2(west), -3);
+  });
+
+  it('answers with no owner on ground nobody holds', () => {
+    const result = regionAt([5, 5], [CONTINENT], [{ id: 'west', geometry: west }, { id: 'east', geometry: east }]);
+    expect(result?.ownerId).toBeNull();
+  });
+
+  it('still returns nothing at sea', () => {
+    expect(regionAt([20, 20], [CONTINENT], [])).toBeNull();
+  });
+
+  it('stops a fill of open land at a line', () => {
+    // The whole continent is unclaimed, so without the line one click takes all
+    // of it; with the line it takes the half the click was on.
+    const whole = regionAt([2, 5], [CONTINENT], []);
+    const half = regionAt([2, 5], [CONTINENT], [], [meridian]);
+    expect(areaKm2(whole!.geometry)).toBeCloseTo(areaKm2(CONTINENT), -3);
+    expect(areaKm2(half!.geometry) / areaKm2(whole!.geometry)).toBeCloseTo(0.5, 2);
+  });
+
+  it('stops a fill of claimed land at a line', () => {
+    const claimed = [{ id: 'all', geometry: CONTINENT }];
+    const half = regionAt([2, 5], [CONTINENT], claimed, [meridian]);
+    expect(half?.ownerId).toBe('all');
+    expect(areaKm2(half!.geometry) / areaKm2(CONTINENT)).toBeCloseTo(0.5, 2);
+  });
+
+  it('takes the side of the line the click was on', () => {
+    const claimed = [{ id: 'all', geometry: CONTINENT }];
+    const left = regionAt([2, 5], [CONTINENT], claimed, [meridian])!;
+    const right = regionAt([8, 5], [CONTINENT], claimed, [meridian])!;
+    const lons = (g: typeof left.geometry) => JSON.stringify(g).match(/-?\d+\.?\d*/g)!.map(Number).filter((_, i) => i % 2 === 0);
+    expect(Math.max(...lons(left.geometry))).toBeLessThan(5.01);
+    expect(Math.min(...lons(right.geometry))).toBeGreaterThan(4.99);
+  });
+
+  it('leaves a gap no wider than the line it was cut with', () => {
+    // The two halves must still meet, to the eye and to the map: a fill that
+    // leaves a visible strip of no-man's-land along every river is not a
+    // frontier following the river.
+    const claimed = [{ id: 'all', geometry: CONTINENT }];
+    const left = regionAt([2, 5], [CONTINENT], claimed, [meridian])!;
+    const right = regionAt([8, 5], [CONTINENT], claimed, [meridian])!;
+    const lost = 1 - (areaKm2(left.geometry) + areaKm2(right.geometry)) / areaKm2(CONTINENT);
+    expect(lost).toBeGreaterThan(0);
+    expect(lost).toBeLessThan(0.0002);
+  });
+
+  it('ignores a line that does not divide the ground', () => {
+    // A river that peters out mid-continent leaves the two sides connected
+    // around its end, and the fill goes round it — which is the truth about
+    // that river, not a bug in the fill.
+    const stub = [[5, -1], [5, 5]];
+    const result = regionAt([2, 5], [CONTINENT], [], [stub]);
+    expect(areaKm2(result!.geometry) / areaKm2(CONTINENT)).toBeGreaterThan(0.99);
+  });
+
+  it('is not confused by a line that misses the region entirely', () => {
+    const elsewhere = [[100, 0], [100, 10]];
+    const result = regionAt([5, 5], [CONTINENT], [], [elsewhere]);
+    expect(areaKm2(result!.geometry)).toBeCloseTo(areaKm2(CONTINENT), -3);
   });
 });

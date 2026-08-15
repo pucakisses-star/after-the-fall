@@ -226,11 +226,31 @@ other are different questions. It now varies hue, saturation and lightness from 
 of the territory's id — three axes because four siblings spread along one would collide about half
 the time, and from the id so a saved map opens in the colours it was saved in.
 
-**The paint bucket fills unclaimed land.** Click open wilderness with the bucket (**G**) and the realm
-beside it grows to cover the whole connected patch of it — out to the coast, and up to whatever
-anyone else already claims. Which realm receives it is the question the generator already answers
-when it hands a landlocked pocket to somebody: whoever holds most of that ground's edge, measured as
-frontier *length*. Selecting a realm first overrides that.
+**The paint bucket fills land, claimed or not.** Click ground with the bucket (**G**) and it goes to
+one realm — the whole connected patch of it, out to the coast and up to whatever anyone else already
+claims. Which realm receives it is the question the generator already answers when it hands a
+landlocked pocket to somebody: whoever holds most of that ground's edge, measured as frontier
+*length*. Selecting a realm first overrides that.
+
+Ground somebody already holds changes hands instead, and there the selection is required rather than
+an override: nobody annexes a province by accident. The old owner loses exactly what the new one
+gains, so a fill neither creates nor destroys ground, and an owner left holding nothing is removed
+along with its name rather than surviving as an empty shape with a label over the sea.
+
+**And it stops at the lines you can see.** A frontier on a real map follows something — a river, the
+boundary of the county it was carved out of — so the fill is stopped by any of them the map is
+currently drawing: the reference layers left switched on (rivers, counties, states, countries) and
+the rivers and roads drawn in the document itself. Select one line and it becomes the only wall,
+which is how "give this realm everything on its side of *that* river" is a single click. The switch
+in the fill panel turns the whole thing off for filling an island in one go.
+
+Mechanically the lines are cut out of the region before the patch under the pointer is chosen — a
+quad per segment, built only where the lines meet the ground being filled, so the cost is
+proportional to the fill rather than to the network. The strip that leaves between the two sides is
+thirty metres wide, a hundredth of a pixel on the closest plate anybody draws, which is what makes it
+read as a frontier following the river rather than a corridor of no-man's-land beside it. Not every
+line divides anything: a river that peters out mid-continent leaves the two sides connected around
+its end and the fill goes round it, which is the truth about that river.
 
 Two things about it were wrong until the real coastline was pointed at them. Clipping land to a
 search window gives every landmass a straight artificial edge along that window, and dissolving the

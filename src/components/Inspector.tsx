@@ -43,6 +43,7 @@ import { ProjectPanel } from './ProjectPanel';
 import { StylePanel } from './StylePanel';
 import { SYMBOL_SHAPES } from '@/render/symbols';
 import { pinnedText } from '@/render/labelFit';
+import { barrierSources } from '@/geo/barriers';
 import type {
   HatchKind,
   LinearFeature,
@@ -89,6 +90,7 @@ function ObjectTab() {
   const tool = useUIStore((s) => s.tool);
 
   if (tool === 'paint') return <PaintPanel />;
+  if (tool === 'fill') return <FillPanel />;
 
   if (selection.length === 0) {
     return (
@@ -1196,6 +1198,78 @@ function applyLabelStyle(ids: string[], changes: Partial<TextStyle>) {
 // ---------------------------------------------------------------------------
 // Paint tool panel (spec §56)
 // ---------------------------------------------------------------------------
+
+/**
+ * The paint bucket (spec §6, §57).
+ *
+ * The panel exists to answer the two questions a click cannot: which realm the
+ * ground goes to, and what the flood is allowed to cross. Both are read off the
+ * rest of the application rather than set here — the selection, and the layers
+ * that are switched on — so the panel mostly reports, and the one switch it owns
+ * is the one that has no other home.
+ */
+function FillPanel() {
+  const project = useProjectStore((s) => s.project);
+  const selection = useUIStore((s) => s.selection);
+  const stops = useUIStore((s) => s.fillStopsAtLines);
+  const patch = useUIStore((s) => s.patch);
+
+  const target = selection.map((id) => project.territories[id]).find(Boolean);
+  const lines = selection.map((id) => project.linearFeatures[id]).filter(Boolean);
+  const layers = barrierSources(project);
+  const own = Object.values(project.linearFeatures).filter((f) => f.kind !== 'label-path').length;
+
+  return (
+    <>
+      <Section title="Fill">
+        <p className="hint" style={{ marginTop: 0 }}>
+          Click ground and it goes to one realm. Land nobody holds joins the realm beside it;
+          land somebody holds changes hands, which needs the receiving realm selected first.
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+          <span
+            className="tree-row__swatch"
+            style={{
+              width: 18,
+              height: 18,
+              background: target ? resolveTerritoryStyle(project, target).fillColor : 'transparent',
+              border: target ? undefined : '1px dashed var(--line)',
+            }}
+          />
+          <strong>{target ? target.name : 'whoever borders it'}</strong>
+        </div>
+      </Section>
+
+      <Section title="Stop at">
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={stops}
+            onChange={(e) => patch({ fillStopsAtLines: e.target.checked })}
+          />
+          Stop at rivers and boundaries
+        </label>
+        {stops ? (
+          lines.length ? (
+            <p className="hint">
+              {lines.length === 1 ? lines[0].name : `${lines.length} selected lines`} — selected, so nothing
+              else counts. Deselect to use every line on the map.
+            </p>
+          ) : (
+            <p className="hint">
+              {[layers.map((l) => l.name).join(', '), own ? `${own} drawn on the map` : '']
+                .filter(Boolean)
+                .join(', ') || 'Nothing is switched on to stop at — turn a reference layer on, or draw a river.'}
+              {layers.length || own ? '. Select one line to use only that one.' : ''}
+            </p>
+          )
+        ) : (
+          <p className="hint">The flood runs to the coast and to whatever anyone already holds.</p>
+        )}
+      </Section>
+    </>
+  );
+}
 
 function PaintPanel() {
   const project = useProjectStore((s) => s.project);

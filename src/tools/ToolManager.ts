@@ -30,7 +30,7 @@ import {
   addLabel,
   addSettlement,
   addTerritory,
-  fillUnclaimedAt,
+  fillLandAt,
   moveLabel,
   moveSettlement,
   paintTerritory,
@@ -39,6 +39,7 @@ import {
   updateTerritoryGeometry,
 } from '@/state/commands';
 import { coastlinePolygons } from '@/io/importers';
+import { barrierLines } from '@/geo/barriers';
 import type { Territory, UUID } from '@/model/types';
 
 const geojson = new GeoJSON();
@@ -158,10 +159,12 @@ export class ToolManager {
         this.setupMeasure();
         break;
       case 'fill':
-        // Warm the coastline as soon as the tool is picked. It is 3 MB of
-        // TopoJSON and the fill cannot start without it, so leaving the load
-        // inside the click makes the first click of a session look dead.
+        // Warm the coastline and the barrier layers as soon as the tool is
+        // picked. Between them they are several MB of TopoJSON and the fill
+        // cannot start without them, so leaving the load inside the click makes
+        // the first click of a session look dead.
         void coastlinePolygons().catch(() => undefined);
+        void barrierLines(getProject(), []).catch(() => undefined);
         break;
       case 'settlement':
       case 'label':
@@ -315,11 +318,12 @@ export class ToolManager {
       const land = await coastlinePolygons();
       // An explicit selection says which realm should grow; without one the
       // fill goes to whoever already holds most of that ground's edge.
-      const selection = useUIStore.getState().selection;
+      const ui = useUIStore.getState();
       const project = getProject();
-      const preferred = selection.find((id) => project.territories[id]) ?? null;
+      const preferred = ui.selection.find((id) => project.territories[id]) ?? null;
+      const walls = ui.fillStopsAtLines ? await barrierLines(project, ui.selection) : [];
 
-      const result = fillUnclaimedAt(point, land, preferred);
+      const result = fillLandAt(point, land, preferred, walls);
       toast(result.message, result.filled ? 'success' : 'warn');
     } catch (err) {
       toast(`Could not fill: ${(err as Error).message}`, 'error');

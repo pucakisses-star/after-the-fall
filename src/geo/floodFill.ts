@@ -1,9 +1,16 @@
 /**
- * Flood-filling unclaimed land (spec §6, §57).
+ * Flood-filling land (spec §6, §57).
  *
- * The paint bucket: click a piece of land nobody holds and the realm beside it
- * grows to cover the whole of it, out to the coast and up to whatever its
- * neighbours already claim.
+ * The paint bucket: click a piece of ground and it goes to one realm — out to
+ * the coast, up to whatever the neighbours already claim, and up to any line the
+ * map is drawing across it. Ground nobody holds joins the realm beside it;
+ * ground somebody holds changes hands.
+ *
+ * Lines are what make the second half worth having. A frontier on a real map
+ * follows a river, and "give this realm everything on its side of the river" is
+ * a single click here: the barrier lines are cut out of the region before the
+ * patch under the pointer is chosen, so the flood stops at them the way it stops
+ * at a coast.
  *
  * The awkward part is scale. "Everything unclaimed" is land minus every
  * territory on the map, and the land file is four thousand landmasses at 1:10m —
@@ -55,6 +62,8 @@ const MAX_EDGE_SAMPLES = 3000;
 
 export interface FillResult {
   geometry: Polygon | MultiPolygon;
+  /** The territory that held this ground, or null if nobody did. */
+  ownerId: string | null;
   /**
    * True when the region ran to the edge of the largest window allowed, so what
    * came back is a piece of something bigger rather than the whole of it. The
@@ -64,16 +73,124 @@ export interface FillResult {
 }
 
 /**
- * The connected patch of unclaimed land under a point.
+ * The connected patch of ground under a point, whoever holds it.
  *
- * `land` is the coastline as polygons and `claimed` is every territory that
- * might be in the way. Returns null when the point is at sea or on ground
- * somebody already holds — both of which are ordinary answers, not failures.
+ * `land` is the coastline as polygons, `claimed` every territory that might be
+ * in the way, and `walls` the barrier lines the fill may not cross. Returns null
+ * only when the point is at sea.
+ *
+ * Claimed ground is answered from the territory itself rather than by
+ * subtracting the world: a territory is a bounded shape a few thousand vertices
+ * long, so its own outline is the window, and there is no growing search and
+ * nothing to truncate.
+ */
+export function regionAt(
+  point: [number, number],
+  land: Poly[],
+  claimed: { id: string; geometry: Poly }[],
+  walls: Position[][] = [],
+  maxSpan = MAX_SPAN,
+): FillResult | null {
+  const owner = claimed.find((c) => polyContains(c.geometry, point));
+  if (owner) {
+    const held = cutByWalls(owner.geometry, walls, point);
+    return held ? { geometry: held, ownerId: owner.id, truncated: false } : null;
+  }
+  const open = unclaimedRegionAt(point, land, claimed.map((c) => c.geometry), walls, maxSpan);
+  return open && { ...open, ownerId: null };
+}
+
+/**
+ * Take the walls out of a shape and return the part under the point.
+ *
+ * The gap a wall leaves is the width it was drawn at — tens of metres, well
+ * under the resolution of anything on the plate — so what the reader sees is a
+ * frontier that follows the river rather than a strip of no-man's-land along it.
+ */
+function cutByWalls(shape: Poly, walls: Position[][], point: [number, number]): Polygon | MultiPolygon | null {
+  let open: Poly | null = normalizePoly(shape);
+  if (!open) return null;
+
+  const wall = wallPolygon(walls, bboxOf(shape));
+  if (wall) {
+    const cut = difference(open, wall);
+    if (!cut) return null;
+    open = cut;
+  }
+
+  for (const part of explode(open)) {
+    if (containsPoint(part, point)) return normalizePoly(part);
+  }
+  return null;
+}
+
+/**
+ * How wide a barrier line is drawn when it is cut out of a region, in degrees.
+ *
+ * About thirty metres: thick enough that the boolean has real geometry to work
+ * with rather than a degenerate sliver, and thin enough that the strip it leaves
+ * between two realms is a hundredth of a pixel on the closest plate anybody
+ * draws. The frontier reads as following the river, which is what it is doing.
+ */
+const WALL_WIDTH = 0.0003;
+
+/**
+ * The barrier lines as one polygon, built only where they meet the region.
+ *
+ * A quad per segment rather than a proper offset curve. The parts overlap at
+ * every corner and that is fine — a boolean takes a multipolygon as the union of
+ * its parts — and it costs one pass over the coordinates instead of a buffering
+ * library. Segments outside the region's bounds are skipped, which is what keeps
+ * a click affordable on a map carrying a continent's rivers: the cost is
+ * proportional to the ground being filled, not to the network.
+ */
+function wallPolygon(lines: Position[][], box: [number, number, number, number]): MultiPolygon | null {
+  const pad = WALL_WIDTH * 4;
+  const parts: Position[][][] = [];
+
+  for (const line of lines) {
+    for (let i = 1; i < line.length; i++) {
+      const [x1, y1] = line[i - 1];
+      const [x2, y2] = line[i];
+      if (Math.max(x1, x2) < box[0] - pad || Math.min(x1, x2) > box[2] + pad) continue;
+      if (Math.max(y1, y2) < box[1] - pad || Math.min(y1, y2) > box[3] + pad) continue;
+
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const len = Math.hypot(dx, dy);
+      if (!(len > 0)) continue;
+      // Perpendicular, half a width each side, and extended half a width along
+      // the segment so consecutive quads overlap at the joint instead of leaving
+      // a pinhole for the flood to escape through.
+      const nx = (-dy / len) * (WALL_WIDTH / 2);
+      const ny = (dx / len) * (WALL_WIDTH / 2);
+      const ex = (dx / len) * (WALL_WIDTH / 2);
+      const ey = (dy / len) * (WALL_WIDTH / 2);
+      parts.push([
+        [
+          [x1 - ex + nx, y1 - ey + ny],
+          [x2 + ex + nx, y2 + ey + ny],
+          [x2 + ex - nx, y2 + ey - ny],
+          [x1 - ex - nx, y1 - ey - ny],
+          [x1 - ex + nx, y1 - ey + ny],
+        ],
+      ]);
+    }
+  }
+  return parts.length ? { type: 'MultiPolygon', coordinates: parts } : null;
+}
+
+/**
+ * The connected patch of *unclaimed* land under a point.
+ *
+ * Returns null when the point is at sea or on ground somebody already holds —
+ * both of which are ordinary answers, not failures.
  */
 export function unclaimedRegionAt(
   point: [number, number],
   land: Poly[],
   claimed: Poly[],
+  walls: Position[][] = [],
   maxSpan = MAX_SPAN,
 ): FillResult | null {
   // Which landmass was clicked, decided once against the un-clipped coastline.
@@ -92,11 +209,11 @@ export function unclaimedRegionAt(
     const capped = Math.min(span, maxSpan);
     const box = windowAround(point, capped);
 
-    const region = unclaimedInBox(point, box, island, claimed);
+    const region = unclaimedInBox(point, box, island, claimed, walls);
     if (!region) return null;
 
-    if (!touchesBox(region, box)) return { geometry: region, truncated: false };
-    if (capped >= maxSpan) return { geometry: region, truncated: true };
+    if (!touchesBox(region, box)) return { geometry: region, ownerId: null, truncated: false };
+    if (capped >= maxSpan) return { geometry: region, ownerId: null, truncated: true };
   }
 }
 
@@ -122,6 +239,7 @@ function unclaimedInBox(
   box: [number, number, number, number],
   island: Poly,
   claimed: Poly[],
+  walls: Position[][],
 ): Polygon | MultiPolygon | null {
   let open: Poly | null = clipToBox(island, box);
   if (!open) return null;
@@ -135,11 +253,9 @@ function unclaimedInBox(
     if (!open) return null;
   }
 
-  // The click landed on exactly one of the leftover parts.
-  for (const part of explode(open)) {
-    if (containsPoint(part, point)) return normalizePoly(part);
-  }
-  return null;
+  // The click landed on exactly one of the leftover parts — after the walls
+  // have divided them, so a river through open country is two parts, not one.
+  return cutByWalls(open, walls, point);
 }
 
 /** Point-in-polygon for either polygon kind. */
