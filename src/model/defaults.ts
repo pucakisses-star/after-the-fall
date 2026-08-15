@@ -245,21 +245,24 @@ export function cohesionFactor(c: PoliticalCohesion | undefined): number {
 }
 
 /**
- * Whether a new label of this kind is pinned to its own type size (spec §42).
+ * Whether a new label is pinned to its own type size (spec §42).
  *
- * A country's name is pinned. It is the piece of a plate that is *not*
- * geography — a statement about who holds the ground rather than a description
- * of it — and it is set once, by the map's author, at a size chosen against the
- * shape it names. Growing it with the land turns that decision into an accident
- * of the current zoom, and at close range into an inscription that fills the
- * window.
+ * All of them are. A name is set once, by the map's author, at a size chosen
+ * for the thing it names; growing it with the land turns that decision into an
+ * accident of the current zoom, and at close range into an inscription that
+ * fills the window.
  *
- * Everything else is left free to scale, which for a city, a river or a note
- * amounts to the same thing: none of them is an inscription across a shape, so
- * none of them scales anyway.
+ * Scaling is the opt-in, and it is available to every label rather than only to
+ * the ones describing a territory. A name that spans its ocean at every scale is
+ * an inscription in exactly the way a country's name is, and a switch that says
+ * "do not scale with zoom" cannot be understood while it is greyed out on most
+ * of the map's text.
+ *
+ * The parameter is kept because the answer is a property of the kind, and the
+ * next kind that wants a different one should have somewhere to say so.
  */
-export function defaultFixedSize(kind: MapLabel['kind']): boolean {
-  return kind === 'country';
+export function defaultFixedSize(_kind: MapLabel['kind']): boolean {
+  return true;
 }
 
 /**

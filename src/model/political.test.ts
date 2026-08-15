@@ -344,18 +344,38 @@ describe('acceptance: the Midwest Confederation', () => {
 });
 
 describe('label sizing', () => {
-  it('leaves a label saved before the flag existed free to scale', () => {
-    // New country labels are pinned (see below), but a document written before
-    // the flag existed is not rewritten on the way in: guessing what its author
-    // wanted is how a migration silently redesigns somebody's map.
+  it('pins a saved name that never scaled, so an old map opens as itself', () => {
+    // Scaling used to be reserved for names describing a territory; everything
+    // else was held at its own size whatever its flag said. Now the flag decides
+    // for every label, so a name saved unpinned and unattached would start
+    // scaling on the way in. Pinning it is a record of what it did, not a guess
+    // about what its author wanted.
     const old = {
       ...createProject(),
       labels: {
-        a: { id: 'a', text: 'Somewhere', fixedSize: undefined } as unknown as Record<string, unknown>,
+        a: { id: 'a', text: 'Somewhere', attachedToId: null, fixedSize: undefined } as unknown as Record<
+          string,
+          unknown
+        >,
       },
     };
-    const loaded = migrate(JSON.parse(JSON.stringify(old)));
-    expect(loaded.labels.a.fixedSize).toBe(false);
+    expect(migrate(JSON.parse(JSON.stringify(old))).labels.a.fixedSize).toBe(true);
+  });
+
+  it('leaves a name that was scaling free to go on scaling', () => {
+    const doc = createProject();
+    const t = { id: 't', name: 'Somewhere', geometry: { type: 'Polygon', coordinates: [] } };
+    const old = {
+      ...doc,
+      territories: { t } as unknown as Record<string, unknown>,
+      labels: {
+        a: { id: 'a', text: 'Somewhere', attachedToId: 't', fixedSize: false } as unknown as Record<
+          string,
+          unknown
+        >,
+      },
+    };
+    expect(migrate(JSON.parse(JSON.stringify(old))).labels.a.fixedSize).toBe(false);
   });
 
   it('leaves a label that already carries the flag alone', () => {
@@ -378,10 +398,13 @@ describe('country names are set apart from the geography', () => {
     }
   });
 
-  it('pins a country name to its type size, and only a country name', () => {
-    expect(defaultFixedSize('country')).toBe(true);
-    for (const kind of ['region', 'city', 'water', 'ocean', 'river', 'mountain', 'free'] as const) {
-      expect(defaultFixedSize(kind)).toBe(false);
+  it('pins every new name to its type size', () => {
+    // Scaling with the map is the opt-in, and it is offered to all of them: a
+    // name spanning its ocean at every scale is an inscription in exactly the
+    // way a country's name is, and a switch reading "do not scale with zoom"
+    // cannot explain itself while it is greyed out on most of the map's text.
+    for (const kind of ['country', 'region', 'city', 'water', 'ocean', 'river', 'mountain', 'free'] as const) {
+      expect(defaultFixedSize(kind)).toBe(true);
     }
   });
 

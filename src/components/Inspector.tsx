@@ -677,7 +677,7 @@ function LabelInspector({ label: l }: { label: MapLabel }) {
    */
   const setFixedSize = (fixed: boolean) => {
     const changes: Partial<MapLabel> = { fixedSize: fixed };
-    if (attachedToTerritory && Math.abs(scale - 1) > 0.01) {
+    if (Math.abs(scale - 1) > 0.01) {
       const held = pinnedText(style, scale, fixed);
       changes.styleOverrides = {
         ...l.styleOverrides,
@@ -906,24 +906,18 @@ function LabelInspector({ label: l }: { label: MapLabel }) {
           />
           Exempt from collision warnings
         </label>
-        <label className={`checkbox${attachedToTerritory ? '' : ' checkbox--disabled'}`}>
-          <input
-            type="checkbox"
-            checked={l.fixedSize}
-            // A name that does not scale in the first place has nothing to pin,
-            // and a live control that provably does nothing reads as a broken
-            // one. The hint below says which case this is.
-            disabled={!attachedToTerritory}
-            onChange={(e) => setFixedSize(e.target.checked)}
-          />
+        <label className="checkbox">
+          <input type="checkbox" checked={l.fixedSize} onChange={(e) => setFixedSize(e.target.checked)} />
           Fixed size (do not scale with zoom)
         </label>
         <p className="hint" style={{ marginTop: -2 }}>
-          {!attachedToTerritory
-            ? 'Only names attached to a territory scale with the map; this one is already drawn at the size set above.'
-            : l.fixedSize
-              ? 'Pinned at the size set above whatever the zoom.'
-              : `Grows and shrinks with the land it names, so it spans its territory at every scale — drawn at ${
+          {l.fixedSize
+            ? 'Pinned at the size set above whatever the zoom.'
+            : attachedToTerritory
+              ? `Grows and shrinks with the land it names, so it spans its territory at every scale — drawn at ${
+                  Math.round(scale * 100)
+                }% of the size above at this zoom.`
+              : `Grows and shrinks with the map, so it spans the same ground at every scale — drawn at ${
                   Math.round(scale * 100)
                 }% of the size above at this zoom.`}
         </p>

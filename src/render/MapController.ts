@@ -988,7 +988,6 @@ export class MapController {
     const resolution = this.map.getView().getResolution() ?? 1;
     const factor = inscriptionScale({
       pinned: label.fixedSize,
-      attached: !!label.attachedToId && !!project.territories[label.attachedToId],
       metersPerPixel: resolution * metersPerUnit(project.projection?.units),
     });
     if (factor <= 1) return factor;

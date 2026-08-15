@@ -229,24 +229,25 @@ describe('label zoom scale', () => {
   it('leaves a pinned name the same size at every zoom', () => {
     const pinned = pinnedText(style, labelZoomScale(PLATE_METERS_PER_PIXEL / 8), true);
     const sizes = [PLATE_METERS_PER_PIXEL * 40, PLATE_METERS_PER_PIXEL, PLATE_METERS_PER_PIXEL / 40].map(
-      (metersPerPixel) =>
-        scaledText(pinned, inscriptionScale({ pinned: true, attached: true, metersPerPixel })).fontSize,
+      (metersPerPixel) => scaledText(pinned, inscriptionScale({ pinned: true, metersPerPixel })).fontSize,
     );
     expect(sizes).toEqual([pinned.fontSize, pinned.fontSize, pinned.fontSize]);
   });
 
   it('still scales an unpinned name over the same range', () => {
     const sizes = [PLATE_METERS_PER_PIXEL * 4, PLATE_METERS_PER_PIXEL, PLATE_METERS_PER_PIXEL / 2].map(
-      (metersPerPixel) =>
-        scaledText(style, inscriptionScale({ pinned: false, attached: true, metersPerPixel })).fontSize,
+      (metersPerPixel) => scaledText(style, inscriptionScale({ pinned: false, metersPerPixel })).fontSize,
     );
     expect(sizes).toEqual([10, 40, 80]);
   });
 
-  it('leaves a name that is not an inscription alone whichever way the flag is set', () => {
-    for (const pinned of [true, false]) {
-      expect(inscriptionScale({ pinned, attached: false, metersPerPixel: PLATE_METERS_PER_PIXEL / 8 })).toBe(1);
-    }
+  it('asks nothing about the label but whether it is pinned', () => {
+    // A city's name and an ocean's answer the flag the same way a country's
+    // does. The switch that says "do not scale with zoom" cannot explain itself
+    // while it is greyed out on most of the map's text.
+    const mpp = PLATE_METERS_PER_PIXEL / 8;
+    expect(inscriptionScale({ pinned: true, metersPerPixel: mpp })).toBe(1);
+    expect(inscriptionScale({ pinned: false, metersPerPixel: mpp })).toBe(8);
   });
 
   it('unpins without a jump either, at whatever zoom it happens', () => {

@@ -216,11 +216,23 @@ function migrateBasemap(basemap: MapProject['basemap']): MapProject['basemap'] {
  * Absent, it reads as false at runtime, which is the same answer — but a
  * document that carries the field is one the inspector can round-trip without
  * writing it for the first time on an unrelated edit.
+ *
+ * The second pass keeps old documents looking like themselves. Scaling used to
+ * be reserved for names describing a territory: everything else was held at its
+ * own size whatever its flag said. Now the flag decides for every label, so a
+ * name saved unpinned and unattached — a city, an ocean, a note — would start
+ * scaling on the way in. It is pinned instead, which is not a guess about what
+ * its author wanted but a record of what it did.
  */
-function migrateLabels(labels: Record<UUID, MapLabel>): Record<UUID, MapLabel> {
+function migrateLabels(
+  labels: Record<UUID, MapLabel>,
+  territories: Record<UUID, Territory>,
+): Record<UUID, MapLabel> {
   const out: Record<UUID, MapLabel> = {};
   for (const [id, l] of Object.entries(labels)) {
-    out[id] = typeof l.fixedSize === 'boolean' ? l : { ...l, fixedSize: false };
+    const scaled = !!l.attachedToId && !!territories[l.attachedToId];
+    const fixedSize = typeof l.fixedSize === 'boolean' ? l.fixedSize || !scaled : !scaled;
+    out[id] = fixedSize === l.fixedSize ? l : { ...l, fixedSize };
   }
   return out;
 }
@@ -270,7 +282,7 @@ export function migrate(raw: unknown): MapProject {
     compass: p.compass ?? createProject().compass,
     politicalCohesion: p.politicalCohesion ?? 'strong',
     territories: migrateTerritories(p.territories ?? {}),
-    labels: migrateLabels(p.labels ?? {}),
+    labels: migrateLabels(p.labels ?? {}, p.territories ?? {}),
   };
 }
 

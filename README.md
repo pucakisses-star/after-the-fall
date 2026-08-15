@@ -226,6 +226,19 @@ other are different questions. It now varies hue, saturation and lightness from 
 of the territory's id — three axes because four siblings spread along one would collide about half
 the time, and from the id so a saved map opens in the colours it was saved in.
 
+**Any label can be pinned, and all of them start pinned.** A name is set once, by the map's author, at
+a size chosen for the thing it names, so nothing scales with the zoom unless it is asked to; unticking
+*Fixed size* is what asks. Scaling used to be reserved for names describing a territory — everything
+else was held at its own size whatever the flag said, and the switch sat greyed out on two thirds of
+the map's text, which is a rule that cannot explain itself. A name spanning its ocean at every scale
+is an inscription in exactly the way a country's name is.
+
+Ticking or unticking it never resizes the label: what is on screen is `style size × scale`, so the
+scale is folded into the style as the flag goes on and divided back out as it comes off. What changes
+is what happens on the next zoom. Old documents open as themselves — a name saved unpinned and not
+attached to a territory never scaled, so it is pinned on the way in, which is a record of what it did
+rather than a guess about what its author wanted.
+
 **The Salish Sea is copied off a plate.** The realms around Puget Sound are not invented from a seat
 and a weight like the rest of the map — they follow a supplied plate of the region: eight free cities
 on the water (Vancouver, Bellingham, Victoria, Everett, Seattle, Tacoma, Olympia, Cosmopolis) and the

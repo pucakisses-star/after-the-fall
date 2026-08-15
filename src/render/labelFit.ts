@@ -273,18 +273,24 @@ export function labelZoomScale(metersPerPixel: number): number {
 /**
  * The scale to draw a label's type at, gate included.
  *
- * Two kinds of name never scale: one the user has pinned, and one that is not
- * an inscription across a shape at all — a city, a river, a note — which is an
- * annotation to be read at whatever zoom you happen to be at.
+ * One thing stops a name scaling: being pinned. It used to be two — a name that
+ * did not describe a territory was held fixed whatever its flag said, on the
+ * grounds that a city or a river is an annotation rather than an inscription
+ * across a shape. That is a fair description of most of them and not a rule
+ * worth enforcing: an ocean's name spanning its ocean at every zoom is exactly
+ * an inscription, and the switch that says "do not scale with zoom" cannot
+ * explain itself while it is greyed out on two thirds of the map's text.
+ *
+ * So every label answers the flag, and every label is created pinned — see
+ * `defaultFixedSize`. Nothing scales unless it is asked to, which is the same
+ * map as before with one switch that now means something everywhere.
  */
 export function inscriptionScale(opts: {
   /** `MapLabel.fixedSize`. */
   pinned: boolean;
-  /** Whether the label names a territory in this document. */
-  attached: boolean;
   metersPerPixel: number;
 }): number {
-  if (opts.pinned || !opts.attached) return 1;
+  if (opts.pinned) return 1;
   return labelZoomScale(opts.metersPerPixel);
 }
 
