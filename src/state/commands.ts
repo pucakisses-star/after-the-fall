@@ -8,7 +8,7 @@
 
 import type { LineString, Polygon, MultiPolygon, Position } from 'geojson';
 import { newId } from '@/model/ids';
-import { STYLE_IDS, politicalTypeInfo, relationshipInfo } from '@/model/defaults';
+import { STYLE_IDS, politicalTypeInfo, relationshipInfo, settlementTypeForPlace } from '@/model/defaults';
 import { depthOf, descendantsOf, relationshipSubtitle, wouldCreateCycle } from '@/model/hierarchy';
 import { inheritedFill, resolveTerritoryStyle } from '@/model/resolveStyle';
 import {
@@ -179,7 +179,11 @@ export function addTerritory(geometry: Polygon | MultiPolygon, init: Partial<Ter
   return territory.id;
 }
 
-export function addSettlement(coordinates: [number, number], init: Partial<Settlement> = {}): UUID {
+export function addSettlement(
+  coordinates: [number, number],
+  init: Partial<Settlement> = {},
+  opts: { showNames?: boolean } = {},
+): UUID {
   const project = getProject();
   const ui = useUIStore.getState();
   const settlement = makeSettlement(project, { type: 'Point', coordinates }, {
@@ -199,9 +203,64 @@ export function addSettlement(coordinates: [number, number], init: Partial<Settl
   commit('Place settlement', (r) => {
     r.set('settlements', { ...settlement, labelId: label.id });
     r.set('labels', label);
+    // A name nobody can see is not much of a name. Asked for by the callers that
+    // exist to put one on the map, and done inside the commit so switching the
+    // layer on undoes with the settlement rather than being left behind.
+    if (opts.showNames) {
+      for (let layer = project.layers[label.layerId]; layer; layer = layer.parentId ? project.layers[layer.parentId] : undefined!) {
+        if (!layer.visible) r.update<MapLayer>('layers', layer.id, { visible: true });
+        if (!layer.parentId) break;
+      }
+    }
     useUIStore.getState().selectAndReveal([settlement.id]);
   });
   return settlement.id;
+}
+
+/**
+ * Take a reference city or town into the document (spec §47).
+ *
+ * The reference layer is a backdrop: four thousand real places, drawn quietly,
+ * that you compose your own map against. They are not the document's and cannot
+ * be edited — which is right for four thousand of them and wrong for the one you
+ * have just decided is a city of your world and wants a different name.
+ *
+ * So clicking one adopts it: same position, same name, and a rank read off the
+ * scale it was drawn at. From that moment it is an ordinary settlement — rename
+ * it, move it, change what it is — and the reference layer stops drawing it,
+ * because otherwise the old name sits under the new one saying the map has two.
+ */
+export function adoptPlace(place: {
+  name: string;
+  coordinates: [number, number];
+  scalerank: number;
+  population?: number;
+}): UUID | null {
+  const project = getProject();
+  const already = Object.values(project.settlements).find(
+    (s) =>
+      s.name.trim().toLowerCase() === place.name.trim().toLowerCase() &&
+      Math.abs(s.geometry.coordinates[0] - place.coordinates[0]) < 0.001 &&
+      Math.abs(s.geometry.coordinates[1] - place.coordinates[1]) < 0.001,
+  );
+  if (already) {
+    useUIStore.getState().selectAndReveal([already.id]);
+    return already.id;
+  }
+
+  const id = addSettlement(
+    place.coordinates,
+    {
+      name: place.name,
+      type: settlementTypeForPlace(place),
+      // The real population comes with it: it is what decided the rank, and a
+      // map of a fallen world is more interesting for knowing what was there.
+      population: place.population ?? null,
+    },
+    { showNames: true },
+  );
+  toast(`${place.name} is yours now — rename it in the inspector.`, 'success');
+  return id;
 }
 
 function settlementLabelOffset(s: Settlement): number {

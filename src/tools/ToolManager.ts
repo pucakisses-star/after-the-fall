@@ -29,6 +29,7 @@ import { getProject, makeLinear, commit } from '@/state/projectStore';
 import {
   addLabel,
   addSettlement,
+  adoptPlace,
   addTerritory,
   fillLandAt,
   moveLabel,
@@ -256,9 +257,14 @@ export class ToolManager {
       const [lon, lat] = this.controller.toLonLat(evt.coordinate);
 
       switch (ui.tool) {
-        case 'settlement':
-          addSettlement([lon, lat]);
+        case 'settlement': {
+          // Clicking a reference city with the settlement tool means that one,
+          // not a new nameless dot on top of it.
+          const place = this.controller.basemapPlaceAt(evt.pixel);
+          if (place) adoptPlace(place);
+          else addSettlement([lon, lat]);
           return;
+        }
         case 'label':
           addLabel([lon, lat], { text: 'New Label' });
           return;
@@ -284,7 +290,18 @@ export class ToolManager {
       }
     };
 
+    // Double-clicking a reference city adopts it, which is how one gets a name
+    // you can edit. Deliberately a double-click: every city sits on somebody's
+    // ground, so a single click there means the country, and creating a
+    // settlement by brushing past a dot would be nobody's idea of selecting.
+    const onDoubleClick = (evt: MapBrowserEvent<PointerEvent>) => {
+      if (useUIStore.getState().tool !== 'select') return;
+      const place = this.controller.basemapPlaceAt(evt.pixel);
+      if (place) adoptPlace(place);
+    };
+
     map.on('pointermove', onMove as never);
+    map.on('dblclick' as never, onDoubleClick as never);
     map.on('pointerdown' as never, onDown as never);
     map.on('click', onClick as never);
     const targetUp = () => onUp();
@@ -292,6 +309,7 @@ export class ToolManager {
 
     this.pointerHandlers.push(
       () => map.un('pointermove', onMove as never),
+      () => map.un('dblclick' as never, onDoubleClick as never),
       () => map.un('pointerdown' as never, onDown as never),
       () => map.un('click', onClick as never),
       () => window.removeEventListener('pointerup', targetUp),

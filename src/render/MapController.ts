@@ -74,6 +74,19 @@ import type {
 
 const geojson = new GeoJSON();
 
+/**
+ * How a reference place and a settlement are matched up: name and position.
+ *
+ * Three decimal places is about a hundred metres, which is finer than any two
+ * towns are apart and coarser than the rounding a coordinate picks up on its way
+ * through a document. The name is folded because a place taken over and then
+ * renamed is a different place — the reference dot for the old name should come
+ * back, since nothing on the map is standing in for it any more.
+ */
+function placeKey(name: string, at: number[]): string {
+  return `${name.trim().toLowerCase()}@${at[0].toFixed(3)},${at[1].toFixed(3)}`;
+}
+
 /** Comparable form of a working extent, for spotting a change cheaply. */
 function extentKey(e: [number, number, number, number] | null | undefined): string {
   return e ? e.join(',') : '';
@@ -109,6 +122,15 @@ function buildView(
   });
 }
 
+/** A reference city or town, as the tools need it to adopt one. */
+export interface BasemapPlace {
+  name: string;
+  coordinates: [number, number];
+  scalerank: number;
+  /** Natural Earth's `pop_max`, where the place carries one. */
+  population?: number;
+}
+
 export interface HitResult {
   id: UUID;
   kind: 'territory' | 'settlement' | 'label' | 'linear';
@@ -137,6 +159,16 @@ export class MapController {
   private basemapLayers = new Map<string, VectorLayer<VectorSource>>();
 
   /** Label bounding boxes in CSS pixels, refreshed every frame. */
+  /**
+   * Reference places the document has taken over, by name and position.
+   *
+   * Rebuilt whenever the settlements change, and read by the reference layer's
+   * style so a place that has become one of the map's own settlements stops
+   * being drawn twice.
+   */
+  private adoptedPlaces = new Set<string>();
+  private lastSettlements: MapProject['settlements'] | null = null;
+
   readonly labelBoxes = new Map<UUID, TextBox>();
   private labelBoxesDraft = new Map<UUID, TextBox>();
 
@@ -551,6 +583,23 @@ export class MapController {
   }
 
   private syncSettlements(project: MapProject): void {
+    if (this.lastSettlements !== project.settlements) {
+      this.lastSettlements = project.settlements;
+      const before = this.adoptedPlaces.size;
+      this.adoptedPlaces = new Set();
+      for (const s of Object.values(project.settlements)) {
+        const [lon, lat] = s.geometry.coordinates;
+        this.adoptedPlaces.add(placeKey(s.name, [lon, lat]));
+      }
+      // The reference layer draws from a style function, so it only notices when
+      // it is asked to draw again.
+      if (before !== this.adoptedPlaces.size) {
+        for (const [id, layer] of this.basemapLayers) {
+          if (findBasemapSource(id)?.role === 'places') layer.changed();
+        }
+      }
+    }
+
     const proj = this.projection();
     this.syncCollection(this.settlementSource, this.cache.settlements, project.settlements, project, (s) =>
       geojson.readGeometry(s.geometry, { dataProjection: 'EPSG:4326', featureProjection: proj }),
@@ -671,7 +720,7 @@ export class MapController {
           const layer = new VectorLayer({
             source: new VectorSource({ features: olFeatures, wrapX: false }),
             opacity: entry.opacity,
-            style: basemapRoleStyle(role, project),
+            style: basemapRoleStyle(role, project, (name, at) => this.adoptedPlaces.has(placeKey(name, at))),
             // City names would otherwise pile into an unreadable mat at low zoom.
             declutter: role === 'places',
             renderBuffer: role === 'places' ? 400 : 200,
@@ -1052,6 +1101,46 @@ export class MapController {
    * Labels and settlements use custom canvas renderers, which OpenLayers cannot
    * hit-test, so both are tested here against geometry we already track.
    */
+  /**
+   * The reference city or town under a pixel, if any (spec §47).
+   *
+   * Not part of `hitTest`, which answers with things the document owns and the
+   * selection can hold. A reference place is neither until somebody adopts it,
+   * and this is what the tools ask before they do.
+   */
+  basemapPlaceAt(pixel: Pixel): BasemapPlace | null {
+    let found: BasemapPlace | null = null;
+    this.map.forEachFeatureAtPixel(
+      pixel,
+      (f) => {
+        const raw = f.get('basemap') as
+          | { geometry?: { type?: string; coordinates?: number[] }; properties?: Record<string, unknown> }
+          | undefined;
+        const at = raw?.geometry?.coordinates;
+        const name = raw?.properties?.name;
+        if (!at || at.length < 2 || typeof name !== 'string' || !name) return undefined;
+        const pop = Number(raw?.properties?.pop_max);
+        found = {
+          name,
+          coordinates: [at[0], at[1]],
+          scalerank: Number(raw?.properties?.scalerank),
+          population: Number.isFinite(pop) && pop > 0 ? pop : undefined,
+        };
+        return true;
+      },
+      {
+        hitTolerance: 8,
+        layerFilter: (layer) => {
+          for (const [id, l] of this.basemapLayers) {
+            if (l === layer) return findBasemapSource(id)?.role === 'places' && l.getVisible();
+          }
+          return false;
+        },
+      },
+    );
+    return found;
+  }
+
   hitTest(pixel: Pixel): HitResult | null {
     const project = useProjectStore.getState().project;
     const ui = useUIStore.getState();

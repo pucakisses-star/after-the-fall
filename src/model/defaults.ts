@@ -317,6 +317,34 @@ export function settlementTypeInfo(t: SettlementType) {
   return SETTLEMENT_TYPES.find((s) => s.value === t) ?? SETTLEMENT_TYPES[3];
 }
 
+/**
+ * What rank of settlement a reference place becomes when the map adopts it.
+ *
+ * By population where the data has one, because `scalerank` is not a size: it
+ * answers "at what scale does this place earn a dot", which is about the density
+ * of its neighbours as much as itself. Measured on the 1:10m places: Charlotte,
+ * at a million people, ranks 6; Flagstaff, at sixty-four thousand, ranks 4. Rank
+ * is only the fallback, for the places that carry no count.
+ *
+ * Nothing here guesses at a capital: which town a realm is run from is a
+ * decision about the map, not a fact about the place, and it belongs to whoever
+ * is drawing.
+ */
+export function settlementTypeForPlace(place: { population?: number; scalerank?: number }): SettlementType {
+  const pop = place.population;
+  if (typeof pop === 'number' && Number.isFinite(pop) && pop > 0) {
+    if (pop >= 100_000) return 'city';
+    if (pop >= 10_000) return 'town';
+    return 'village';
+  }
+  // Knowing nothing at all, a town: the middle of the three, so an adoption
+  // with no data behind it errs neither into a metropolis nor a hamlet.
+  const rank = Number.isFinite(place.scalerank) ? (place.scalerank as number) : 7;
+  if (rank <= 3) return 'city';
+  if (rank <= 7) return 'town';
+  return 'village';
+}
+
 // ---------------------------------------------------------------------------
 // Palettes (spec §22)
 // ---------------------------------------------------------------------------

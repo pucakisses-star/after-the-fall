@@ -25,7 +25,7 @@ interface ToolDef {
 }
 
 export const TOOLS: ToolDef[] = [
-  { id: 'select', label: 'Select', key: 'V', icon: <IconCursor />, hint: 'Click to select. Shift-drag to box-select. Drag cities and labels.' },
+  { id: 'select', label: 'Select', key: 'V', icon: <IconCursor />, hint: 'Click to select. Shift-drag to box-select. Drag cities and labels. Double-click a reference city to make it yours and rename it.' },
   { id: 'pan', label: 'Pan', key: 'H', icon: <IconHand />, hint: 'Drag to pan the map.' },
   { id: 'territory', label: 'Territory', key: 'R', icon: <IconTerritory />, hint: 'Click to place vertices, double-click to close the polygon.' },
   { id: 'vertex', label: 'Edit vertices', key: 'A', icon: <IconVertex />, hint: 'Drag vertices. Click an edge to add one. Alt-click to remove. Neighbours that share a vertex move with it.' },
@@ -33,7 +33,7 @@ export const TOOLS: ToolDef[] = [
   { id: 'paint', label: 'Paint territory', key: 'B', icon: <IconPaint />, hint: 'Choose a state in the Inspector, then drag across subdivisions to assign them.' },
   { id: 'fill', label: 'Fill land', key: 'G', icon: <IconBucket />, hint: 'Click ground and it goes to one realm — wilderness joins the realm beside it, and land somebody holds changes hands. Select a realm first to choose which, and the flood stops at any river or boundary the map is drawing.' },
   { id: 'cut', label: 'Split', key: 'C', icon: <IconCut />, hint: 'Draw a line across a territory to cut it in two.' },
-  { id: 'settlement', label: 'Settlement', key: 'S', icon: <IconSettlement />, hint: 'Click to place a city, capital or fortress.' },
+  { id: 'settlement', label: 'Settlement', key: 'S', icon: <IconSettlement />, hint: 'Click to place a city, capital or fortress — or click one of the reference cities to make it yours and rename it.' },
   { id: 'label', label: 'Label', key: 'T', icon: <IconLabel />, hint: 'Click to place a free label.' },
   { id: 'river', label: 'River', key: 'W', icon: <IconRiver />, hint: 'Click to draw a river, double-click to finish.' },
   { id: 'road', label: 'Road', key: 'D', icon: <IconRoad />, hint: 'Click to draw a road, double-click to finish.' },

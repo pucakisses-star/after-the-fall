@@ -205,6 +205,7 @@ export const BASEMAP_Z: Record<BasemapRole, number> = {
 export function basemapRoleStyle(
   role: BasemapRole,
   project: { landColor: string; oceanColor: string; projection?: { units: string } },
+  adopted?: (name: string, coordinates: number[]) => boolean,
 ): Style | StyleFunction {
   switch (role) {
     case 'land':
@@ -219,7 +220,7 @@ export function basemapRoleStyle(
     case 'roads':
       return basemapRoadStyle(metersPerUnit(project.projection?.units));
     case 'places':
-      return basemapPlaceStyle(metersPerUnit(project.projection?.units));
+      return basemapPlaceStyle(metersPerUnit(project.projection?.units), adopted);
     default:
       return basemapStyle('rgba(0,0,0,0)', '#a89c86', 0.4);
   }
@@ -446,7 +447,15 @@ export function basemapRiverStyle(): StyleFunction {
  * `scalerank`, and the layer is decluttered so names thin out instead of piling
  * into an unreadable mat at low zoom.
  */
-export function basemapPlaceStyle(unitsInMeters = 1): StyleFunction {
+export function basemapPlaceStyle(
+  unitsInMeters = 1,
+  /**
+   * Places the document has taken over, which the reference layer must stop
+   * drawing: otherwise a city you have adopted and renamed sits under its own
+   * former name, on its own former dot, and the map says both.
+   */
+  adopted?: (name: string, coordinates: number[]) => boolean,
+): StyleFunction {
   const cache = new Map<string, Style>();
   return (feature, resolution) => {
     const props =
@@ -454,6 +463,12 @@ export function basemapPlaceStyle(unitsInMeters = 1): StyleFunction {
     const rank = clampRank(Number(props.scalerank), 8);
     const labelRank = clampRank(Number(props.labelrank), 8);
     const name = typeof props.name === 'string' ? props.name : '';
+
+    if (adopted) {
+      const raw = feature.get('basemap') as { geometry?: { coordinates?: number[] } } | undefined;
+      const at = raw?.geometry?.coordinates;
+      if (at && adopted(name, at)) return undefined;
+    }
 
     // `resolution` is metres — or degrees — per pixel, hence the conversion; a
     // log curve is the right shape for a scale.

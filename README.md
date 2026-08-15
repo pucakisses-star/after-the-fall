@@ -226,6 +226,25 @@ other are different questions. It now varies hue, saturation and lightness from 
 of the territory's id — three axes because four siblings spread along one would collide about half
 the time, and from the id so a saved map opens in the colours it was saved in.
 
+**Reference cities can be adopted and renamed.** The 1:10m places layer is four thousand real cities
+and towns drawn quietly as a backdrop — which is right for four thousand of them, and wrong for the
+one you have decided is a city of your world and wants a different name. Double-click one with the
+select tool (or click it with the settlement tool) and it becomes an ordinary settlement of the
+document: same position, same name, and a rank taken from its population. From that moment it renames,
+moves and restyles like anything else you placed, and the reference layer stops drawing it, because
+otherwise the old name sits under the new one and the map says both.
+
+Population rather than `scalerank`, because rank is not a size — it answers "at what scale does this
+place earn a dot", which is about the density of its neighbours as much as itself. Measured on the
+data: Charlotte, at a million people, ranks 6; Flagstaff, at sixty-four thousand, ranks 4. Rank is
+only the fallback for places that carry no count. Nothing guesses at a capital: which town a realm is
+run from is a decision about the map, not a fact about the place.
+
+Adopting is a double-click on purpose. Every city sits on somebody's ground, so a single click there
+means the country, and creating a settlement by brushing past a dot would be nobody's idea of
+selecting. It also switches the city names on if they are off, since a name nobody can see is not
+much of a name.
+
 **A border drawn inside a state makes a subdivision of it.** Draw one inside an existing territory —
 freehand with the redraw tool (**N**), or vertex by vertex with the territory tool (**R**) — and the
 new shape joins it — as a member, with the inherited colour and
