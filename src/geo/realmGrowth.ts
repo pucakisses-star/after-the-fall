@@ -46,6 +46,17 @@ export interface RealmSeed {
   seeds: [number, number][];
   /** Relative reach. 1 is an ordinary kingdom; a city-state is well under it. */
   weight: number;
+  /**
+   * WGS84 [w, s, e, n] this realm may not grow outside of.
+   *
+   * For realms copied off a plate rather than invented. Weight alone cannot hold
+   * one to the ground it was drawn on: a county with nothing seeded beyond it
+   * keeps going until the coverage budget stops it, and a Salish Sea county with
+   * an open frontier ran up Vancouver Island and into the interior of British
+   * Columbia. A bound says where the plate ends; what lies beyond it is somebody
+   * else's, or nobody's.
+   */
+  bounds?: [number, number, number, number];
 }
 
 export interface GrowthOptions {
@@ -553,6 +564,17 @@ export function growRealms(
   });
 
   const { cols, rows } = grid;
+  /** Whether a realm is allowed this cell at all — see `RealmSeed.bounds`. */
+  const allowed = (realm: number, cell: number): boolean => {
+    const box = seeds[realm].bounds;
+    if (!box) return true;
+    const r = (cell / cols) | 0;
+    const c = cell - r * cols;
+    const lon = grid.west + (c + 0.5) * grid.cell;
+    const lat = grid.south + (r + 0.5) * grid.cell;
+    return lon >= box[0] && lon <= box[2] && lat >= box[1] && lat <= box[3];
+  };
+
   while (frontier.size > 0) {
     const top = frontier.pop();
     const { cell, realm } = top;
@@ -574,6 +596,7 @@ export function growRealms(
       if (rr < 0 || cc < 0 || rr >= rows || cc >= cols) continue;
       const next = rr * cols + cc;
       if (!grid.land[next] || owner[next] !== -1) continue;
+      if (!allowed(realm, next)) continue;
       frontier.push(top.cost + reach * cost[next], next, realm);
     }
   }

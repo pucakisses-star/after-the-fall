@@ -58,6 +58,18 @@ interface Realm {
   also?: [number, number][];
   /** This realm's seat is the empire's capital. */
   capital?: boolean;
+  /** WGS84 [w, s, e, n] this realm may not grow outside of. */
+  bounds?: [number, number, number, number];
+  /**
+   * Never break this realm into members.
+   *
+   * The builder divides anything over twenty thousand square kilometres among
+   * its towns, which is right for a realm invented from a seat and a weight and
+   * wrong for one copied off a plate: the plate's own names are the answer, and
+   * a county of the Salish Sea that grew inland until it qualified would come
+   * back as four counties named after towns nobody drew.
+   */
+  whole?: boolean;
 }
 
 interface Empire {
@@ -73,6 +85,45 @@ interface Empire {
 const A = PALETTES['historical-atlas'];
 const M = PALETTES.muted;
 
+/**
+ * The ground each county of the Salish Sea plate is drawn on.
+ *
+ * Weight alone cannot hold a realm to the ground it was copied from. A county
+ * with nothing seeded beyond it keeps going until the coverage budget stops it,
+ * and measured on this map that meant the County of Clallam taking the west
+ * coast of Vancouver Island — 120,000 km² — and Thompson reaching the middle of
+ * British Columbia. A box per county says where each was drawn; the free cities
+ * need none, because they are hemmed in by the counties on every side.
+ *
+ * One box for the whole plate would be simpler and looks it: the frontier then
+ * runs dead straight across Vancouver Island and the Cascades, which is what an
+ * administrative rectangle looks like when it is drawn over mountains. These
+ * are cut to the ground instead — a peninsula, a canyon, a coastal strip.
+ */
+const SALISH_GROUND: Record<string, [number, number, number, number]> = {
+  // The one free city with open ground at its back: bounded like a county,
+  // because otherwise it takes the whole of Vancouver Island the moment its
+  // neighbours are held to their own.
+  Victoria: [-124.4, 48.2, -123.0, 49.0],
+  Sunshine: [-125.0, 49.2, -123.2, 50.3],
+  'Brittania Beach': [-123.5, 49.4, -122.5, 50.3],
+  'Golden Ears': [-123.0, 49.0, -121.9, 50.0],
+  Thompson: [-122.4, 49.0, -120.3, 50.3],
+  Whatcom: [-122.9, 48.5, -121.7, 49.3],
+  'Great Sauk': [-122.4, 48.1, -120.3, 49.2],
+  Snohomish: [-122.6, 47.85, -121.5, 48.6],
+  'Silver Sauk': [-122.3, 47.4, -120.3, 48.4],
+  Clallam: [-125.2, 47.0, -122.9, 48.6],
+  Jeffsin: [-123.3, 47.6, -122.4, 48.4],
+  Hood: [-123.4, 47.2, -122.6, 48.0],
+  Kitsap: [-123.0, 47.2, -122.4, 48.0],
+  Mercer: [-122.4, 47.4, -121.8, 47.9],
+  King: [-122.4, 47.0, -121.0, 47.9],
+  Squaxin: [-123.7, 46.7, -122.6, 47.5],
+  Pierce: [-123.2, 46.2, -121.8, 47.2],
+  Rainier: [-122.4, 46.2, -120.3, 47.3],
+};
+
 const EMPIRES: Empire[] = [
   {
     name: 'Empire of Cascadia',
@@ -81,15 +132,66 @@ const EMPIRES: Empire[] = [
     color: M[1],
     label: [-131, 55],
     realms: [
-      { name: 'Petty Kingdom of Olympus', short: 'Olympus', type: 'kingdom', seat: [-122.9, 47.0], weight: 0.9, capital: true },
-      { name: 'Republic of Seattle', short: 'Seattle', type: 'republic', seat: [-122.33, 47.61], weight: 0.35 },
-      { name: 'Duchy of Portlandia', short: 'Portlandia', type: 'duchy', seat: [-122.68, 45.52], weight: 0.5 },
+      { name: 'Duchy of Portlandia', short: 'Portlandia', type: 'duchy', seat: [-122.68, 45.52], weight: 0.5, capital: true },
       { name: 'Kingdom of Lincoln', short: 'Lincoln', type: 'kingdom', seat: [-123.09, 44.05], weight: 0.9 },
       { name: 'Petty Kingdom of the Okanagan', short: 'Okanagan', type: 'kingdom', seat: [-119.5, 49.9], weight: 0.9 },
       { name: 'Kingdom of Haida Tlagaang', short: 'Haida Tlagaang', type: 'kingdom', seat: [-130.3, 54.3], weight: 1.3 },
       { name: 'Duchy of Juneau', short: 'Juneau', type: 'duchy', seat: [-134.42, 58.30], weight: 1.0 },
       { name: 'Chiefdom of Aknuqtluk', short: 'Aknuqtluk', type: 'tribal-confederacy', seat: [-149.9, 61.2], weight: 1.4 },
       { name: 'High Chiefdom of Clearwater', short: 'Clearwater', type: 'tribal-confederacy', seat: [-116.0, 46.4], weight: 0.8 },
+    ],
+  },
+  {
+    /**
+     * The Salish Sea, after the plate of it (spec §64).
+     *
+     * Eight free cities on the water and the counties between them, which is
+     * how that plate reads: a ring of city-states around an inland sea, each
+     * with a county or two behind it and the mountains closing the map on both
+     * sides. The cities are seated on the cities and given a short reach, so
+     * they stay the compact things they are drawn as; the counties carry the
+     * ground between them.
+     *
+     * None of these subdivides. A realm has to hold twenty thousand square
+     * kilometres before the builder looks for towns to break it into, and
+     * nothing here is a tenth of that — so the states on the map are the states
+     * on the plate, which is the point of copying it.
+     */
+    name: 'The Salish Sea',
+    short: 'SALISH SEA',
+    type: 'confederation',
+    color: M[2],
+    label: [-122.6, 48.2],
+    realms: [
+      // The free cities of the sea itself, north to south.
+      { name: 'Free City of Vancouver', short: 'Vancouver', type: 'city-state', seat: [-123.12, 49.28], weight: 0.45, capital: true, whole: true },
+      { name: 'Free City of Bellingham', short: 'Bellingham', type: 'city-state', seat: [-122.48, 48.75], weight: 0.4, whole: true },
+      { name: 'Free City of Victoria', short: 'Victoria', type: 'city-state', seat: [-123.37, 48.43], weight: 0.45, whole: true, bounds: SALISH_GROUND['Victoria'] },
+      { name: 'Free City of Everett', short: 'Everett', type: 'city-state', seat: [-122.20, 47.98], weight: 0.35, whole: true },
+      { name: 'Free City of Seattle', short: 'Seattle', type: 'city-state', seat: [-122.33, 47.61], weight: 0.4, whole: true },
+      { name: 'Free City of Tacoma', short: 'Tacoma', type: 'city-state', seat: [-122.30, 47.19], weight: 0.4, whole: true },
+      { name: 'Free City of Olympia', short: 'Olympia', type: 'city-state', seat: [-122.90, 47.04], weight: 0.35, whole: true },
+      { name: 'Free City of Cosmopolis', short: 'Cosmopolis', type: 'city-state', seat: [-123.78, 46.98], weight: 0.5, whole: true },
+
+      // The counties behind them, north to south. Weights are reach rather than
+      // rank: the ones with mountains at their backs run further inland.
+      { name: 'County of the Sunshine Coast', short: 'Sunshine', type: 'county', seat: [-123.76, 49.62], weight: 0.8, whole: true, bounds: SALISH_GROUND['Sunshine'] },
+      { name: 'County of Brittania Beach', short: 'Brittania Beach', type: 'county', seat: [-123.16, 49.66], weight: 0.9, whole: true, bounds: SALISH_GROUND['Brittania Beach'] },
+      { name: 'County of Golden Ears', short: 'Golden Ears', type: 'county', seat: [-122.45, 49.32], weight: 0.9, whole: true, bounds: SALISH_GROUND['Golden Ears'] },
+      { name: 'County of Thompson', short: 'Thompson', type: 'county', seat: [-121.50, 49.45], weight: 1.1, whole: true, bounds: SALISH_GROUND['Thompson'] },
+      { name: 'County of Whatcom', short: 'Whatcom', type: 'county', seat: [-122.25, 48.94], weight: 0.8, whole: true, bounds: SALISH_GROUND['Whatcom'] },
+      { name: 'County of the Great Sauk', short: 'Great Sauk', type: 'county', seat: [-121.60, 48.55], weight: 1.2, whole: true, bounds: SALISH_GROUND['Great Sauk'] },
+      { name: 'County of Snohomish', short: 'Snohomish', type: 'county', seat: [-122.05, 48.28], weight: 0.7, whole: true, bounds: SALISH_GROUND['Snohomish'] },
+      { name: 'County of the Silver Sauk', short: 'Silver Sauk', type: 'county', seat: [-121.55, 47.95], weight: 1.1, whole: true, bounds: SALISH_GROUND['Silver Sauk'] },
+      { name: 'County of Clallam', short: 'Clallam', type: 'county', seat: [-123.60, 48.05], weight: 1.0, whole: true, bounds: SALISH_GROUND['Clallam'] },
+      { name: 'County of Jeffsin', short: 'Jeffsin', type: 'county', seat: [-122.85, 47.95], weight: 0.6, whole: true, bounds: SALISH_GROUND['Jeffsin'] },
+      { name: 'County of Hood', short: 'Hood', type: 'county', seat: [-123.02, 47.55], weight: 0.7, whole: true, bounds: SALISH_GROUND['Hood'] },
+      { name: 'County of Kitsap', short: 'Kitsap', type: 'county', seat: [-122.68, 47.45], weight: 0.5, whole: true, bounds: SALISH_GROUND['Kitsap'] },
+      { name: 'County of Mercer', short: 'Mercer', type: 'county', seat: [-122.08, 47.62], weight: 0.5, whole: true, bounds: SALISH_GROUND['Mercer'] },
+      { name: 'County of King', short: 'King', type: 'county', seat: [-121.95, 47.38], weight: 1.0, whole: true, bounds: SALISH_GROUND['King'] },
+      { name: 'County of Squaxin', short: 'Squaxin', type: 'county', seat: [-123.12, 47.22], weight: 0.7, whole: true, bounds: SALISH_GROUND['Squaxin'] },
+      { name: 'County of Pierce', short: 'Pierce', type: 'county', seat: [-122.25, 46.95], weight: 0.8, whole: true, bounds: SALISH_GROUND['Pierce'] },
+      { name: 'County of Rainier', short: 'Rainier', type: 'county', seat: [-121.75, 46.85], weight: 0.9, whole: true, bounds: SALISH_GROUND['Rainier'] },
     ],
   },
   {
@@ -347,7 +449,7 @@ const EMPIRES: Empire[] = [
   },
 ];
 
-/** Seas and gulfs, so the water is not anonymous (§12). */
+/** Seas, gulfs and the one range the Salish plate names (§12). */
 const WATER_LABELS: { text: string; lon: number; lat: number; kind: MapLabel['kind'] }[] = [
   { text: 'Atlantic Ocean', lon: -45, lat: 33, kind: 'ocean' },
   { text: 'Pacific Ocean', lon: -140, lat: 27, kind: 'ocean' },
@@ -357,6 +459,10 @@ const WATER_LABELS: { text: string; lon: number; lat: number; kind: MapLabel['ki
   { text: 'Gulf of Alaska', lon: -146, lat: 56.5, kind: 'water' },
   { text: 'Labrador Sea', lon: -55.5, lat: 59.5, kind: 'water' },
   { text: 'Gulf of California', lon: -111.5, lat: 27.5, kind: 'water' },
+  { text: 'The Sea of Victoria', lon: -123.55, lat: 49.15, kind: 'water' },
+  { text: 'Sea of Won-di-Fook', lon: -124.1, lat: 48.3, kind: 'water' },
+  { text: 'The Salish Sea', lon: -122.55, lat: 47.75, kind: 'water' },
+  { text: 'The Olympic Mountains', lon: -123.55, lat: 47.75, kind: 'mountain' },
 ];
 
 export interface AfterTheEndResult {
@@ -506,7 +612,12 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
   const seeds: RealmSeed[] = [];
   for (const empire of EMPIRES) {
     for (const realm of empire.realms) {
-      seeds.push({ id: realm.name, seeds: [realm.seat, ...(realm.also ?? [])], weight: realm.weight });
+      seeds.push({
+        id: realm.name,
+        seeds: [realm.seat, ...(realm.also ?? [])],
+        weight: realm.weight,
+        ...(realm.bounds ? { bounds: realm.bounds } : {}),
+      });
     }
   }
   const grown = growRealms(land, seeds, { extent: NORTH_AMERICA, ...DEFAULT_GROWTH }, rivers);
@@ -600,8 +711,16 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
    */
   let memberCount = 0;
   const successors: Territory[] = [];
+  // Realms copied off a plate keep the names they were copied with.
+  const whole = new Set(
+    EMPIRES.flatMap((e) => e.realms.filter((r) => r.whole).map((r) => r.name)),
+  );
   for (const parent of [...sovereignStates]) {
     if (!project.territories[parent.id]) continue;
+    if (whole.has(parent.name)) {
+      successors.push(parent);
+      continue;
+    }
     const made = addMembers(
       project,
       parent,
@@ -645,7 +764,12 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
       kind: w.kind,
       text: w.text,
       coords: [w.lon, w.lat],
-      styleClassId: w.kind === 'ocean' ? STYLE_IDS.textOcean : STYLE_IDS.textWater,
+      styleClassId:
+        w.kind === 'ocean'
+          ? STYLE_IDS.textOcean
+          : w.kind === 'mountain'
+            ? STYLE_IDS.textRegion
+            : STYLE_IDS.textWater,
       manualPosition: true,
     });
     project.labels[label.id] = label;

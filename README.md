@@ -226,6 +226,25 @@ other are different questions. It now varies hue, saturation and lightness from 
 of the territory's id — three axes because four siblings spread along one would collide about half
 the time, and from the id so a saved map opens in the colours it was saved in.
 
+**The Salish Sea is copied off a plate.** The realms around Puget Sound are not invented from a seat
+and a weight like the rest of the map — they follow a supplied plate of the region: eight free cities
+on the water (Vancouver, Bellingham, Victoria, Everett, Seattle, Tacoma, Olympia, Cosmopolis) and the
+seventeen counties between them, from the Sunshine Coast to Rainier, with that plate's names for the
+water as well.
+
+Copying a plate needs two things the generator did not have. Realms copied off one must keep the
+names they were copied with, so they are marked whole and never broken into members — a county that
+grew inland until it passed the twenty-thousand-square-kilometre threshold would otherwise come back
+as four counties named after towns nobody drew. And a realm has to stay on the ground it was drawn
+on: weight is reach, not extent, so a county with nothing seeded beyond it keeps going until the
+coverage budget stops it. Measured before the fix: the County of Clallam took the west coast of
+Vancouver Island, 120,000 km², and Thompson reached the middle of British Columbia. Each county now
+carries a box it may not grow outside of.
+
+One box for the whole plate would be simpler and looks it: the frontier then runs dead straight
+across Vancouver Island and the Cascades, which is what an administrative rectangle looks like drawn
+over mountains. The boxes are cut to the ground instead — a peninsula, a canyon, a coastal strip.
+
 **Reference cities can be adopted and renamed.** The 1:10m places layer is four thousand real cities
 and towns drawn quietly as a backdrop — which is right for four thousand of them, and wrong for the
 one you have decided is a city of your world and wants a different name. Double-click one with the
