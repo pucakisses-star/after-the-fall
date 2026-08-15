@@ -10,6 +10,7 @@ import Draw, { createBox } from 'ol/interaction/Draw';
 import Modify from 'ol/interaction/Modify';
 import Snap from 'ol/interaction/Snap';
 import DragBox from 'ol/interaction/DragBox';
+import DragPan from 'ol/interaction/DragPan';
 import Collection from 'ol/Collection';
 import Feature from 'ol/Feature';
 import GeoJSON from 'ol/format/GeoJSON';
@@ -48,8 +49,25 @@ export class ToolManager {
   private currentTool: ToolId | null = null;
   private unsubscribe: (() => void) | null = null;
 
-  /** Manual drag state for settlements and labels (custom-rendered, so no OL Translate). */
-  private drag: { id: UUID; kind: 'settlement' | 'label'; moved: boolean } | null = null;
+  /**
+   * Manual drag state for settlements and labels (custom-rendered, so no OL
+   * Translate).
+   *
+   * `grab` and `origin` are what make it a drag rather than a teleport: the
+   * feature moves by the distance the pointer has travelled since it was picked
+   * up, so it keeps the grip it was grabbed with. Setting it to the pointer
+   * instead snaps a long inscription's centre under the cursor the moment you
+   * touch its first letter.
+   */
+  private drag: {
+    id: UUID;
+    kind: 'settlement' | 'label';
+    moved: boolean;
+    /** Map coordinate the pointer went down at. */
+    grab: [number, number];
+    /** Map coordinate the feature sat at when it was picked up. */
+    origin: [number, number];
+  } | null = null;
   private pointerHandlers: (() => void)[] = [];
   private paintStroke = new Set<UUID>();
   private painting = false;
@@ -71,6 +89,9 @@ export class ToolManager {
     this.clearInteractions();
     for (const off of this.pointerHandlers) off();
     this.pointerHandlers = [];
+    // Never leave the map unable to pan because a drag was interrupted.
+    this.drag = null;
+    this.setPanning(true);
   }
 
   private map() {
@@ -102,6 +123,10 @@ export class ToolManager {
     if (this.currentTool === tool) return;
     this.currentTool = tool;
     this.clearInteractions();
+    // Switching tools abandons any drag in progress, and a drag holds the map
+    // still while it lasts — so hand panning back on the way out.
+    this.drag = null;
+    this.setPanning(true);
     this.map().getTargetElement()?.style.setProperty('cursor', cursorFor(tool));
 
     switch (tool) {
@@ -109,7 +134,10 @@ export class ToolManager {
         this.setupSelect();
         break;
       case 'pan':
-        break; // OpenLayers' default drag-pan is always present
+        // OpenLayers' default drag-pan is always present; the only thing that
+        // ever switches it off is a settlement or label drag, which switches it
+        // back on when the pointer comes up.
+        break;
       case 'territory':
         this.setupDrawTerritory();
         break;
@@ -153,10 +181,14 @@ export class ToolManager {
       const ui = useUIStore.getState();
 
       if (this.drag && evt.dragging) {
-        const [lon, lat] = this.controller.toLonLat(evt.coordinate);
+        const { grab, origin } = this.drag;
+        const [x, y] = evt.coordinate as [number, number];
         this.drag.moved = true;
         // Preview the move without committing, so undo gets one entry per drag.
-        this.previewDrag(this.drag.id, this.drag.kind, [lon, lat]);
+        this.previewDrag(this.drag.id, this.drag.kind, [
+          origin[0] + (x - grab[0]),
+          origin[1] + (y - grab[1]),
+        ]);
         return;
       }
 
@@ -183,9 +215,23 @@ export class ToolManager {
       }
       if (ui.tool !== 'select') return;
       const hit = this.controller.hitTest(evt.pixel);
-      if (hit && (hit.kind === 'settlement' || hit.kind === 'label')) {
-        this.drag = { id: hit.id, kind: hit.kind, moved: false };
-      }
+      if (!hit || (hit.kind !== 'settlement' && hit.kind !== 'label')) return;
+
+      const source = this.sourceFor(hit.kind);
+      const geom = source.getFeatureById(hit.id)?.getGeometry() as OlPoint | undefined;
+      if (!geom) return;
+      const at = geom.getCoordinates() as [number, number];
+      this.drag = {
+        id: hit.id,
+        kind: hit.kind,
+        moved: false,
+        grab: [...(evt.coordinate as [number, number])],
+        origin: [at[0], at[1]],
+      };
+      // Otherwise the map pans under the drag and the name goes nowhere: the
+      // ground the pointer is over is exactly what panning holds still, so a
+      // label pinned to the pointer stays put while the whole plate slides.
+      this.setPanning(false);
     };
 
     const onUp = () => {
@@ -196,6 +242,7 @@ export class ToolManager {
       if (this.drag) {
         const { id, kind, moved } = this.drag;
         this.drag = null;
+        this.setPanning(true);
         if (moved) this.commitDrag(id, kind);
       }
     };
@@ -281,13 +328,29 @@ export class ToolManager {
     }
   }
 
+  private sourceFor(kind: 'settlement' | 'label') {
+    return kind === 'settlement' ? this.controller.settlementSource : this.controller.labelSource;
+  }
+
+  /**
+   * Let the map pan, or hold it still.
+   *
+   * Dragging a settlement or a label is our own gesture on top of the map's, and
+   * the two mean opposite things with the same pointer: panning keeps the ground
+   * under the pointer fixed, which is precisely what a drag needs to change.
+   */
+  private setPanning(on: boolean): void {
+    this.map().getInteractions().forEach((i) => {
+      if (i instanceof DragPan) i.setActive(on);
+    });
+  }
+
   /** Move the OL feature only; the document is written once, on pointer-up. */
-  private previewDrag(id: UUID, kind: 'settlement' | 'label', lonlat: [number, number]): void {
-    const source = kind === 'settlement' ? this.controller.settlementSource : this.controller.labelSource;
-    const f = source.getFeatureById(id);
+  private previewDrag(id: UUID, kind: 'settlement' | 'label', at: [number, number]): void {
+    const f = this.sourceFor(kind).getFeatureById(id);
     const geom = f?.getGeometry() as OlPoint | undefined;
     if (!geom) return;
-    geom.setCoordinates(this.controller.toView(lonlat));
+    geom.setCoordinates(at);
 
     // A settlement drags its automatic label along with it.
     if (kind === 'settlement') {
@@ -295,20 +358,32 @@ export class ToolManager {
       const s = project.settlements[id];
       if (s?.labelId && !project.labels[s.labelId]?.manualPosition) {
         const lf = this.controller.labelSource.getFeatureById(s.labelId);
-        (lf?.getGeometry() as OlPoint | undefined)?.setCoordinates(this.controller.toView(lonlat));
+        (lf?.getGeometry() as OlPoint | undefined)?.setCoordinates(at);
       }
     }
     this.controller.repaint();
   }
 
   private commitDrag(id: UUID, kind: 'settlement' | 'label'): void {
-    const source = kind === 'settlement' ? this.controller.settlementSource : this.controller.labelSource;
-    const geom = source.getFeatureById(id)?.getGeometry() as OlPoint | undefined;
+    const geom = this.sourceFor(kind).getFeatureById(id)?.getGeometry() as OlPoint | undefined;
     if (!geom) return;
-    const lonlat = this.controller.toLonLat(geom.getCoordinates());
     this.dragJustEnded = true;
-    if (kind === 'settlement') moveSettlement(id, lonlat);
-    else moveLabel(id, lonlat);
+
+    if (kind === 'settlement') {
+      moveSettlement(id, this.controller.toLonLat(geom.getCoordinates()));
+      return;
+    }
+
+    // Dropping a label clears its pixel offset, so anything the offset was
+    // holding has to move into the anchor or the text jumps out from under the
+    // cursor at the moment it is let go.
+    const offset = getProject().labels[id]?.offset ?? [0, 0];
+    let dropped = geom.getCoordinates();
+    if (offset[0] || offset[1]) {
+      const px = this.map().getPixelFromCoordinate(dropped);
+      if (px) dropped = this.map().getCoordinateFromPixel([px[0] + offset[0], px[1] + offset[1]]);
+    }
+    moveLabel(id, this.controller.toLonLat(dropped));
   }
 
   // -------------------------------------------------------------------------
