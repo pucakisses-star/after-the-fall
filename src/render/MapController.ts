@@ -58,11 +58,19 @@ import {
   territoryStyle,
 } from './olStyles';
 import { drawSymbol } from './symbols';
-import { fitToPlate, inscriptionScale, scaledText } from './labelFit';
+import { fitToPlate, inscriptionScale, nameFitsItsLand, scaledText } from './labelFit';
 import { drawText, drawTextOnPath, boxContains, type TextBox } from './textRenderer';
 import { useProjectStore } from '@/state/projectStore';
 import { useUIStore } from '@/state/uiStore';
-import type { MapLabel, MapProject, ProjectionSettings, TextStyle, TimelineRange, UUID } from '@/model/types';
+import type {
+  MapLabel,
+  MapProject,
+  ProjectionSettings,
+  Territory,
+  TextStyle,
+  TimelineRange,
+  UUID,
+} from '@/model/types';
 
 const geojson = new GeoJSON();
 
@@ -843,21 +851,51 @@ export class MapController {
    * solves this the same way every time: the plate showing two continents names
    * the realms, and the plate showing one region names what is inside them.
    *
-   * Depth in the hierarchy decides it, not the label's own size or the realm's
-   * rank: a sovereign is always named, and what is inside it waits until there
-   * is a plate showing the inside. That is what keeps a small sovereign visible
-   * beside a large duchy that belongs to somebody.
+   * Two things decide it. Depth in the hierarchy: a sovereign is always a
+   * candidate and what is inside it waits until there is a plate showing the
+   * inside, which is what keeps a small sovereign visible beside a large duchy
+   * that belongs to somebody. And then whether the name actually fits the land
+   * — because on a map where every realm stands alone, depth says yes to all
+   * four hundred of them at once, and a name pinned to its own type size does
+   * not shrink out of the way as you zoom out. It is left off the plate instead,
+   * the way an atlas does it.
+   *
+   * `style` is the style as it will be drawn, scaling included; the test is
+   * about ink on the plate, not about the number in the style sheet.
    *
    * Only territory labels are gated. Ocean, river and city names have their own
    * rules, and a label the user placed by hand is never second-guessed.
    */
-  private labelEarnsItsPlace(project: MapProject, label: MapLabel): boolean {
+  private labelEarnsItsPlace(project: MapProject, label: MapLabel, style: TextStyle): boolean {
     const owner = label.attachedToId ? project.territories[label.attachedToId] : undefined;
     if (!owner) return true;
 
     const resolution = this.map.getView().getResolution() ?? 1;
     const metersPerPixel = resolution * metersPerUnit(project.projection?.units);
-    return territoryLabelVisible(depthOf(project, owner.id), metersPerPixel);
+    if (!territoryLabelVisible(depthOf(project, owner.id), metersPerPixel)) return false;
+    return nameFitsItsLand(label.text, style, this.territoryRoom(owner));
+  }
+
+  /**
+   * How wide a territory is on the plate right now, in px.
+   *
+   * The longer side of its box rather than the diagonal: the diagonal is up to
+   * √2 more room than any single direction really offers, and measured against
+   * it a continental view keeps two hundred names that each overrun their
+   * country — which is the mat this test exists to prevent.
+   *
+   * The extent comes from the feature OpenLayers already holds, so it is a
+   * lookup and two coordinate transforms per name rather than a walk over a
+   * polygon with several thousand vertices.
+   */
+  private territoryRoom(owner: Territory): number {
+    const geometry = this.territorySource.getFeatureById(owner.id)?.getGeometry();
+    if (!geometry) return Infinity;
+    const [minX, minY, maxX, maxY] = geometry.getExtent();
+    const a = this.map.getPixelFromCoordinate([minX, minY]);
+    const b = this.map.getPixelFromCoordinate([maxX, maxY]);
+    if (!a || !b) return Infinity;
+    return Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
   }
 
   /**
@@ -922,8 +960,8 @@ export class MapController {
     if (!label) return [];
     const base = resolveTextStyle(project, label);
     const selected = useUIStore.getState().selection.includes(id);
-    if (!selected && !this.labelEarnsItsPlace(project, label)) return [];
     const style = this.scaleToPlate(project, label, base);
+    if (!selected && !this.labelEarnsItsPlace(project, label, style)) return [];
     const pathPixels = label.pathId ? this.labelPathPixels(project, label) : null;
 
     return [

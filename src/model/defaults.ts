@@ -9,6 +9,7 @@ import { fixedId } from './ids';
 import type {
   BorderStyleKind,
   LineStyle,
+  MapLabel,
   PoliticalCohesion,
   PoliticalRelationship,
   PoliticalType,
@@ -244,6 +245,24 @@ export function cohesionFactor(c: PoliticalCohesion | undefined): number {
 }
 
 /**
+ * Whether a new label of this kind is pinned to its own type size (spec §42).
+ *
+ * A country's name is pinned. It is the piece of a plate that is *not*
+ * geography — a statement about who holds the ground rather than a description
+ * of it — and it is set once, by the map's author, at a size chosen against the
+ * shape it names. Growing it with the land turns that decision into an accident
+ * of the current zoom, and at close range into an inscription that fills the
+ * window.
+ *
+ * Everything else is left free to scale, which for a city, a river or a note
+ * amounts to the same thing: none of them is an inscription across a shape, so
+ * none of them scales anyway.
+ */
+export function defaultFixedSize(kind: MapLabel['kind']): boolean {
+  return kind === 'country';
+}
+
+/**
  * The status a territory should have when nothing has said otherwise.
  *
  * Documents written before status existed carry it inside `politicalType`, so
@@ -473,7 +492,18 @@ export function createDefaultStyleSheet(): StyleSheet {
   text(
     STYLE_IDS.textCountry,
     'Country label',
-    defaultTextStyle({ fontSize: 17, tracking: 6, transform: 'uppercase', color: '#241d13', haloWidth: 1.2 }),
+    // Sans for the political layer, serif for everything under it. The split is
+    // doing work: a country's name is the one thing on the plate that is not
+    // geography, and setting it in a face the rivers and regions do not use is
+    // the oldest way of saying so without a box or a colour.
+    defaultTextStyle({
+      fontFamily: SANS,
+      fontSize: 17,
+      tracking: 6,
+      transform: 'uppercase',
+      color: '#241d13',
+      haloWidth: 1.2,
+    }),
   );
   text(
     STYLE_IDS.textRegion,

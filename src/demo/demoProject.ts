@@ -12,7 +12,7 @@
 import { basemapFeatureName, loadBasemap, polygonsOf } from '@/geo/basemap';
 import { boundsOf, clipToLand, indexLand, landPolygonsOf, type LandIndex } from '@/geo/coastline';
 import { dissolve, interiorPoint } from '@/geo/operations';
-import { PALETTES, STYLE_IDS } from '@/model/defaults';
+import { PALETTES, STYLE_IDS, defaultFixedSize } from '@/model/defaults';
 import { createProject } from '@/model/project';
 import { findLayerByKind } from '@/model/project';
 import { newId } from '@/model/ids';
@@ -521,7 +521,7 @@ function makeDemoLabel(init: {
     styleOverrides: {},
     pathId: null,
     ignoreCollisions: false,
-    fixedSize: init.fixedSize ?? false,
+    fixedSize: init.fixedSize ?? defaultFixedSize(init.kind),
     maxWidth: null,
   };
 }

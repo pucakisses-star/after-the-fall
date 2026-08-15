@@ -30,7 +30,7 @@ import { relationshipInfo } from '@/model/defaults';
 import { areaKm2, bbox, interiorPoint } from '@/geo/operations';
 import { recolor } from '@/geo/palette';
 import { DEFAULT_GROWTH, growRealms, type LandPolygon, type RealmSeed } from '@/geo/realmGrowth';
-import { PALETTES, STYLE_IDS } from '@/model/defaults';
+import { PALETTES, STYLE_IDS, defaultFixedSize } from '@/model/defaults';
 import { createProject, findLayerByKind } from '@/model/project';
 import { newId } from '@/model/ids';
 import type {
@@ -1111,7 +1111,7 @@ function makeLabel(init: {
     offset: init.offset ?? [0, 0],
     rotation: init.rotation ?? 0,
     ignoreCollisions: false,
-    fixedSize: init.fixedSize ?? false,
+    fixedSize: init.fixedSize ?? defaultFixedSize(init.kind),
     maxWidth: null,
   };
 }

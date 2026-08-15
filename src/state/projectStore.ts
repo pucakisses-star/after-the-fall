@@ -175,7 +175,13 @@ export function commit(label: string, mutate: (r: Recorder) => void): boolean {
 // complete and serialisable.
 // ---------------------------------------------------------------------------
 
-import { STYLE_IDS, inferRelationship, politicalTypeInfo, settlementTypeInfo } from '@/model/defaults';
+import {
+  STYLE_IDS,
+  defaultFixedSize,
+  inferRelationship,
+  politicalTypeInfo,
+  settlementTypeInfo,
+} from '@/model/defaults';
 import type { LineString, MultiLineString, MultiPolygon, Point, Polygon } from 'geojson';
 
 export function makeTerritory(
@@ -274,7 +280,7 @@ export function makeLabel(project: MapProject, anchor: Point, init: Partial<MapL
     styleOverrides: init.styleOverrides ?? {},
     pathId: init.pathId ?? null,
     ignoreCollisions: init.ignoreCollisions ?? false,
-    fixedSize: init.fixedSize ?? false,
+    fixedSize: init.fixedSize ?? defaultFixedSize(kind),
     maxWidth: init.maxWidth ?? null,
   };
 }

@@ -18,6 +18,7 @@ import {
   fitToPlate,
   inscriptionScale,
   labelZoomScale,
+  nameFitsItsLand,
   pinnedText,
   scaledText,
 } from './labelFit';
@@ -290,6 +291,33 @@ describe('label zoom scale', () => {
   it('never caps a name out of existence', () => {
     const tiny = fitToPlate(MAX_LABEL_SCALE, 'A VERY LONG NAME INDEED', style, 10);
     expect(tiny).toBe(MIN_LABEL_SCALE);
+  });
+
+  it('leaves a name off the plate when its country is too small to carry it', () => {
+    const name = 'DUCHY OF BELMOPAN';
+    // 17 characters of 40px type: something over 400px of ink.
+    expect(nameFitsItsLand(name, style, 600)).toBe(true);
+    expect(nameFitsItsLand(name, style, 40)).toBe(false);
+  });
+
+  it('lets a name hang a little past its borders', () => {
+    const name = 'BILWI';
+    const width = 5 * style.fontSize * 0.56 + 4 * style.tracking;
+    // Slightly narrower country than the name: still printed, as on any plate.
+    expect(nameFitsItsLand(name, style, width * 0.9)).toBe(true);
+    // Half the room it needs: not printed.
+    expect(nameFitsItsLand(name, style, width * 0.5)).toBe(false);
+  });
+
+  it('judges a scaling name the same at every zoom', () => {
+    // Name and land grow together, so the verdict cannot depend on the zoom —
+    // which is what stops names flickering in and out as the map moves.
+    const room = 300;
+    for (const factor of [0.5, 1, 4, 12]) {
+      expect(nameFitsItsLand('COUNTY OF BILWI', scaledText(style, factor), room * factor)).toBe(
+        nameFitsItsLand('COUNTY OF BILWI', style, room),
+      );
+    }
   });
 
   it('carries the halo through a pin at a zoomed-out scale', () => {

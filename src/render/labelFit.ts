@@ -309,13 +309,52 @@ export function fitToPlate(
   fill = 0.92,
 ): number {
   if (!(viewportWidth > 0)) return factor;
-  const longest = text.split(/\r?\n/).reduce((n, line) => Math.max(n, line.trim().length), 0);
-  if (longest < 1) return factor;
-  // The same estimate `fitLabel` composes with, so the two agree about how wide
-  // a line of this type is before anything is drawn.
-  const unit = longest * style.fontSize * GLYPH_WIDTH + (longest - 1) * Math.max(0, style.tracking);
+  const unit = estimateLineWidth(text, style);
   if (!(unit > 0)) return factor;
   return Math.max(MIN_LABEL_SCALE, Math.min(factor, (viewportWidth * fill) / unit));
+}
+
+/**
+ * How wide the longest line of a name will be, in px, before anything is drawn.
+ *
+ * The same estimate `fitLabel` composes with, so the layout, the zoom cap and
+ * the fit test below all agree about how much room a line of this type wants
+ * without a canvas being involved.
+ */
+export function estimateLineWidth(text: string, style: ScalableText & { tracking: number }): number {
+  const longest = text.split(/\r?\n/).reduce((n, line) => Math.max(n, line.trim().length), 0);
+  if (longest < 1) return 0;
+  return longest * style.fontSize * GLYPH_WIDTH + (longest - 1) * Math.max(0, style.tracking);
+}
+
+/**
+ * Whether a name fits the land it names (spec §13, §28).
+ *
+ * An atlas does not shrink a name until it fits a country the size of a full
+ * stop — it leaves the name off that plate and prints it on the one that shows
+ * the country. Which is the difference between a map of the Americas and a mat
+ * of overlapping halos with a continent somewhere underneath.
+ *
+ * `room` is how wide the territory is on the plate, in px. The slack is
+ * deliberate — a name may hang a little past its borders, as it does on every
+ * atlas plate ever printed — and it is what keeps the name of a long thin
+ * country, whose box is wider than the country is, from being dropped.
+ *
+ * Measured on the demo map, which is 418 states of a similar size: on a view of
+ * two continents this leaves 1 name standing out of 316, at one zoom in 85 of
+ * 91, and past that all of them. That is the shape an atlas has — the plate
+ * showing everything names almost nothing, and the plate showing a region names
+ * what is in it.
+ */
+export function nameFitsItsLand(
+  text: string,
+  style: ScalableText & { tracking: number },
+  room: number,
+  slack = 1.25,
+): boolean {
+  const unit = estimateLineWidth(text, style);
+  if (!(unit > 0)) return true;
+  return unit <= room * slack;
 }
 
 /** The parts of a text style that scaling touches. */

@@ -16,13 +16,16 @@ import { describe, expect, it } from 'vitest';
 import { createProject, migrate } from './project';
 import {
   POLITICAL_RELATIONSHIPS,
+  STYLE_IDS,
   borderStyleClassFor,
   borderWeightFor,
   createDefaultStyleSheet,
   cohesionFactor,
+  defaultFixedSize,
   inferRelationship,
   relationshipInfo,
 } from './defaults';
+import { makeLabel } from '@/state/projectStore';
 import { inheritedFill } from './resolveStyle';
 import { relationshipSubtitle } from './hierarchy';
 import { parseColor, rgbToHsl } from './color';
@@ -341,9 +344,10 @@ describe('acceptance: the Midwest Confederation', () => {
 });
 
 describe('label sizing', () => {
-  it('defaults a label to scaling with the map, and migrates one that predates the flag', () => {
-    // A territory's name is an inscription across the land, so it travels with
-    // the map by default; the flag is the opt-out for a name placed by hand.
+  it('leaves a label saved before the flag existed free to scale', () => {
+    // New country labels are pinned (see below), but a document written before
+    // the flag existed is not rewritten on the way in: guessing what its author
+    // wanted is how a migration silently redesigns somebody's map.
     const old = {
       ...createProject(),
       labels: {
@@ -360,6 +364,38 @@ describe('label sizing', () => {
       labels: { a: { id: 'a', text: 'Pinned', fixedSize: true } as unknown as Record<string, unknown> },
     };
     expect(migrate(JSON.parse(JSON.stringify(doc))).labels.a.fixedSize).toBe(true);
+  });
+});
+
+describe('country names are set apart from the geography', () => {
+  it('sets a country name in sans and everything under it in serif', () => {
+    const sheet = createDefaultStyleSheet();
+    const country = sheet.text[STYLE_IDS.textCountry].style.fontFamily;
+    expect(country).toMatch(/sans-serif$/);
+    for (const id of [STYLE_IDS.textRegion, STYLE_IDS.textCity, STYLE_IDS.textWater, STYLE_IDS.textRiver]) {
+      expect(sheet.text[id].style.fontFamily).not.toBe(country);
+      expect(sheet.text[id].style.fontFamily).toMatch(/serif$/);
+    }
+  });
+
+  it('pins a country name to its type size, and only a country name', () => {
+    expect(defaultFixedSize('country')).toBe(true);
+    for (const kind of ['region', 'city', 'water', 'ocean', 'river', 'mountain', 'free'] as const) {
+      expect(defaultFixedSize(kind)).toBe(false);
+    }
+  });
+
+  it('makes a new country label pinned without being asked', () => {
+    const project = createProject();
+    const label = makeLabel(project, { type: 'Point', coordinates: [-74, 40] }, { kind: 'country', text: 'Duchy of Somewhere' });
+    expect(label.fixedSize).toBe(true);
+    expect(label.styleClassId).toBe(STYLE_IDS.textCountry);
+  });
+
+  it('still lets a caller ask for the opposite', () => {
+    const project = createProject();
+    expect(makeLabel(project, { type: 'Point', coordinates: [-74, 40] }, { kind: 'country', fixedSize: false }).fixedSize).toBe(false);
+    expect(makeLabel(project, { type: 'Point', coordinates: [-74, 40] }, { kind: 'city', fixedSize: true }).fixedSize).toBe(true);
   });
 });
 

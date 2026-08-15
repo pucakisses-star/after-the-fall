@@ -31,6 +31,7 @@ import {
   POLITICAL_TYPES,
   SETTLEMENT_TYPES,
   STYLE_IDS,
+  defaultFixedSize,
 } from '@/model/defaults';
 import { resolveTerritoryStyle, resolveTextStyle, resolveSymbolStyle } from '@/model/resolveStyle';
 import { relationshipSubtitle } from '@/model/hierarchy';
@@ -715,7 +716,13 @@ function LabelInspector({ label: l }: { label: MapLabel }) {
                 mountain: STYLE_IDS.textRegion,
                 free: STYLE_IDS.textRegion,
               };
-              update({ kind, styleClassId: styleByKind[kind] ?? l.styleClassId }, 'Change label kind');
+              // The kind carries its typography and whether it is pinned: this
+              // control already swaps the whole text class, so leaving the one
+              // flag behind would make a country name that behaves like a river.
+              update(
+                { kind, styleClassId: styleByKind[kind] ?? l.styleClassId, fixedSize: defaultFixedSize(kind) },
+                'Change label kind',
+              );
             }}
           >
             {['country', 'region', 'city', 'water', 'ocean', 'river', 'mountain', 'free'].map((k) => (
