@@ -16,7 +16,9 @@ import { describe, expect, it } from 'vitest';
 import { createProject, migrate } from './project';
 import {
   POLITICAL_RELATIONSHIPS,
+  borderStyleClassFor,
   borderWeightFor,
+  createDefaultStyleSheet,
   cohesionFactor,
   inferRelationship,
   relationshipInfo,
@@ -358,5 +360,40 @@ describe('label sizing', () => {
       labels: { a: { id: 'a', text: 'Pinned', fixedSize: true } as unknown as Record<string, unknown> },
     };
     expect(migrate(JSON.parse(JSON.stringify(doc))).labels.a.fixedSize).toBe(true);
+  });
+});
+
+describe('internal borders are drawn as internal', () => {
+  it('dots every line drawn between members of one realm', () => {
+    // A solid line says "two countries". Every border inside a realm was solid,
+    // so a kingdom's duchies read as a cluster of small sovereigns however
+    // closely their fills matched.
+    const sheet = createDefaultStyleSheet();
+    for (const kind of ['provincial', 'county'] as const) {
+      const cls = sheet.line[borderStyleClassFor(kind)];
+      expect(cls.style.dash, `${kind} is still solid`).toBe('dotted');
+    }
+  });
+
+  it("keeps a vassal frontier distinct from an ordinary province line", () => {
+    const sheet = createDefaultStyleSheet();
+    expect(sheet.line[borderStyleClassFor('subordinate')].style.dash).toBe('dash-dot');
+  });
+
+  it('leaves sovereign frontiers solid', () => {
+    // The contrast is the whole point: a frontier is drawn, a division is dotted.
+    const sheet = createDefaultStyleSheet();
+    for (const kind of ['international', 'major-political'] as const) {
+      expect(sheet.line[borderStyleClassFor(kind)].style.dash).toBe('solid');
+    }
+  });
+
+  it('gives a dotted line enough weight to survive being broken up', () => {
+    // Dotting removes about two thirds of the ink, so a hairline that read
+    // correctly solid disappears once it is broken.
+    const sheet = createDefaultStyleSheet();
+    for (const kind of ['provincial', 'county'] as const) {
+      expect(sheet.line[borderStyleClassFor(kind)].style.width).toBeGreaterThanOrEqual(1);
+    }
   });
 });

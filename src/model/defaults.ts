@@ -430,9 +430,37 @@ export function createDefaultStyleSheet(): StyleSheet {
 
   line(STYLE_IDS.lineInternational, 'International border', defaultLineStyle({ color: '#2f2417', width: 2.2 }));
   line(STYLE_IDS.lineMajor, 'Major political border', defaultLineStyle({ color: '#463825', width: 1.5 }));
-  line(STYLE_IDS.lineSubordinate, 'Subordinate-state border', defaultLineStyle({ color: '#5c4c35', width: 1.0 }));
-  line(STYLE_IDS.lineProvincial, 'Provincial border', defaultLineStyle({ color: '#7a6b56', width: 0.6, opacity: 0.85 }));
-  line(STYLE_IDS.lineCounty, 'County border', defaultLineStyle({ color: '#8f8371', width: 0.35, opacity: 0.7 }));
+  // The three lines drawn *inside* a realm, and the reason they are not solid.
+  //
+  // A solid line says "these are two countries". Every border between members of
+  // one realm was solid, so a kingdom's duchies read as a cluster of small
+  // sovereigns however closely their fills matched — which is the whole failure
+  // the hierarchy work is meant to fix. Printed atlases separate the two the
+  // same way: a frontier is drawn, an internal division is dotted.
+  //
+  // A vassal keeps the dash-dot of a distinct constitutional status rather than
+  // the plain dot of an ordinary province.
+  //
+  // Both dotted lines carry substantially more weight and contrast than they did
+  // as solids. Dotting removes roughly two thirds of the ink and the remaining
+  // dot is only as wide as the stroke, so the first attempt at this — the old
+  // 0.6 and 0.35 hairlines, merely switched to dotted — erased the internal
+  // geography altogether: the members of a realm had no visible division at all.
+  line(
+    STYLE_IDS.lineSubordinate,
+    'Subordinate-state border',
+    defaultLineStyle({ color: '#5c4c35', width: 1.0, dash: 'dash-dot' }),
+  );
+  line(
+    STYLE_IDS.lineProvincial,
+    'Provincial border',
+    defaultLineStyle({ color: '#5f5241', width: 1.3, opacity: 0.95, dash: 'dotted' }),
+  );
+  line(
+    STYLE_IDS.lineCounty,
+    'County border',
+    defaultLineStyle({ color: '#6f6453', width: 1.05, opacity: 0.9, dash: 'dotted' }),
+  );
   line(STYLE_IDS.lineDisputed, 'Disputed border', defaultLineStyle({ color: '#8a3b2e', width: 1.6, dash: 'dashed' }));
   line(STYLE_IDS.lineCeasefire, 'Ceasefire line', defaultLineStyle({ color: '#3f5a7a', width: 1.5, dash: 'dash-dot' }));
   line(STYLE_IDS.lineHistorical, 'Historical boundary', defaultLineStyle({ color: '#6b5f4d', width: 0.9, dash: 'dotted' }));
