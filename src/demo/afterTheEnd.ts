@@ -27,7 +27,7 @@ import { linesOf, loadBasemap, pointsOf, polygonsOf } from '@/geo/basemap';
 import { memberCountFor, pickSeats, subdivideRealm, type SubdivisionSeat } from '@/geo/subdivide';
 import { fitLabel } from '@/render/labelFit';
 import { relationshipInfo } from '@/model/defaults';
-import { areaKm2, bbox, dissolve, interiorPoint } from '@/geo/operations';
+import { areaKm2, bbox, interiorPoint } from '@/geo/operations';
 import { recolor } from '@/geo/palette';
 import { DEFAULT_GROWTH, growRealms, type LandPolygon, type RealmSeed } from '@/geo/realmGrowth';
 import { PALETTES, STYLE_IDS } from '@/model/defaults';
@@ -627,16 +627,16 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
   const grown = growRealms(land, seeds, { extent: AMERICAS, ...DEFAULT_GROWTH }, rivers);
 
   /**
-   * Only a real empire is drawn as one.
+   * Every realm is its own sovereign.
    *
-   * The map used to gather all twenty-eight groups into single territories, so
+   * The map first gathered all twenty-eight groups into single territories, so
    * two continents read as twenty-eight blocs however many realms were inside
-   * them — which is not what a collapsed world looks like. A confederation is
-   * an alliance of states, not a state; a group of petty kingdoms is a region,
-   * not a realm. Those now dissolve into their members, each of which is its
-   * own sovereign with its own colour and its own international border, and
-   * only the seven groups the setting actually calls empires still gather
-   * their realms under one crown. 28 blocs become 7 empires and 130 states.
+   * them; then it kept the seven the setting calls empires and dissolved the
+   * rest. Now none of them survives as a bloc. A collapsed world is a world
+   * with no one left to hold an empire together, and the map says so: each of
+   * the realms stands alone, with its own colour and its own international
+   * frontier, and what hierarchy remains is the one *inside* each of them —
+   * the duchies, counties and baronies grown under every crown further down.
    */
   const sovereignStates: Territory[] = [];
 
@@ -648,7 +648,7 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
     }
     if (parts.length === 0) continue;
 
-    if (empire.type !== 'empire') {
+    {
       const seatRealm = empire.realms.find((r) => r.capital) ?? empire.realms[0];
       let seatStateId: string | null = null;
       for (const realm of empire.realms) {
@@ -697,88 +697,22 @@ export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
       if (seatStateId) {
         addCapital(project, seatRealm, seatStateId, settlementLayer.id, cityLabels.id);
       }
-      continue;
     }
-    const whole = parts.length === 1 ? parts[0] : dissolve(parts);
-    if (!whole) continue;
-
-    const empireId = newId();
-    const seat = empire.realms.find((r) => r.capital) ?? empire.realms[0];
-    const capitalId = newId();
-
-    project.territories[empireId] = {
-      id: empireId,
-      layerId: territoryLayer.id,
-      name: empire.name,
-      shortName: empire.short,
-      politicalType: empire.type,
-      relationship: 'sovereign',
-      parentId: null,
-      liegeId: null,
-      capitalId,
-      notes: '',
-      locked: false,
-      hidden: false,
-      timeline: { start: null, end: null },
-      geometry: whole,
-      styleClassId: STYLE_IDS.territoryDefault,
-      styleOverrides: { fillColor: empire.color },
-      inheritParentColor: false,
-      borderKind: 'international',
-      labelId: null,
-    };
-    attachLabel(project, empireId, 'territories', {
-      layerId: countryLabels.id,
-      kind: 'country',
-      coords: empire.label ?? interiorPoint(whole),
-      styleClassId: STYLE_IDS.textCountry,
-      manualPosition: !!empire.label,
-      ...nameLayout(whole, empire.name, 0),
-    });
-
-    empire.realms.forEach((realm) => {
-      const shape = grown.shapes.get(realm.name);
-      if (!shape) return;
-      const realmId = newId();
-      // Held, not sovereign — and that one fact is now enough. The fill comes
-      // from the empire's colour through the vassal's own variation, the border
-      // class from the same table, and the label carries "Vassal of the ..."
-      // underneath its name. None of it is set here.
-      project.territories[realmId] = {
-        ...project.territories[empireId],
-        id: realmId,
-        name: realm.name,
-        shortName: realm.short,
-        politicalType: realm.type,
-        relationship: 'vassal',
-        parentId: empireId,
-        liegeId: empireId,
-        capitalId: null,
-        geometry: shape,
-        styleOverrides: {},
-        inheritParentColor: true,
-        borderKind: relationshipInfo('vassal').border,
-        labelId: null,
-      };
-      attachLabel(project, realmId, 'territories', {
-        layerId: regionLabels.id,
-        kind: 'region',
-        coords: interiorPoint(shape),
-        styleClassId: STYLE_IDS.textRegion,
-        ...nameLayout(shape, realm.name, 1),
-      });
-    });
-
-    addCapital(project, seat, empireId, settlementLayer.id, cityLabels.id, capitalId);
   }
 
-  // Colour the sovereign states so no two neighbours share a tint. They came
-  // out of the same group and carried its colour, which would have drawn the
-  // bloc all over again in a different way — the graph colourer is exactly the
-  // tool for "many small states, each distinct from the ones it touches".
+  // Colour the states so no two neighbours share a tint. They came out of the
+  // same group and carried its colour, which would have drawn the old bloc all
+  // over again in a different way — the graph colourer is exactly the tool for
+  // "many small states, each distinct from the ones it touches".
+  //
+  // The After the End plates rather than the muted school-atlas inks the map
+  // used to wear. With no empires left there is no bloc for a quiet palette to
+  // hold together, and a hundred and eighty sovereigns each need to be told
+  // apart from their neighbours at a glance: twenty saturated-but-earthed hues
+  // do that where twelve pale ones ran together.
   if (sovereignStates.length) {
     const colors = recolor(sovereignStates, (t) => t.styleOverrides.fillColor ?? '#d8d2c4', {
-      mode: 'historical-atlas',
+      mode: 'after-the-event',
     });
     for (const [id, color] of colors) {
       const t = project.territories[id];

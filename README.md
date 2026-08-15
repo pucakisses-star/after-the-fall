@@ -13,8 +13,8 @@ following the river, graticule, frame, title block and scale bar — is produced
 ![The editor](docs/editor.png)
 
 *The editor on first launch: the realms of the post-apocalyptic Americas, with the tool palette,
-layer/hierarchy tree, map and object inspector. Every realm is an ordinary territory, arranged in an
-empire → vassal hierarchy and editable like anything you draw.*
+layer/hierarchy tree, map and object inspector. Every realm is an ordinary territory, arranged in a
+realm → member hierarchy and editable like anything you draw.*
 
 ---
 
@@ -36,19 +36,24 @@ Americas of the Crusader Kings total conversion — so the feature set is visibl
 real subject. **New** starts a blank map, one seeded with real geography, or the smaller
 north-eastern demonstration map.
 
-A hundred and thirty sovereign states and seven empires holding fifty-seven vassals between them
-span both continents, built by the same public API the UI uses: territories arranged into the
-empire → vassal hierarchy, given the border tiers, and labelled by the ordinary label engine.
+A hundred and eighty-seven sovereign states span both continents, each divided into the duchies,
+counties, cantons and baronies it is made of — around four hundred member states in all — built by
+the same public API the UI uses: territories arranged into the realm → member hierarchy, given the
+border tiers, and labelled by the ordinary label engine.
 
-**Only a real empire is drawn as one.** The realm table groups its realms under twenty-eight
-headings, and gathering every one of them into a single territory made two continents read as
-twenty-eight blocs however many realms were inside them — which is not what a collapsed world looks
-like. A confederation is an alliance of states, not a state; a group of petty kingdoms is a region,
-not a realm. Those dissolve into their members, each its own sovereign with its own international
-border, and only the seven groups the setting calls empires still gather their realms under one
-crown. The states are then coloured by the graph colourer (`geo/palette.ts`) so no two neighbours
-share a tint — carrying their old group's colour would only have drawn the bloc again by other
-means.
+**No realm is drawn as a bloc.** The realm table groups its realms under twenty-eight headings, and
+gathering every one of them into a single territory made two continents read as twenty-eight blocs
+however many realms were inside them — which is not what a collapsed world looks like. The map then
+kept the seven groups the setting calls empires and dissolved the rest; now none of them survives.
+A collapsed world is one with nobody left to hold an empire together, and the map says so: every
+realm stands alone with its own international frontier. The hierarchy that remains is the one
+*inside* each of them, which is where a feudal map's interest actually lies.
+
+The states are coloured by the graph colourer (`geo/palette.ts`) so no two neighbours share a tint —
+carrying their old group's colour would only have drawn the bloc again by other means — using the
+After the End plates palette rather than the muted school-atlas inks. With no empires left there is
+no bloc for a quiet palette to hold together, and a hundred and eighty-seven sovereigns each need
+telling apart from their neighbours at a glance.
 
 Every state carries its name, and none of them carries it at the same size. A grand duchy's name is
 set across it in wide capitals; a petty realm's is five points and tucked inside. That is how an
