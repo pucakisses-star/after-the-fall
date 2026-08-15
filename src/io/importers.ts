@@ -402,6 +402,33 @@ export interface ConvertOptions {
  */
 const COASTLINE_SOURCE = 'world-land-10m';
 
+let coastlineCache: Promise<(Polygon | MultiPolygon)[]> | null = null;
+
+/**
+ * The bundled coastline as plain polygons, loaded once.
+ *
+ * The paint bucket needs the land itself rather than the spatial index the
+ * conversion path builds, and it needs it on every click, so the parsed result
+ * is held. It is the same file either way, and the loader below it already
+ * caches the fetch — this caches the reshaping of it.
+ */
+export function coastlinePolygons(): Promise<(Polygon | MultiPolygon)[]> {
+  coastlineCache ??= loadBasemap(COASTLINE_SOURCE).then((features) =>
+    polygonsOf(features)
+      .map((f) => f.geometry as Polygon | MultiPolygon)
+      .reduce<(Polygon | MultiPolygon)[]>((acc, g) => {
+        if (!g) return acc;
+        // Natural Earth ships all land as one MultiPolygon of four thousand
+        // parts; split it so a fill only ever clips the landmasses it needs.
+        if (g.type === 'MultiPolygon') {
+          for (const coords of g.coordinates) acc.push({ type: 'Polygon', coordinates: coords });
+        } else acc.push(g);
+        return acc;
+      }, []),
+  );
+  return coastlineCache;
+}
+
 /** The land the conversion trims against, indexed around what is being converted. */
 async function coastlineFor(shapes: (Polygon | MultiPolygon)[]): Promise<LandIndex | null> {
   try {

@@ -218,6 +218,26 @@ other are different questions. It now varies hue, saturation and lightness from 
 of the territory's id — three axes because four siblings spread along one would collide about half
 the time, and from the id so a saved map opens in the colours it was saved in.
 
+**The paint bucket fills unclaimed land.** Click open wilderness with the bucket (**G**) and the realm
+beside it grows to cover the whole connected patch of it — out to the coast, and up to whatever
+anyone else already claims. Which realm receives it is the question the generator already answers
+when it hands a landlocked pocket to somebody: whoever holds most of that ground's edge, measured as
+frontier *length*. Selecting a realm first overrides that.
+
+Two things about it were wrong until the real coastline was pointed at them. Clipping land to a
+search window gives every landmass a straight artificial edge along that window, and dissolving the
+clipped pieces welds any two that reach the same edge — filling in Iceland came back as 3.4 million
+km², Iceland joined to Greenland across the Denmark Strait. Unclaimed ground is connected within an
+island and never across open water, so the fill is now bounded to the landmass under the click, which
+is both correct and about a thousand times faster. And deciding the owner by counting boundary
+vertices rather than measuring frontier length ties on any rectangle, so the winner was whichever
+candidate the loop reached first.
+
+One click reaches 20° at most. That is a decision about what the tool means rather than a
+performance limit: unbounded, a click on open country west of the demonstration map's realms hands
+one of them 22 million km² — the whole of North America minus its neighbours — which is not what
+anybody means by "the land I clicked". A fill cut short says so, and clicking again continues it.
+
 **Most maps are about somewhere, not everywhere.** Project → Map area crops the map to a region:
 reference geography outside it is never projected or drawn, and the view cannot pan or zoom past it,
 so a map of the Americas behaves like a sheet of paper of a definite size rather than a window onto

@@ -15,6 +15,7 @@ export type ToolId =
   | 'vertex'
   | 'reshape'
   | 'paint'
+  | 'fill'
   | 'cut'
   | 'settlement'
   | 'label'

@@ -27,6 +27,7 @@ import {
 import type { Poly } from '@/geo/operations';
 import { propagateVertexEdit, repairTopology, type RepairOptions } from '@/geo/topology';
 import { boundaryFollows, reshapeBoundary } from '@/geo/reshape';
+import { neighbourHoldingMostOf, unclaimedRegionAt } from '@/geo/floodFill';
 import { recolor, type RecolorOptions } from '@/geo/palette';
 import type { Recorder } from './history';
 import type { MapLabel, MapLayer, MapProject, PoliticalRelationship, Settlement, Territory, UUID } from '@/model/types';
@@ -453,6 +454,76 @@ export function paintTerritory(targetId: UUID, sourceIds: UUID[]): void {
     }
   });
 }
+
+/**
+ * Grow a realm over the unclaimed land under a point — the paint bucket
+ * (spec §6, §57).
+ *
+ * Clicking wilderness hands the whole connected patch of it to a neighbour, out
+ * to the coast and up to whatever anyone else already holds. Which neighbour is
+ * decided the way the generator decides it when filling a landlocked pocket:
+ * whoever holds most of that ground's edge already. An explicit selection wins
+ * over that, because a user who selected a realm first has said which one they
+ * mean.
+ *
+ * The coastline has to be supplied rather than fetched here, because loading it
+ * is asynchronous and this has to stay a synchronous, undoable command.
+ */
+export function fillUnclaimedAt(
+  point: [number, number],
+  land: Poly[],
+  preferredId: UUID | null = null,
+): { filled: boolean; message: string } {
+  const project = getProject();
+  const claimed = Object.values(project.territories).filter((t) => !t.hidden);
+
+  if (territoryAt(project, point)) {
+    return { filled: false, message: 'That ground is already claimed — click land nobody holds.' };
+  }
+
+  const region = unclaimedRegionAt(point, land, claimed.map((t) => t.geometry));
+  if (!region) {
+    return { filled: false, message: 'No unclaimed land there — that looks like open water.' };
+  }
+
+  // Whoever already surrounds it, unless the user picked somebody.
+  const preferred = preferredId ? project.territories[preferredId] : undefined;
+  const target =
+    preferred && !preferred.locked
+      ? preferred
+      : neighbourHoldingMostOf(region.geometry, claimed.filter((t) => !t.locked), FILL_NEIGHBOUR_TOLERANCE);
+
+  if (!target) {
+    return {
+      filled: false,
+      message: 'Nothing borders that ground. Select the realm it should join, then click again.',
+    };
+  }
+  if (target.locked) return { filled: false, message: `${target.name} is locked.` };
+
+  const merged = union([target.geometry, region.geometry]);
+  if (!merged) return { filled: false, message: 'Could not merge that ground into the realm.' };
+
+  commit('Fill unclaimed land', (r) => {
+    r.update<Territory>('territories', target.id, { geometry: merged });
+    syncAttachedLabel(r, target.id, merged);
+  });
+
+  const area = Math.round(areaKm2(region.geometry));
+  return {
+    filled: true,
+    message: region.truncated
+      ? `Added ${area.toLocaleString()} km² to ${target.name} — the region ran past the fill limit, so click again to continue.`
+      : `Added ${area.toLocaleString()} km² to ${target.name}.`,
+  };
+}
+
+/**
+ * How close a region's vertex has to be to a territory's edge to count as
+ * bordering it, in degrees — about 3 km, which is under the width of the
+ * coastline detail and well over the rounding in the stored geometry.
+ */
+export const FILL_NEIGHBOUR_TOLERANCE = 0.03;
 
 // ---------------------------------------------------------------------------
 // Cleanup (spec §58)

@@ -23,12 +23,13 @@ import type { LineString, MultiPolygon, Polygon } from 'geojson';
 import type { MapController } from '@/render/MapController';
 import { drawingStyle, metersPerUnit, snapIndicatorStyle, vertexStyle } from '@/render/olStyles';
 import { distanceToBoundary } from '@/geo/reshape';
-import { useUIStore, type ToolId } from '@/state/uiStore';
+import { toast, useUIStore, type ToolId } from '@/state/uiStore';
 import { getProject, makeLinear, commit } from '@/state/projectStore';
 import {
   addLabel,
   addSettlement,
   addTerritory,
+  fillUnclaimedAt,
   moveLabel,
   moveSettlement,
   paintTerritory,
@@ -36,6 +37,7 @@ import {
   splitTerritoryWithLine,
   updateTerritoryGeometry,
 } from '@/state/commands';
+import { coastlinePolygons } from '@/io/importers';
 import type { Territory, UUID } from '@/model/types';
 
 const geojson = new GeoJSON();
@@ -127,6 +129,12 @@ export class ToolManager {
       case 'measure':
         this.setupMeasure();
         break;
+      case 'fill':
+        // Warm the coastline as soon as the tool is picked. It is 3 MB of
+        // TopoJSON and the fill cannot start without it, so leaving the load
+        // inside the click makes the first click of a session look dead.
+        void coastlinePolygons().catch(() => undefined);
+        break;
       case 'settlement':
       case 'label':
       case 'paint':
@@ -203,6 +211,9 @@ export class ToolManager {
         case 'label':
           addLabel([lon, lat], { text: 'New Label' });
           return;
+        case 'fill':
+          void this.fillUnclaimed([lon, lat]);
+          return;
         case 'select': {
           if (this.dragJustEnded) {
             this.dragJustEnded = false;
@@ -237,6 +248,38 @@ export class ToolManager {
   }
 
   private dragJustEnded = false;
+  private filling = false;
+
+  /**
+   * The paint bucket: grow the realm beside a piece of wilderness over the whole
+   * of it (spec §6, §57).
+   *
+   * Asynchronous only because the coastline has to be there before the fill can
+   * know where the land ends — after the first click it is cached, so this is a
+   * plain click-to-fill. The guard stops a second click starting a second fill
+   * while the first is still deciding; the work is measured in hundreds of
+   * milliseconds on a big region, and two overlapping fills would each compute
+   * against a document the other was about to change.
+   */
+  private async fillUnclaimed(point: [number, number]): Promise<void> {
+    if (this.filling) return;
+    this.filling = true;
+    try {
+      const land = await coastlinePolygons();
+      // An explicit selection says which realm should grow; without one the
+      // fill goes to whoever already holds most of that ground's edge.
+      const selection = useUIStore.getState().selection;
+      const project = getProject();
+      const preferred = selection.find((id) => project.territories[id]) ?? null;
+
+      const result = fillUnclaimedAt(point, land, preferred);
+      toast(result.message, result.filled ? 'success' : 'warn');
+    } catch (err) {
+      toast(`Could not fill: ${(err as Error).message}`, 'error');
+    } finally {
+      this.filling = false;
+    }
+  }
 
   /** Move the OL feature only; the document is written once, on pointer-up. */
   private previewDrag(id: UUID, kind: 'settlement' | 'label', lonlat: [number, number]): void {
@@ -680,6 +723,8 @@ function cursorFor(tool: ToolId): string {
       return 'copy';
     case 'paint':
       return 'cell';
+    case 'fill':
+      return 'crosshair';
     default:
       return 'default';
   }

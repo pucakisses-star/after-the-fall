@@ -174,6 +174,7 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
     ['A', 'Edit vertices'],
     ['N', 'Redraw a border by hand'],
     ['B', 'Paint territory'],
+    ['G', 'Fill unclaimed land'],
     ['C', 'Split with a line'],
     ['S', 'Settlement tool'],
     ['T', 'Label (text) tool'],

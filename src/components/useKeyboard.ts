@@ -14,6 +14,7 @@ const TOOL_KEYS: Record<string, ToolId> = {
   a: 'vertex',
   n: 'reshape',
   b: 'paint',
+  g: 'fill',
   c: 'cut',
   s: 'settlement',
   t: 'label',

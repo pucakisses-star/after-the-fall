@@ -66,6 +66,18 @@ export const IconPaint = ({ size = 16, className }: IconProps) =>
     className,
   );
 
+/** A tipped bucket with a drop falling from it — the paint bucket. */
+export const IconBucket = ({ size = 16, className }: IconProps) =>
+  svg(
+    <>
+      <path d="M11 3l8.5 8.5a1.5 1.5 0 010 2.1l-5.4 5.4a1.5 1.5 0 01-2.1 0L3.5 10.5z" />
+      <path d="M7.2 6.8L11 3" />
+      <path d="M21 16c0 0 1.6 1.9 1.6 3.1A1.6 1.6 0 0121 20.7a1.6 1.6 0 01-1.6-1.6c0-1.2 1.6-3.1 1.6-3.1z" />
+    </>,
+    size,
+    className,
+  );
+
 export const IconCut = ({ size = 16, className }: IconProps) =>
   svg(
     <>
