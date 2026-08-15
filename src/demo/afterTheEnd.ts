@@ -124,6 +124,65 @@ const SALISH_GROUND: Record<string, [number, number, number, number]> = {
   Rainier: [-122.4, 46.2, -120.3, 47.3],
 };
 
+/**
+ * The ground each realm of the Texas and Western Gulfcoast plate is drawn on.
+ *
+ * The same device as `SALISH_GROUND`, for the same reason and at a different
+ * scale. This plate is not a ring of city-states on an inland sea but thirty
+ * realms across nineteen degrees of longitude, and the ones with open country at
+ * their backs are exactly the ones that will not stay put: Comancheria seeded on
+ * the caprock has nothing between it and the Rockies, and the Louisiane grown
+ * from Alexandria will take east Texas to the Pecos if the realms drawn there
+ * are not the ones holding it.
+ *
+ * Boxes are cut to what the plate shows rather than to any modern boundary, and
+ * they overlap freely — a box says where a realm was drawn, not where its
+ * frontier falls. Where two overlap the lattice settles it, which is what keeps
+ * the Balcones escarpment and the piney woods looking like ground rather than
+ * like the edges of rectangles.
+ */
+const TEXAS_GROUND: Record<string, [number, number, number, number]> = {
+  // The desert west and the high plains.
+  'Nuevo México': [-107.6, 33.4, -103.2, 37.3],
+  'The Saucers': [-106.4, 31.4, -102.8, 35.0],
+  Transpecos: [-106.8, 28.6, -101.6, 32.6],
+  Amarillo: [-104.2, 33.8, -99.4, 37.2],
+  Chisholm: [-103.4, 36.0, -95.0, 41.0],
+  Comancheria: [-103.8, 30.2, -97.6, 35.4],
+
+  // The Cross Timbers and the Hill Country.
+  Metroplex: [-98.6, 31.7, -95.8, 34.0],
+  'First Cavalry': [-99.8, 30.5, -96.4, 32.6],
+  Longhorn: [-100.4, 29.3, -96.8, 31.2],
+  Brazos: [-97.8, 29.5, -95.2, 31.6],
+  Airmen: [-100.4, 27.4, -96.6, 30.1],
+  Aggies: [-97.0, 28.6, -94.4, 30.6],
+  Galveston: [-95.5, 28.8, -94.2, 29.9],
+
+  // South to the river, and over it.
+  'Rio Bravo': [-101.0, 25.2, -97.2, 28.6],
+  'Nueva Extremadura': [-102.4, 27.2, -99.2, 30.2],
+  Coahuila: [-104.6, 25.6, -100.2, 29.6],
+
+  // The Ozarks and the country north of the Red River.
+  Sequoyah: [-97.8, 33.4, -93.7, 37.2],
+  Verdigris: [-97.8, 36.0, -94.2, 38.8],
+  Salem: [-95.2, 35.7, -90.8, 38.8],
+  'Great River': [-91.4, 36.2, -88.8, 38.4],
+  'Little Egypt': [-89.9, 36.3, -87.6, 38.4],
+  Tenesi: [-90.2, 34.3, -87.4, 36.8],
+  Snowbirds: [-90.8, 33.5, -88.2, 35.4],
+
+  // The lower Mississippi and the coast to the delta.
+  Arkansas: [-94.8, 32.8, -90.2, 36.8],
+  Texarkana: [-95.6, 32.3, -92.8, 34.4],
+  'Little Mo': [-94.4, 32.2, -91.4, 34.2],
+  Yazoo: [-91.6, 31.6, -89.4, 34.4],
+  Natchez: [-92.0, 30.4, -89.2, 32.6],
+  Louisiane: [-95.4, 28.9, -90.6, 33.4],
+  'Nouvelle-Orléans': [-91.6, 28.8, -88.9, 30.9],
+};
+
 const EMPIRES: Empire[] = [
   {
     name: 'Empire of Cascadia',
@@ -277,26 +336,68 @@ const EMPIRES: Empire[] = [
       { name: 'The Papacy', short: 'The Papacy', type: 'theocracy', seat: [-90.20, 38.63], weight: 0.5, capital: true },
       { name: 'Kingdom of Iowa', short: 'Iowa', type: 'kingdom', seat: [-93.62, 41.59], weight: 1.0 },
       { name: 'Kingdom of Platte', short: 'Platte', type: 'kingdom', seat: [-96.50, 41.10], weight: 1.2 },
-      { name: 'Duchy of Chisholm', short: 'Chisholm', type: 'duchy', seat: [-97.34, 37.69], weight: 1.1 },
       { name: 'Grand Division of Lead Belt', short: 'Lead Belt', type: 'province', seat: [-90.60, 37.30], weight: 0.6 },
+
+      // The top of the Texas plate: the cattle trail across the short-grass
+      // plains, and the Ozark realms east of it. Chisholm moves off Wichita and
+      // onto the trail itself, which is where the plate draws it.
+      { name: 'Duchy of Chisholm', short: 'Chisholm', type: 'duchy', seat: [-100.02, 37.75], weight: 0.9, whole: true, bounds: TEXAS_GROUND['Chisholm'] },
+      { name: 'Duchy of Verdigris', short: 'Verdigris', type: 'duchy', seat: [-95.71, 37.22], weight: 0.7, whole: true, bounds: TEXAS_GROUND['Verdigris'] },
+      { name: 'Republic of Salem', short: 'Salem', type: 'republic', seat: [-93.29, 37.21], weight: 1.0, whole: true, bounds: TEXAS_GROUND['Salem'] },
+      { name: 'Duchy of the Great River', short: 'Great River', type: 'duchy', seat: [-90.39, 36.76], weight: 0.7, whole: true, bounds: TEXAS_GROUND['Great River'] },
+      { name: 'Duchy of Little Egypt', short: 'Little Egypt', type: 'duchy', seat: [-88.73, 37.15], weight: 0.6, whole: true, bounds: TEXAS_GROUND['Little Egypt'] },
     ],
   },
   {
-    name: 'The Lone Star',
+    /**
+     * Texas and the western Gulfcoast, after the plate of it (spec §64).
+     *
+     * The second plate this map is copied from, and a different problem from the
+     * Salish Sea. That one was small enough that a realm could be held in place
+     * by its neighbours; this one is a continent's worth of open country, where
+     * a realm with the Llano Estacado at its back grows until the coverage
+     * budget stops it. Every realm here is bounded to the ground the plate drew
+     * it on, and none of them subdivides — the plate's own names are the answer,
+     * and Comancheria broken into four counties named after towns would not be
+     * Comancheria.
+     *
+     * The march of them across the plate: the desert realms in the west, the
+     * high plains above the caprock, the Cross Timbers and the Hill Country
+     * through the middle, the Balcones towns on the coastal plain, and the river
+     * realms east of the Sabine. The forts are states in their own right, which
+     * is how that plate reads a collapsed republic: whoever held the armoury
+     * held the county.
+     */
+    name: 'Texas and the Western Gulfcoast',
     short: 'LONE STAR',
     type: 'kingdom',
     color: A[6],
     label: [-101.5, 31.4],
     realms: [
-      { name: 'Kingdom of Comancheria', short: 'Comancheria', type: 'kingdom', seat: [-101.86, 33.58], weight: 1.3, capital: true },
-      { name: 'Duchy of Amarillo', short: 'Amarillo', type: 'duchy', seat: [-101.83, 35.22], weight: 0.9 },
-      { name: 'Duchy of Metroplex', short: 'Metroplex', type: 'city-state', seat: [-97.05, 32.75], weight: 0.5 },
-      { name: 'Longhorn Realm', short: 'Longhorn', type: 'duchy', seat: [-98.30, 30.30], weight: 0.8 },
-      { name: 'Tribe of Airmen', short: 'Airmen', type: 'tribal-confederacy', seat: [-98.49, 29.42], weight: 0.6 },
-      { name: 'Duchy of Aggies', short: 'Aggies', type: 'duchy', seat: [-96.33, 30.63], weight: 0.6 },
-      { name: 'Duchy of Transpecos', short: 'Transpecos', type: 'duchy', seat: [-103.06, 30.90], weight: 1.0 },
-      { name: 'Kingdom of Rio Grande', short: 'Rio Grande', type: 'kingdom', seat: [-99.51, 27.51], weight: 0.9 },
-      { name: 'Duchy of Sequoyah', short: 'Sequoyah', type: 'duchy', seat: [-95.99, 36.15], weight: 0.9 },
+      // The high plains and the desert west.
+      { name: 'Kingdom of Comancheria', short: 'Comancheria', type: 'kingdom', seat: [-101.86, 33.58], weight: 1.3, capital: true, whole: true, bounds: TEXAS_GROUND['Comancheria'] },
+      { name: 'Duchy of Amarillo', short: 'Amarillo', type: 'duchy', seat: [-101.83, 35.22], weight: 1.0, whole: true, bounds: TEXAS_GROUND['Amarillo'] },
+      { name: 'Duchy of Transpecos', short: 'Transpecos', type: 'duchy', seat: [-103.06, 30.90], weight: 1.1, whole: true, bounds: TEXAS_GROUND['Transpecos'] },
+      { name: 'Tribe of the Saucers', short: 'The Saucers', type: 'tribal-confederacy', seat: [-104.52, 33.39], weight: 1.0, whole: true, bounds: TEXAS_GROUND['The Saucers'] },
+
+      // The Cross Timbers, the forts, and the Hill Country.
+      { name: 'Duchy of Metroplex', short: 'Metroplex', type: 'city-state', seat: [-97.33, 32.75], weight: 0.7, whole: true, bounds: TEXAS_GROUND['Metroplex'] },
+      { name: 'The First Cavalry', short: 'First Cavalry', type: 'march', seat: [-97.78, 31.13], weight: 0.8, whole: true, bounds: TEXAS_GROUND['First Cavalry'] },
+      { name: 'Longhorn Realm', short: 'Longhorn', type: 'duchy', seat: [-97.74, 30.27], weight: 1.0, whole: true, bounds: TEXAS_GROUND['Longhorn'] },
+      { name: 'Duchy of Brazos', short: 'Brazos', type: 'duchy', seat: [-96.31, 30.63], weight: 0.7, whole: true, bounds: TEXAS_GROUND['Brazos'] },
+
+      // The coastal plain, from the Nueces to Galveston Bay.
+      { name: 'Tribe of Airmen', short: 'Airmen', type: 'tribal-confederacy', seat: [-98.49, 29.42], weight: 0.9, whole: true, bounds: TEXAS_GROUND['Airmen'] },
+      { name: 'Duchy of Aggies', short: 'Aggies', type: 'duchy', seat: [-96.54, 29.71], weight: 0.8, also: [[-95.37, 29.76]], whole: true, bounds: TEXAS_GROUND['Aggies'] },
+      { name: 'Free City of Galveston', short: 'Galveston', type: 'city-state', seat: [-94.80, 29.30], weight: 0.35, whole: true, bounds: TEXAS_GROUND['Galveston'] },
+
+      // South to the river. The realm on the Rio Bravo takes its name, so the
+      // one seated at Chihuahua is under the name of its own city.
+      { name: 'Kingdom of Rio Bravo', short: 'Rio Bravo', type: 'kingdom', seat: [-99.51, 27.51], weight: 1.0, whole: true, bounds: TEXAS_GROUND['Rio Bravo'] },
+
+      // The Cherokee country north of the Red River.
+      { name: 'Duchy of Sequoyah', short: 'Sequoyah', type: 'duchy', seat: [-95.99, 36.15], weight: 1.0, whole: true, bounds: TEXAS_GROUND['Sequoyah'] },
+      { name: 'Duchy of Texarkana', short: 'Texarkana', type: 'duchy', seat: [-94.05, 33.44], weight: 0.7, whole: true, bounds: TEXAS_GROUND['Texarkana'] },
     ],
   },
   {
@@ -306,10 +407,12 @@ const EMPIRES: Empire[] = [
     color: A[8],
     label: [-92.6, 35.6],
     realms: [
-      { name: 'Kingdom of Louisiane', short: 'Louisiane', type: 'kingdom', seat: [-91.19, 30.46], weight: 1.0, capital: true },
-      { name: 'Republic of Orleans', short: 'Orleans', type: 'republic', seat: [-90.07, 29.95], weight: 0.4 },
-      { name: 'Duchy of Ouachita', short: 'Ouachita', type: 'duchy', seat: [-93.75, 32.52], weight: 0.9 },
-      { name: 'Duchy of Arkansas', short: 'Arkansas', type: 'duchy', seat: [-92.29, 34.75], weight: 1.0 },
+      // The river realms of the plate. Louisiane is seated at Alexandria rather
+      // than Baton Rouge because the plate gives the delta to the city on it.
+      { name: 'Kingdom of Louisiane', short: 'Louisiane', type: 'kingdom', seat: [-92.45, 31.31], weight: 1.2, capital: true, whole: true, bounds: TEXAS_GROUND['Louisiane'] },
+      { name: 'Republic of Nouvelle-Orléans', short: 'Nouvelle-Orléans', type: 'republic', seat: [-90.07, 29.95], weight: 0.5, whole: true, bounds: TEXAS_GROUND['Nouvelle-Orléans'] },
+      { name: 'Duchy of Little Mo', short: 'Little Mo', type: 'duchy', seat: [-92.66, 33.21], weight: 0.6, whole: true, bounds: TEXAS_GROUND['Little Mo'] },
+      { name: 'Duchy of Arkansas', short: 'Arkansas', type: 'duchy', seat: [-92.29, 34.75], weight: 1.1, whole: true, bounds: TEXAS_GROUND['Arkansas'] },
       { name: 'Duchy of Mobile', short: 'Mobile', type: 'duchy', seat: [-88.04, 30.69], weight: 0.7 },
     ],
   },
@@ -321,8 +424,12 @@ const EMPIRES: Empire[] = [
     label: [-83.4, 32.2],
     realms: [
       { name: 'Metropolis of Choctaw', short: 'Choctaw', type: 'city-state', seat: [-84.39, 33.75], weight: 0.9, capital: true },
-      { name: 'Duchy of Yazoo', short: 'Yazoo', type: 'duchy', seat: [-90.18, 32.30], weight: 0.9 },
-      { name: 'District of Natchez', short: 'Natchez', type: 'district', seat: [-86.80, 33.52], weight: 0.8 },
+      // The plate's right-hand edge: the Delta realms, and the two the
+      // Mississippi divides from Tenesi.
+      { name: 'Duchy of Yazoo', short: 'Yazoo', type: 'duchy', seat: [-90.65, 33.45], weight: 0.8, whole: true, bounds: TEXAS_GROUND['Yazoo'] },
+      { name: 'District of Natchez', short: 'Natchez', type: 'district', seat: [-91.40, 31.56], weight: 0.7, whole: true, bounds: TEXAS_GROUND['Natchez'] },
+      { name: 'Duchy of Tenesi', short: 'Tenesi', type: 'duchy', seat: [-88.81, 35.61], weight: 0.9, whole: true, bounds: TEXAS_GROUND['Tenesi'] },
+      { name: 'Duchy of the Snowbirds', short: 'Snowbirds', type: 'duchy', seat: [-89.52, 34.37], weight: 0.7, whole: true, bounds: TEXAS_GROUND['Snowbirds'] },
       { name: 'Kingdom of Carolina', short: 'Carolina', type: 'kingdom', seat: [-79.94, 32.78], weight: 0.9 },
       { name: 'Duchy of Suwannee', short: 'Suwannee', type: 'duchy', seat: [-84.28, 30.44], weight: 0.7 },
       { name: 'Principality of Orlando', short: 'Orlando', type: 'principality', seat: [-81.38, 28.54], weight: 0.6 },
@@ -408,10 +515,13 @@ const EMPIRES: Empire[] = [
       { name: 'Chiefdom of Phoenix', short: 'Phoenix', type: 'tribal-confederacy', seat: [-112.07, 33.45], weight: 0.7 },
       { name: 'High Chiefdom of Gadsden', short: 'Gadsden', type: 'tribal-confederacy', seat: [-110.93, 32.22], weight: 0.8 },
       { name: 'High Chiefdom of the Colorado', short: 'The Colorado', type: 'tribal-confederacy', seat: [-114.62, 32.73], weight: 0.7 },
-      { name: 'High Chiefdom of Nuevo México', short: 'Nuevo México', type: 'tribal-confederacy', seat: [-105.94, 35.69], weight: 1.0 },
+      { name: 'High Chiefdom of Nuevo México', short: 'Nuevo México', type: 'tribal-confederacy', seat: [-105.94, 35.69], weight: 1.0, whole: true, bounds: TEXAS_GROUND['Nuevo México'] },
       { name: 'Duchy of Sonora', short: 'Sonora', type: 'duchy', seat: [-110.97, 29.07], weight: 1.1 },
-      { name: 'Kingdom of Rio Bravo', short: 'Rio Bravo', type: 'kingdom', seat: [-106.09, 28.63], weight: 1.2 },
-      { name: 'Duchy of Coahuila', short: 'Coahuila', type: 'duchy', seat: [-101.00, 26.90], weight: 1.0 },
+      // Named for its city, not for the river: the plate gives "Rio Bravo" to
+      // the realm actually seated on it, four hundred miles downstream.
+      { name: 'Kingdom of Chihuahua', short: 'Chihuahua', type: 'kingdom', seat: [-106.09, 28.63], weight: 1.2 },
+      { name: 'Duchy of Nueva Extremadura', short: 'Nueva Extremadura', type: 'duchy', seat: [-100.52, 28.70], weight: 0.9, whole: true, bounds: TEXAS_GROUND['Nueva Extremadura'] },
+      { name: 'Duchy of Coahuila', short: 'Coahuila', type: 'duchy', seat: [-101.51, 27.88], weight: 1.0, whole: true, bounds: TEXAS_GROUND['Coahuila'] },
       { name: 'Kingdom of Sierra Madre', short: 'Sierra Madre', type: 'kingdom', seat: [-104.67, 24.02], weight: 1.0 },
       { name: 'Duchy of Sinaloa', short: 'Sinaloa', type: 'duchy', seat: [-107.39, 24.80], weight: 0.8 },
     ],
