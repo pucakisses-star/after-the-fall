@@ -135,10 +135,13 @@ function cutByWalls(shape: Poly, walls: Position[][], point: [number, number]): 
   if (!chosen) return null;
   if (!wall) return normalizePoly(chosen);
 
-  // Half the width, because the piece on the other side of the cut grows by
-  // the same half: the two meet in the middle of the strip instead of
-  // overlapping across it, and a slit is closed from both of its sides at once.
-  const grown = dilate(chosen, (WALL_WIDTH / 2) * DEGREE_KM);
+  // The whole width, not half. Half leaves the corners: where the line bends,
+  // the two quads that meet there cut off a scrap of ground on the outside of
+  // the bend, and a scrap is neither side's — it comes back as a black dash
+  // beside the river. A full width reaches everything the cut detached from
+  // this piece, and reaches nothing detached from the other one, because a
+  // strip that runs away into the far side is more than a width from here.
+  const grown = dilate(chosen, WALL_WIDTH * DEGREE_KM);
   const healed = grown && intersection(whole, grown);
   if (!healed) return normalizePoly(chosen);
 

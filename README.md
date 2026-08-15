@@ -292,22 +292,27 @@ read as a frontier following the river rather than a corridor of no-man's-land b
 line divides anything: a river that peters out mid-continent leaves the two sides connected around
 its end and the fill goes round it, which is the truth about that river.
 
-The width of that cut caused two bugs before it was dealt with properly, and both drew the same way:
-a black line inside somebody's country, following a river, stopping where the river stopped.
+The width of that cut caused three bugs before it was dealt with properly, and all three drew the
+same way: black marks inside somebody's country, following a river.
 
-The first was a line that does not divide a territory at all. It still left the width of the cut
-behind, and the old owner was left holding exactly that — a ribbon thirty metres wide and five
-hundred kilometres long, eighteen square kilometres, which passes any area threshold anybody would
-set and is still not a territory. Judging what a fill leaves behind by mean width rather than by area
-deals with that one: under two hundred metres across is the cut, not ground.
+A line that does not divide a territory at all still left the width of the cut behind, and the old
+owner was left holding exactly that — a ribbon thirty metres wide and five hundred kilometres long,
+eighteen square kilometres, which passes any area threshold anybody would set and is still not a
+territory. Worse, the ribbons are *connected to each other* along the river network, so a ribbon
+attached to a real body is not a thin part any test can throw away: it is a finger of one realm's
+ground reaching deep into its neighbour, and whichever side kept the cut grew a hand of them. And
+where the line bends, the two quads meeting there cut a scrap off the outside of the bend that
+belongs to neither side, which came back as a row of black dashes beside the river.
 
-The second was worse, because the ribbons are *connected to each other* along the river network. A
-ribbon attached to a real body is not a thin part any test can throw away — it is a finger of one
-realm's ground reaching deep into its neighbour, and whichever side kept the cut grew a hand of them.
-So the cut is now given back: the piece under the pointer is grown by half the width that was
-removed, and clipped to the shape it came from. The piece on the other side grows by the same half,
-so the two meet in the middle of the strip rather than overlapping across it, and a slit is closed
-from both of its sides at once. Nothing is left over to belong to anybody.
+Throwing away what looks like a scrap is not the answer to any of them. It cannot see a ribbon
+attached to a body at all, and for a scrap on the far side of the river it makes things worse: handed
+to the realm that received the fill, it arrives as a speck lying inside its neighbour.
+
+So the cut is repaired where it is made. The piece under the pointer is grown by the full width that
+was removed and clipped to the shape it came from, which reabsorbs every slit, notch and corner scrap
+the cut detached from it — and reaches nothing detached from the other side, because a strip that
+runs away into the far side is more than a width from here. Nothing is filtered afterwards: the realm
+that receives the fill gets the region as found, and the old owner keeps its exact complement.
 
 Not by splitting along the lines, which is the obvious answer and does not survive contact with the
 data: a county here is crossed sixty times by six river features, and the noding that a

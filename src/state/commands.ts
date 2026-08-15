@@ -16,7 +16,6 @@ import {
   bbox,
   difference,
   dissolve,
-  dropHairlines,
   explode,
   makeValid,
   interiorPoint,
@@ -695,20 +694,20 @@ export function fillLandAt(
   }
   if (owner?.locked) return { filled: false, message: `${owner.name} is locked.` };
 
-  // What the old owner has left, once the width of the cut itself is taken out
-  // of it. A line that does not divide a territory — a river that peters out
-  // inside it — otherwise leaves the owner holding the slit: a ribbon thirty
-  // metres wide and hundreds of kilometres long, which is not ground, and which
-  // draws as a border hanging in the middle of its neighbour and stopping dead
-  // where the river stopped. Null means nothing is left worth holding.
-  const left = owner ? difference(owner.geometry, region.geometry) : null;
-  const remainder = left ? dropHairlines(left, FILL_MIN_WIDTH_KM) : null;
-
-  // Taken from the far side rather than being the region as found, so that
-  // whatever the old owner is not keeping is exactly what the new one gains —
-  // the ribbon included. A fill neither creates nor destroys ground.
-  const taken = owner ? (remainder ? difference(owner.geometry, remainder) : owner.geometry) : region.geometry;
-  if (!taken) return { filled: false, message: 'Could not work out what that fill would move.' };
+  // The region as found, and the old owner keeps the exact complement of it.
+  //
+  // Nothing is filtered out of either side here, and that is deliberate. An
+  // earlier version threw away what looked like scraps — parts under two
+  // hundred metres across — and handed them to the realm that received the
+  // fill, which is right for a scrap beside the ground it received and wrong
+  // for one on the far side of the river: that one arrives as a black speck
+  // lying inside its neighbour. The cut is repaired where it is made, in
+  // `cutByWalls`, so there are no scraps to sort out by the time they get here.
+  const taken = region.geometry;
+  const left = owner ? difference(owner.geometry, taken) : null;
+  // A boolean that cancels two shapes leaves a ring with no area. Not ground,
+  // and not something to leave a realm holding.
+  const remainder = left && areaKm2(left) > 0 ? left : null;
 
   const merged = union([target.geometry, taken]);
   if (!merged) return { filled: false, message: 'Could not merge that ground into the realm.' };
@@ -742,15 +741,6 @@ export function fillLandAt(
 
 /** @deprecated The bucket fills claimed ground too now; call `fillLandAt`. */
 export const fillUnclaimedAt = fillLandAt;
-
-/**
- * Thinner than this and what a fill left behind is the cut, not a territory.
- *
- * Two hundred metres of mean width: an order of magnitude above the line the
- * bucket cuts with, and two orders below the narrowest thing anybody would draw
- * as a state.
- */
-export const FILL_MIN_WIDTH_KM = 0.2;
 
 /**
  * How close a region's vertex has to be to a territory's edge to count as
