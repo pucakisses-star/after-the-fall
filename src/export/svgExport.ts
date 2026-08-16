@@ -35,6 +35,7 @@ import {
 } from '@/render/olStyles';
 import type { RoadClass } from '@/render/olStyles';
 import { symbolToSvg } from '@/render/symbols';
+import { placeNameBySymbol } from '@/render/namePlacement';
 import { compassToSvg, legendToSvg } from './legend';
 import { toCss } from '@/model/color';
 import { STYLE_IDS } from '@/model/defaults';
@@ -603,16 +604,23 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
 
     const pt = p(l.anchor.coordinates[0], l.anchor.coordinates[1]);
     if (!pt) continue;
-    const x = pt[0] + l.offset[0] * scale;
-    const y = pt[1] + l.offset[1] * scale;
     const lines = content.split(/\r?\n/);
+    // The same rule the screen uses, so a name that clears its dot on the map
+    // clears it in the export. SVG needs no measuring: the anchor does it.
+    const owner = l.attachedToId ? project.settlements[l.attachedToId] : undefined;
+    const pin =
+      owner && !l.manualPosition
+        ? placeNameBySymbol(l.offset, resolveSymbolStyle(project, owner), style, lines.length)
+        : null;
+    const x = pt[0] + (pin ? pin.dx : l.offset[0]) * scale;
+    const y = pt[1] + (pin ? pin.dy : l.offset[1]) * scale;
     const lineHeight = style.fontSize * style.lineHeight * scale;
     const startY = y - (lineHeight * (lines.length - 1)) / 2;
     const transform = l.rotation ? ` transform="rotate(${num(l.rotation)} ${num(x)} ${num(y)})"` : '';
 
     // letter-spacing adds a trailing gap after the final glyph in most renderers;
     // shifting a centred run by half a tracking unit re-centres it.
-    const centringShift = style.align === 'center' ? -(style.tracking * scale) / 2 : 0;
+    const centringShift = !pin && style.align === 'center' ? -(style.tracking * scale) / 2 : 0;
 
     const tspans = lines
       .map(
@@ -620,8 +628,11 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
           `<tspan x="${num(x + centringShift)}" y="${num(startY + lineHeight * i)}" dominant-baseline="central">${esc(line)}</tspan>`,
       )
       .join('');
+    // A pinned name overrides the style's own alignment, which is about how its
+    // lines sit against each other rather than where the block goes.
+    const anchored = pin ? ` text-anchor="${pin.anchorX}"` : '';
     labels.push(
-      `<text id="label-${esc(l.id)}" ${textAttrs(style, scale)}${transform}>${tspans}</text>`,
+      `<text id="label-${esc(l.id)}" ${textAttrs(style, scale)}${transform}${anchored}>${tspans}</text>`,
     );
   }
   if (labelPathDefs.length) defs.push(...labelPathDefs);

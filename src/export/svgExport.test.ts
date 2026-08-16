@@ -8,6 +8,7 @@ import { makeLabel, makeSettlement, makeTerritory } from '@/state/projectStore';
 import { DEFAULT_SVG_OPTIONS, exportSvg } from './svgExport';
 import { elevationTint, roadRankStyle } from '@/render/olStyles';
 import { STYLE_IDS } from '@/model/defaults';
+import { resolveSymbolStyle } from '@/model/resolveStyle';
 import type { MapProject } from '@/model/types';
 
 function rect(x0: number, y0: number, x1: number, y1: number): Polygon {
@@ -69,8 +70,11 @@ function sampleProject(): MapProject {
   const cityLabel = makeLabel(project, { type: 'Point', coordinates: [5, 5] }, {
     kind: 'city',
     text: 'Alpha City',
+    attachedToId: city.id,
+    offset: [8, 0],
   });
   project.labels[cityLabel.id] = cityLabel;
+  project.settlements[city.id] = { ...city, labelId: cityLabel.id };
 
   return project;
 }
@@ -143,6 +147,27 @@ describe('exportSvg', () => {
     );
     expect(internal).toContain('<path');
     expect(international).toContain('<path');
+  });
+
+  it('sets a settlement name clear of its symbol, as the screen does', async () => {
+    // The name and the dot are one object, and the export has to agree with the
+    // canvas about where the join is or the exported map is not the map you
+    // were looking at. SVG needs no measuring — anchoring the start of the run
+    // at the symbol's edge is the same statement.
+    const project = sampleProject();
+    const city = Object.values(project.settlements)[0];
+    const label = Object.values(project.labels).find((l) => l.attachedToId === city.id)!;
+    const symbol = resolveSymbolStyle(project, city);
+
+    const svg = await exportSvg(project, OPTIONS);
+    const element = svg.match(new RegExp(`<text id="label-${label.id}".*?</text>`, 's'))![0];
+    expect(element).toContain('text-anchor="start"');
+
+    // And the run starts outside the symbol rather than under it.
+    const group = svg.slice(svg.indexOf('<g id="settlements"'), svg.indexOf('<g id="labels"'));
+    const symbolX = Number(group.match(/cx="([-\d.]+)"/)![1]);
+    const textX = Number(element.match(/<tspan x="([-\d.]+)"/)![1]);
+    expect(textX).toBeGreaterThan(symbolX + symbol.size / 2);
   });
 
   it('draws settlement symbols as real shapes', async () => {

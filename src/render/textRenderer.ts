@@ -45,8 +45,13 @@ function splitLines(text: string): string[] {
 }
 
 /**
- * Draw a straight (optionally rotated) text block centred on (x, y).
+ * Draw a straight (optionally rotated) text block at (x, y).
  * Returns the bounding box so callers can cache it for hit-testing.
+ *
+ * `anchorX` says which part of the block lands on x: its middle by default, or
+ * one of its ends. Anchoring by an end is what lets a name be pinned a fixed
+ * distance from the symbol it belongs to without the caller having to measure
+ * it first — see `render/namePlacement`.
  */
 export function drawText(
   ctx: CanvasRenderingContext2D,
@@ -56,6 +61,7 @@ export function drawText(
   style: TextStyle,
   scale = 1,
   rotationDeg = 0,
+  anchorX: 'start' | 'middle' | 'end' = 'middle',
 ): TextBox {
   const text = applyTextTransform(rawText, style.transform);
   const lines = splitLines(text);
@@ -65,9 +71,13 @@ export function drawText(
   const blockWidth = Math.max(...widths, 0);
   const blockHeight = lineHeight * lines.length;
 
+  // Anchoring by an end is a shift of half the block, which is known here and
+  // nowhere earlier.
+  const originX = x + (anchorX === 'start' ? blockWidth / 2 : anchorX === 'end' ? -blockWidth / 2 : 0);
+
   ctx.save();
   ctx.globalAlpha = style.opacity;
-  ctx.translate(x, y);
+  ctx.translate(originX, y);
   if (rotationDeg) ctx.rotate((rotationDeg * Math.PI) / 180);
   ctx.font = fontShorthand(style, scale);
   ctx.textBaseline = 'middle';
@@ -120,7 +130,7 @@ export function drawText(
 
   ctx.restore();
 
-  return { cx: x, cy: y, width: blockWidth, height: blockHeight, rotation: rotationDeg };
+  return { cx: originX, cy: y, width: blockWidth, height: blockHeight, rotation: rotationDeg };
 }
 
 // ---------------------------------------------------------------------------

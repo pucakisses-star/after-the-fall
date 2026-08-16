@@ -406,7 +406,15 @@ export function setCapital(territoryId: UUID, choice: CapitalChoice): UUID | nul
         styleClassId: settlementTypeInfo(rank).styleClassId,
       });
       if (existing.labelId) {
-        r.update<MapLabel>('labels', existing.labelId, { styleClassId: STYLE_IDS.textCapital });
+        r.update<MapLabel>('labels', existing.labelId, {
+          styleClassId: STYLE_IDS.textCapital,
+          // A capital's symbol is the larger one, so its name stands further
+          // off. The renderer would hold the name clear anyway; this keeps the
+          // number in the inspector honest about where it actually is.
+          ...(project.labels[existing.labelId]?.manualPosition
+            ? {}
+            : { offset: [settlementLabelOffset({ ...existing, type: rank }), 0] as [number, number] }),
+        });
       }
     }
 

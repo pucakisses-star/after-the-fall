@@ -58,6 +58,7 @@ import {
   territoryStyle,
 } from './olStyles';
 import { drawSymbol } from './symbols';
+import { placeNameBySymbol } from './namePlacement';
 import { fitToPlate, inscriptionScale, nameFitsItsLand, scaledText } from './labelFit';
 import { drawText, drawTextOnPath, boxContains, type TextBox } from './textRenderer';
 import { useProjectStore } from '@/state/projectStore';
@@ -522,8 +523,9 @@ export class MapController {
     records: Record<UUID, T>,
     project: MapProject,
     toGeometry: (rec: T) => Geometry | null,
-  ): void {
+  ): boolean {
     const seen = new Set<UUID>();
+    let touched = false;
 
     for (const rec of Object.values(records)) {
       seen.add(rec.id);
@@ -536,9 +538,11 @@ export class MapController {
       if (!visible) {
         if (existing) source.removeFeature(existing);
         cache.delete(rec.id);
+        touched = touched || !!existing;
         continue;
       }
       if (cache.get(rec.id) === rec && existing) continue; // untouched
+      touched = true;
 
       const geometry = toGeometry(rec);
       if (!geometry) {
@@ -563,7 +567,9 @@ export class MapController {
       const f = source.getFeatureById(id);
       if (f) source.removeFeature(f);
       cache.delete(id);
+      touched = true;
     }
+    return touched;
   }
 
   private syncTerritories(project: MapProject): void {
@@ -601,9 +607,18 @@ export class MapController {
     }
 
     const proj = this.projection();
-    this.syncCollection(this.settlementSource, this.cache.settlements, project.settlements, project, (s) =>
-      geojson.readGeometry(s.geometry, { dataProjection: 'EPSG:4326', featureProjection: proj }),
-    );
+    // A name is drawn against its symbol, so a symbol that changed leaves the
+    // name it belongs to out of date — and nothing in the label collection says
+    // so, because the label record itself did not change. Without this, growing
+    // a dot (or promoting a town to a capital, which grows it) redraws the
+    // symbol under a name still placed for the old one.
+    if (
+      this.syncCollection(this.settlementSource, this.cache.settlements, project.settlements, project, (s) =>
+        geojson.readGeometry(s.geometry, { dataProjection: 'EPSG:4326', featureProjection: proj }),
+      )
+    ) {
+      this.labelLayer.changed();
+    }
   }
 
   private syncLabels(project: MapProject): void {
@@ -1011,6 +1026,15 @@ export class MapController {
     const style = this.scaleToPlate(project, label, base);
     if (!selected && !this.labelEarnsItsPlace(project, label, style)) return [];
     const pathPixels = label.pathId ? this.labelPathPixels(project, label) : null;
+    // A name belonging to a symbol is placed against that symbol rather than at
+    // a stored offset, so promoting a town — or resizing its dot — moves its
+    // name out of the way instead of under it. A name the author has dragged
+    // has said where it goes and is left alone.
+    const owner = label.attachedToId ? project.settlements[label.attachedToId] : undefined;
+    const pin =
+      owner && !label.manualPosition && !pathPixels
+        ? placeNameBySymbol(label.offset, resolveSymbolStyle(project, owner), style, label.text.split(/\r?\n/).length)
+        : null;
 
     return [
       new Style({
@@ -1032,11 +1056,12 @@ export class MapController {
             box = drawText(
               ctx,
               label.text,
-              x + label.offset[0] * scale,
-              y + label.offset[1] * scale,
+              x + (pin ? pin.dx : label.offset[0]) * scale,
+              y + (pin ? pin.dy : label.offset[1]) * scale,
               style,
               scale,
               label.rotation,
+              pin ? pin.anchorX : 'middle',
             );
           }
 
