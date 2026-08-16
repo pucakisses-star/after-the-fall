@@ -1,0 +1,1121 @@
+[
+ {
+  "id": "vermont",
+  "name": "Electorate of Vermont",
+  "short": "Vermont",
+  "type": "principality",
+  "counties": [
+   "50015",
+   "50025",
+   "50011",
+   "50027",
+   "50021",
+   "50007",
+   "50023",
+   "50017",
+   "33019",
+   "50009",
+   "50005"
+  ],
+  "color": "#487848"
+ },
+ {
+  "id": "nh",
+  "name": "Duchy of New Hampshire",
+  "short": "New Hampshire",
+  "type": "duchy",
+  "counties": [
+   "23031",
+   "33007",
+   "23023",
+   "33001",
+   "23001",
+   "23017",
+   "33003",
+   "33017",
+   "33013",
+   "23007",
+   "33009"
+  ],
+  "color": "#a8d8cc"
+ },
+ {
+  "id": "hampshire-maine",
+  "name": "County of Hampshire-Maine",
+  "short": "Hampshire-Maine",
+  "type": "county",
+  "counties": [
+   "23025"
+  ],
+  "parent": "nh",
+  "color": "#fcfcfc"
+ },
+ {
+  "id": "maine",
+  "name": "Duchy of Maine",
+  "short": "Maine",
+  "type": "duchy",
+  "counties": [
+   "23003",
+   "23029",
+   "23027",
+   "23013",
+   "23011",
+   "23019",
+   "23021",
+   "23015"
+  ],
+  "notes": "Under the rule of King Justin of Canada.",
+  "color": "#e45454"
+ },
+ {
+  "id": "portland",
+  "name": "County of Portland",
+  "short": "Portland",
+  "type": "county",
+  "counties": [
+   "23005"
+  ],
+  "parent": "vermont",
+  "color": "#487848"
+ },
+ {
+  "id": "maine-islands",
+  "name": "Territory of Maine Islands",
+  "short": "Maine Islands",
+  "type": "province",
+  "counties": [
+   "23009"
+  ],
+  "parent": "newyork",
+  "color": "#5454a8"
+ },
+ {
+  "id": "connecticut",
+  "name": "Duchy of Connecticut",
+  "short": "Connecticut",
+  "type": "duchy",
+  "counties": [
+   "25011",
+   "09007",
+   "25003",
+   "25013",
+   "09013",
+   "25015",
+   "33011",
+   "09003",
+   "33005"
+  ],
+  "notes": "Ruled by Duke Ned.",
+  "color": "#787854"
+ },
+ {
+  "id": "newhaven",
+  "name": "Concession of New Haven",
+  "short": "New Haven",
+  "type": "district",
+  "counties": [
+   "09009"
+  ],
+  "parent": "vermont",
+  "color": "#487848"
+ },
+ {
+  "id": "london",
+  "name": "County of London",
+  "short": "London",
+  "type": "county",
+  "counties": [
+   "09011"
+  ],
+  "notes": "Ruled by Count Mike II.",
+  "color": "#3054a8"
+ },
+ {
+  "id": "boston",
+  "name": "Duchy of Boston",
+  "short": "Boston",
+  "type": "duchy",
+  "counties": [
+   "25025",
+   "25009",
+   "25017"
+  ],
+  "liege": "vermont",
+  "notes": "Personal union under Bernie I.",
+  "color": "#487848"
+ },
+ {
+  "id": "massachusetts",
+  "name": "Duchy of Massachusetts",
+  "short": "Massachusetts",
+  "type": "duchy",
+  "counties": [
+   "25023",
+   "25005",
+   "25021",
+   "25027"
+  ],
+  "notes": "Ruled by Duke Charlie V.",
+  "color": "#a8e484"
+ },
+ {
+  "id": "exeter",
+  "name": "County of Exeter",
+  "short": "Exeter",
+  "type": "county",
+  "counties": [
+   "33015"
+  ],
+  "parent": "massachusetts",
+  "color": "#a8e484"
+ },
+ {
+  "id": "capecod",
+  "name": "Territory of Cape Cod",
+  "short": "Cape Cod",
+  "type": "province",
+  "counties": [
+   "25007",
+   "25001",
+   "25019"
+  ],
+  "parent": "newyork",
+  "color": "#5454a8"
+ },
+ {
+  "id": "providence",
+  "name": "Duchy of Providence",
+  "short": "Providence",
+  "type": "duchy",
+  "counties": [
+   "44003",
+   "44007",
+   "09015",
+   "44001"
+  ],
+  "notes": "Ruled by Duke Dan VI.",
+  "color": "#7890cc"
+ },
+ {
+  "id": "pohegan",
+  "name": "County of Pohegan",
+  "short": "Pohegan",
+  "type": "county",
+  "counties": [
+   "44009"
+  ],
+  "parent": "providence",
+  "color": "#5454a8"
+ },
+ {
+  "id": "rhodes",
+  "name": "Territory of Rhodes",
+  "short": "Rhodes",
+  "type": "province",
+  "counties": [
+   "44005"
+  ],
+  "parent": "newyork",
+  "color": "#5454a8"
+ },
+ {
+  "id": "newyork",
+  "name": "Most Serene Republic of New York",
+  "short": "New York",
+  "type": "republic",
+  "counties": [
+   "36059",
+   "36047",
+   "36081",
+   "36085"
+  ],
+  "notes": "Under the rule of Doge Eric Adams.",
+  "color": "#5454a8"
+ },
+ {
+  "id": "stamford",
+  "name": "Territory of Stamford",
+  "short": "Stamford",
+  "type": "province",
+  "counties": [
+   "09001",
+   "36119"
+  ],
+  "parent": "newyork",
+  "color": "#e4f0e4"
+ },
+ {
+  "id": "montauk",
+  "name": "County of Montauk",
+  "short": "Montauk",
+  "type": "county",
+  "counties": [
+   "36103"
+  ],
+  "notes": "Ruled by Countess Sally I 'The Beloved'.",
+  "color": "#b47878"
+ },
+ {
+  "id": "newark",
+  "name": "County of Newark-Bronx",
+  "short": "Newark-Bronx",
+  "type": "county",
+  "counties": [
+   "36061",
+   "34003",
+   "34013",
+   "34017",
+   "36005",
+   "34039"
+  ],
+  "notes": "Ruled by Countess Alexandra.",
+  "color": "#b44860"
+ },
+ {
+  "id": "atlantic",
+  "name": "Territory of Atlantic and Ocean Cities",
+  "short": "Atlantic Cities",
+  "type": "province",
+  "counties": [
+   "34029",
+   "34001"
+  ],
+  "parent": "newyork",
+  "color": "#cc8484"
+ },
+ {
+  "id": "hudson",
+  "name": "Duchy of Hudson",
+  "short": "Hudson",
+  "type": "duchy",
+  "counties": [
+   "36105",
+   "36111",
+   "09005",
+   "36027",
+   "36079"
+  ],
+  "notes": "Ruled by Duke Kamal I.",
+  "color": "#e4f0e4"
+ },
+ {
+  "id": "chemung",
+  "name": "Duchy of Chemung",
+  "short": "Chemung",
+  "type": "duchy",
+  "counties": [
+   "36107",
+   "42127",
+   "36077",
+   "42115",
+   "36007",
+   "36017"
+  ],
+  "liege": "hudson",
+  "notes": "Personal union under Kamal I.",
+  "color": "#e4f0e4"
+ },
+ {
+  "id": "catskill",
+  "name": "Bishopric of Catskill",
+  "short": "Catskill",
+  "type": "bishopric",
+  "counties": [
+   "36095",
+   "36057",
+   "36093",
+   "36025"
+  ],
+  "notes": "Ruled by Bishop Charles F. Gregory.",
+  "color": "#486ccc"
+ },
+ {
+  "id": "holland",
+  "name": "County of Holland",
+  "short": "Holland",
+  "type": "county",
+  "counties": [
+   "36039",
+   "36001",
+   "36091"
+  ],
+  "notes": "Ruled by Count Michael III.",
+  "color": "#c060a8"
+ },
+ {
+  "id": "chatham",
+  "name": "County of Chatham",
+  "short": "Chatham",
+  "type": "county",
+  "counties": [
+   "36021",
+   "36083"
+  ],
+  "parent": "vermont",
+  "color": "#487848"
+ },
+ {
+  "id": "bennington",
+  "name": "Republic of Bennington",
+  "short": "Bennington",
+  "type": "republic",
+  "counties": [
+   "50003"
+  ],
+  "color": "#c06078"
+ },
+ {
+  "id": "whitehall",
+  "name": "County of Whitehall",
+  "short": "Whitehall",
+  "type": "county",
+  "counties": [
+   "36115"
+  ],
+  "color": "#c06078"
+ },
+ {
+  "id": "hubbardton",
+  "name": "Barony of Hubbardton",
+  "short": "Hubbardton",
+  "type": "barony",
+  "counties": [
+   "50001"
+  ],
+  "color": "#c07860"
+ },
+ {
+  "id": "champlain",
+  "name": "County of Champlain",
+  "short": "Champlain",
+  "type": "county",
+  "counties": [
+   "50013",
+   "36019"
+  ],
+  "notes": "Ruled by Count Christopher XII.",
+  "color": "#849090"
+ },
+ {
+  "id": "papal",
+  "name": "Papal States",
+  "short": "Papal States",
+  "type": "theocracy",
+  "counties": [
+   "36043",
+   "36089",
+   "36065",
+   "36031",
+   "36041",
+   "36033",
+   "36049",
+   "36035",
+   "36113"
+  ],
+  "notes": "Ruled by Pope Jos\u00e9 II.",
+  "color": "#e4d89c"
+ },
+ {
+  "id": "watertown",
+  "name": "County of Watertown",
+  "short": "Watertown",
+  "type": "county",
+  "counties": [
+   "36045"
+  ],
+  "parent": "vermont",
+  "color": "#487848"
+ },
+ {
+  "id": "oswego",
+  "name": "County of Oswego",
+  "short": "Oswego",
+  "type": "county",
+  "counties": [
+   "36075"
+  ],
+  "notes": "Ruled by Count Marc X.",
+  "color": "#cc786c"
+ },
+ {
+  "id": "ontario",
+  "name": "Duchy of Ontario",
+  "short": "Ontario",
+  "type": "duchy",
+  "counties": [
+   "36099",
+   "36073",
+   "36117",
+   "36003",
+   "36055",
+   "36109",
+   "36067",
+   "36051",
+   "36121",
+   "36097",
+   "36015",
+   "36101",
+   "36011",
+   "36029",
+   "36023",
+   "36053",
+   "36037",
+   "36123",
+   "36069"
+  ],
+  "liege": "vermont",
+  "notes": "Personal union under Bernie II.",
+  "color": "#487848"
+ },
+ {
+  "id": "niagara",
+  "name": "Bishopric of Niagara",
+  "short": "Niagara",
+  "type": "bishopric",
+  "counties": [
+   "36063"
+  ],
+  "notes": "Ruled by Bishop Robert Restaino.",
+  "color": "#909c9c"
+ },
+ {
+  "id": "erie",
+  "name": "Duchy of Erie",
+  "short": "Erie",
+  "type": "duchy",
+  "counties": [
+   "42049",
+   "36013"
+  ],
+  "liege": "palatinate",
+  "notes": "Personal union under Tom III.",
+  "color": "#a8cccc"
+ },
+ {
+  "id": "youngtown",
+  "name": "County of Youngtown",
+  "short": "Youngtown",
+  "type": "county",
+  "counties": [
+   "42007",
+   "42121",
+   "42059",
+   "54051",
+   "42047",
+   "42031",
+   "42053",
+   "42073",
+   "42085",
+   "54009",
+   "42039",
+   "54029",
+   "54069",
+   "36009",
+   "42123",
+   "42019",
+   "42125",
+   "42083"
+  ],
+  "notes": "With the Bishopric of Du Bois.",
+  "color": "#cccc6c"
+ },
+ {
+  "id": "jerseyhudson",
+  "name": "Duchy of Jersey-Hudson",
+  "short": "Jersey-Hudson",
+  "type": "duchy",
+  "counties": [
+   "34019",
+   "36071",
+   "42017",
+   "36087",
+   "34037",
+   "34027",
+   "34031"
+  ],
+  "notes": "Ruled by Duke Bob III.",
+  "color": "#cc9c78"
+ },
+ {
+  "id": "scranton",
+  "name": "Duchy of Scranton",
+  "short": "Scranton",
+  "type": "duchy",
+  "counties": [
+   "42097",
+   "42131",
+   "42079",
+   "42117",
+   "42103",
+   "42081",
+   "42037",
+   "42089",
+   "42093",
+   "42069",
+   "42113",
+   "42015"
+  ],
+  "parent": "delaware",
+  "color": "#9cb4e4"
+ },
+ {
+  "id": "palatinate",
+  "name": "Electorate of the Palatinate",
+  "short": "Palatinate",
+  "type": "principality",
+  "counties": [
+   "42075",
+   "42071",
+   "42025",
+   "42029",
+   "42067",
+   "42045",
+   "42077",
+   "42107",
+   "42119",
+   "42105",
+   "42027",
+   "42099",
+   "42109",
+   "42035",
+   "42011",
+   "42133",
+   "42091",
+   "42043",
+   "42055"
+  ],
+  "notes": "Ruled by Duke Tom III.",
+  "color": "#a8cccc"
+ },
+ {
+  "id": "pennstate",
+  "name": "Noble Republic of Penn State",
+  "short": "Penn State",
+  "type": "republic",
+  "counties": [
+   "42023",
+   "42013",
+   "42087",
+   "42033",
+   "42061"
+  ],
+  "notes": "Ruled by Prince Ezra IX 'The Scholar'.",
+  "color": "#cc9c78"
+ },
+ {
+  "id": "pittsburgh",
+  "name": "Duchy of Pittsburgh",
+  "short": "Pittsburgh",
+  "type": "duchy",
+  "counties": [
+   "42003",
+   "42005",
+   "42111",
+   "42063",
+   "42051",
+   "42129"
+  ],
+  "liege": "palatinate",
+  "notes": "Personal union under Tom III.",
+  "color": "#a8cccc"
+ },
+ {
+  "id": "johnstown",
+  "name": "Bishopric of Johnstown",
+  "short": "Johnstown",
+  "type": "bishopric",
+  "counties": [
+   "42021",
+   "42009",
+   "42057"
+  ],
+  "notes": "Ruled by Bishop Frank Janacovic.",
+  "color": "#c060a8"
+ },
+ {
+  "id": "brookville",
+  "name": "County of Brookville",
+  "short": "Brookville",
+  "type": "county",
+  "counties": [
+   "42065"
+  ],
+  "parent": "johnstown",
+  "color": "#c060a8"
+ },
+ {
+  "id": "gettysburg",
+  "name": "Bishopric of Gettysburg",
+  "short": "Gettysburg",
+  "type": "bishopric",
+  "counties": [
+   "42041",
+   "42001"
+  ],
+  "notes": "Ruled by Bishop Rita C. Frealing.",
+  "color": "#a89ca8"
+ },
+ {
+  "id": "philadelphia",
+  "name": "Free City of Philadelphia",
+  "short": "Philadelphia",
+  "type": "city-state",
+  "counties": [
+   "42101"
+  ],
+  "color": "#d83030"
+ },
+ {
+  "id": "easton",
+  "name": "Free City of Easton",
+  "short": "Easton",
+  "type": "city-state",
+  "counties": [
+   "42095",
+   "34041"
+  ],
+  "color": "#9cd8b4"
+ },
+ {
+  "id": "trenton",
+  "name": "Free City of Trenton",
+  "short": "Trenton",
+  "type": "city-state",
+  "counties": [
+   "34021"
+  ],
+  "color": "#d83030"
+ },
+ {
+  "id": "brunswick",
+  "name": "County of Brunswick",
+  "short": "Brunswick",
+  "type": "county",
+  "counties": [
+   "34035",
+   "34023"
+  ],
+  "notes": "Ruled by Count James XII.",
+  "color": "#48a8b4"
+ },
+ {
+  "id": "toms",
+  "name": "Bishopric of Toms",
+  "short": "Toms",
+  "type": "bishopric",
+  "counties": [
+   "34025"
+  ],
+  "color": "#5454a8"
+ },
+ {
+  "id": "jersey",
+  "name": "Duchy of Jersey",
+  "short": "Jersey",
+  "type": "duchy",
+  "counties": [
+   "34005"
+  ],
+  "color": "#c0a830"
+ },
+ {
+  "id": "vineland",
+  "name": "County of Vineland",
+  "short": "Vineland",
+  "type": "county",
+  "counties": [
+   "34011",
+   "34009",
+   "34007",
+   "34033",
+   "34015"
+  ],
+  "color": "#9cd8b4"
+ },
+ {
+  "id": "hanover",
+  "name": "Bishopric of Hanover",
+  "short": "Hanover",
+  "type": "bishopric",
+  "counties": [
+   "24025"
+  ],
+  "color": "#c0e49c"
+ },
+ {
+  "id": "maryland",
+  "name": "Kingdom of Maryland",
+  "short": "Maryland",
+  "type": "kingdom",
+  "counties": [
+   "24027",
+   "24003",
+   "24005",
+   "24033",
+   "24510"
+  ],
+  "color": "#cc306c"
+ },
+ {
+  "id": "chesapeake",
+  "name": "Bishopric of Chesapeake",
+  "short": "Chesapeake",
+  "type": "bishopric",
+  "counties": [
+   "24041"
+  ],
+  "notes": "Ruled by Bishop Abigail.",
+  "color": "#843c48"
+ },
+ {
+  "id": "delaware",
+  "name": "Archduchy of Delaware",
+  "short": "Delaware",
+  "type": "grand-duchy",
+  "counties": [
+   "24011",
+   "24045",
+   "10003",
+   "24019",
+   "24029",
+   "24015",
+   "10001",
+   "51131",
+   "51001",
+   "24035",
+   "24039",
+   "24047",
+   "10005"
+  ],
+  "notes": "Archduke Joseph I, Emperor of the Americans.",
+  "color": "#9cb4e4"
+ },
+ {
+  "id": "potomac",
+  "name": "Duchy of Potomac",
+  "short": "Potomac",
+  "type": "duchy",
+  "counties": [
+   "24037",
+   "24009",
+   "24017"
+  ],
+  "color": "#846084"
+ },
+ {
+  "id": "columbia",
+  "name": "Duchy of Columbia",
+  "short": "Columbia",
+  "type": "duchy",
+  "counties": [
+   "51610",
+   "51013",
+   "11001",
+   "51510"
+  ],
+  "notes": "Washington, seat of the Empire.",
+  "color": "#fcfcfc"
+ },
+ {
+  "id": "alexandria",
+  "name": "Principality of Alexandria",
+  "short": "Alexandria",
+  "type": "principality",
+  "counties": [
+   "51107",
+   "51685",
+   "51061",
+   "51179",
+   "51600",
+   "51683",
+   "51153",
+   "51059",
+   "51630"
+  ],
+  "color": "#e49ca8"
+ },
+ {
+  "id": "orange",
+  "name": "County of Orange",
+  "short": "Orange",
+  "type": "county",
+  "counties": [
+   "51137",
+   "51113"
+  ],
+  "color": "#d8a848"
+ },
+ {
+  "id": "reedville",
+  "name": "Barony of Reedville",
+  "short": "Reedville",
+  "type": "barony",
+  "counties": [
+   "51133",
+   "51103"
+  ],
+  "parent": "orange",
+  "color": "#d8a848"
+ },
+ {
+  "id": "virginia",
+  "name": "Kingdom of Virginia",
+  "short": "Virginia",
+  "type": "kingdom",
+  "counties": [
+   "51595",
+   "51530",
+   "51540",
+   "51099",
+   "51159",
+   "51199",
+   "51157",
+   "51109",
+   "51670",
+   "51678",
+   "51049",
+   "51011",
+   "51087",
+   "51101",
+   "51760",
+   "51009",
+   "51730",
+   "51075",
+   "51003",
+   "51147",
+   "51033",
+   "51065",
+   "51097",
+   "51570",
+   "51083",
+   "51036",
+   "51183",
+   "51111",
+   "51117",
+   "51007",
+   "51047",
+   "51095",
+   "51680",
+   "51031",
+   "51041",
+   "51053",
+   "51145",
+   "51081",
+   "51085",
+   "51163",
+   "51177",
+   "51149",
+   "51127",
+   "51037",
+   "51830",
+   "51025",
+   "51135",
+   "51029",
+   "51193",
+   "51057",
+   "51019",
+   "51125",
+   "51073",
+   "51119"
+  ],
+  "notes": "Under the rule of King-Elector Glenn I.",
+  "color": "#846084"
+ },
+ {
+  "id": "westernva",
+  "name": "Western Possessions of the Kingdom of Virginia",
+  "short": "Western Virginia",
+  "type": "province",
+  "counties": [
+   "54021",
+   "54103",
+   "54017",
+   "54011",
+   "54015",
+   "54105",
+   "54013",
+   "54045",
+   "54085",
+   "54095",
+   "54107",
+   "54033",
+   "54005",
+   "54019",
+   "54039",
+   "54087",
+   "54041",
+   "54067",
+   "54079",
+   "54109",
+   "54081",
+   "54043",
+   "54007",
+   "54073",
+   "54035",
+   "54053"
+  ],
+  "parent": "virginia",
+  "color": "#846084"
+ },
+ {
+  "id": "appalachians",
+  "name": "Grand Duchy of the Appalachians",
+  "short": "Appalachians",
+  "type": "grand-duchy",
+  "counties": [
+   "24001",
+   "51820",
+   "51590",
+   "51640",
+   "51660",
+   "51690",
+   "51169",
+   "51023",
+   "54075",
+   "51079",
+   "51750",
+   "54047",
+   "51775",
+   "54101",
+   "51155",
+   "54083",
+   "54025",
+   "51089",
+   "51091",
+   "51121",
+   "54055",
+   "54089",
+   "51520",
+   "51185",
+   "51043",
+   "51187",
+   "51191",
+   "51840",
+   "51139",
+   "51021",
+   "51171",
+   "51790",
+   "54071",
+   "51063",
+   "51770",
+   "51005",
+   "51071",
+   "51067",
+   "51017",
+   "51143",
+   "51045",
+   "51069",
+   "54065",
+   "51035",
+   "51077",
+   "51197",
+   "51141",
+   "54003",
+   "51165",
+   "51173",
+   "51167",
+   "51015",
+   "51161",
+   "51580",
+   "54063"
+  ],
+  "notes": "Under the rule of Grand-Duke Craig V.",
+  "color": "#c09c9c"
+ },
+ {
+  "id": "westsylvania",
+  "name": "Duchy of Westsylvania",
+  "short": "Westsylvania",
+  "type": "duchy",
+  "counties": [
+   "54093",
+   "24023",
+   "54057",
+   "54027",
+   "54023",
+   "54031"
+  ],
+  "liege": "virginia",
+  "notes": "Personal union under Glenn I.",
+  "color": "#846084"
+ },
+ {
+  "id": "hagerstown",
+  "name": "Duchy of Hagerstown",
+  "short": "Hagerstown",
+  "type": "duchy",
+  "counties": [
+   "24043",
+   "24013",
+   "24031",
+   "54037",
+   "24021"
+  ],
+  "notes": "Held by Joseph I, Duke of Hagers.",
+  "color": "#9cb4e4"
+ },
+ {
+  "id": "morgantown",
+  "name": "Bishopric of Morgantown",
+  "short": "Morgantown",
+  "type": "bishopric",
+  "counties": [
+   "54001",
+   "54077",
+   "54049",
+   "54091",
+   "54097",
+   "54061"
+  ],
+  "notes": "Ruled by Bishop A. Ken Haus.",
+  "color": "#b4a854"
+ },
+ {
+  "id": "carolina",
+  "name": "Electorate of Carolina",
+  "short": "Carolina",
+  "type": "principality",
+  "counties": [
+   "51700",
+   "51620",
+   "51093",
+   "51181",
+   "51740",
+   "51800",
+   "51550",
+   "51175",
+   "51810"
+  ],
+  "notes": "Under the rule of Prince-Elector Roy V \u2014 the Electorate's northern counties.",
+  "color": "#906c60"
+ },
+ {
+  "id": "kentucky",
+  "name": "Duchy of Kentucky",
+  "short": "Kentucky",
+  "type": "duchy",
+  "counties": [
+   "51720",
+   "51195",
+   "51027",
+   "51051",
+   "54059",
+   "54099",
+   "51105"
+  ],
+  "notes": "The Duchy's eastern baronies: Vienna and Bristol.",
+  "color": "#c09c9c"
+ },
+ {
+  "id": "sherbrooke",
+  "name": "Duchy of Sherbrooke",
+  "short": "Sherbrooke",
+  "type": "duchy",
+  "counties": [
+   "50019"
+  ],
+  "color": "#b47830",
+  "notes": "Ruled by Duchess Evelyne 'The French' \u2014 the Duchy's county south of the line."
+ }
+]
