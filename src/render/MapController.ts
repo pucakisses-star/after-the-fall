@@ -47,7 +47,7 @@ import {
 import { depthOf, layerEffective } from '@/model/hierarchy';
 import { visibleInTime } from '@/model/timeline';
 import { toCss } from '@/model/color';
-import { computeBorders } from './borders';
+import { coastGeneration, computeBorders, onCoastReady } from './borders';
 import {
   basemapRoleStyle,
   BASEMAP_Z,
@@ -277,6 +277,13 @@ export class MapController {
     this.attachStore();
     this.attachPointer();
     this.syncAll(project, true);
+
+    // The first frames draw before the coastline has loaded, so every coast
+    // carries a frontier's hard stroke until told otherwise. This is the
+    // telling: re-derive the borders the moment the coast is known.
+    this.unsubscribes.push(
+      onCoastReady(() => this.syncBorders(useProjectStore.getState().project)),
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -344,6 +351,21 @@ export class MapController {
   }
 
   repaint(): void {
+    // `map.render()` alone re-composites the cached layer frames, so a style
+    // that depends on UI state — the selection outline, the hover tint — can
+    // survive the state that justified it. Deselecting a freshly drawn state
+    // left it wearing its selection blue until something else touched the
+    // document. Marking the layers changed makes the style functions run
+    // again; the per-style caches in olStyles keep that cheap.
+    for (const layer of [
+      this.territoryLayer,
+      this.borderLayer,
+      this.linearLayer,
+      this.settlementLayer,
+      this.labelLayer,
+    ]) {
+      layer.changed();
+    }
     this.map.render();
   }
 
@@ -635,7 +657,11 @@ export class MapController {
   private syncBorders(project: MapProject): void {
     // Borders depend on the territory set *and* on which of them the timeline
     // currently admits, so both go into the cache key.
-    const key = `${project.timeline.enabled ? project.timeline.currentYear : 'all'}`;
+    // The coast generation is in the key so borders reclassify when the
+    // coastline arrives: the first frames of a session draw before it has
+    // loaded, and without this every coast keeps its hard stroke until
+    // something else happens to change the territory set.
+    const key = `${project.timeline.enabled ? project.timeline.currentYear : 'all'}:${coastGeneration}`;
     if (this.lastBorderKey === project.territories && this.lastBorderTimeKey === key) return;
     this.lastBorderKey = project.territories;
     this.lastBorderTimeKey = key;
@@ -860,8 +886,12 @@ export class MapController {
 
   private styleBorder(f: Feature<Geometry>): Style[] {
     const project = useProjectStore.getState().project;
-    const border = f.get('border') as { kind: string } | undefined;
+    const border = f.get('border') as { kind: string; coastal?: boolean } | undefined;
     if (!border) return [];
+    // A coast is where the country stops because the ground does, not a line
+    // anybody drew. The coastline layer draws the sea's edge; stroking a heavy
+    // political border on top of it is the hard black rim this suppresses.
+    if (border.coastal) return [];
     const styleClassId = borderClassId(border.kind);
     const resolved = project.styles.line[styleClassId]?.style;
     if (!resolved) return [];

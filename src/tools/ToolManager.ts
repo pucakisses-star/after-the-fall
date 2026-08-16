@@ -144,12 +144,18 @@ export class ToolManager {
         // back on when the pointer comes up.
         break;
       case 'territory':
+        // The coastline is what stops a drawn border at the water, and the trim
+        // is synchronous — so the data has to be here before the first shape is
+        // finished. Warmed on tool pick, exactly as the fill tool does.
+        void coastlinePolygons().catch(() => undefined);
         this.setupDrawTerritory();
         break;
       case 'vertex':
+        void coastlinePolygons().catch(() => undefined);
         this.setupVertexEdit();
         break;
       case 'reshape':
+        void coastlinePolygons().catch(() => undefined);
         this.setupReshape();
         break;
       case 'cut':

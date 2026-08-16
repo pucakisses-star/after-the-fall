@@ -412,6 +412,22 @@ let coastlineCache: Promise<(Polygon | MultiPolygon)[]> | null = null;
  * is held. It is the same file either way, and the loader below it already
  * caches the fetch — this caches the reshaping of it.
  */
+/**
+ * The coastline if it has already arrived, for the callers that cannot wait.
+ *
+ * The editing commands are synchronous — a drawend handler, a vertex drop — and
+ * threading a promise through every one of them to answer "is this ground or
+ * sea" would put an await between the gesture and the map. The tools warm the
+ * load the moment an editing tool is picked, so by the time a human has drawn
+ * anything the answer is here; until then this returns null and the caller
+ * skips the trim rather than blocking on it.
+ */
+export function coastlineIfLoaded(): (Polygon | MultiPolygon)[] | null {
+  return coastlineLoaded;
+}
+
+let coastlineLoaded: (Polygon | MultiPolygon)[] | null = null;
+
 export function coastlinePolygons(): Promise<(Polygon | MultiPolygon)[]> {
   coastlineCache ??= loadBasemap(COASTLINE_SOURCE).then((features) =>
     polygonsOf(features)
@@ -426,6 +442,13 @@ export function coastlinePolygons(): Promise<(Polygon | MultiPolygon)[]> {
         return acc;
       }, []),
   );
+  void coastlineCache
+    .then((land) => {
+      coastlineLoaded = land;
+    })
+    // The load's own failures are reported where it is awaited; this side
+    // channel just never learns the answer.
+    .catch(() => undefined);
   return coastlineCache;
 }
 

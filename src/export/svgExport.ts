@@ -526,6 +526,8 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
   const international: string[] = [];
   const borders = computeBorders(project);
   for (const b of borders) {
+    // The screen leaves coasts to the coastline, and the export is the screen.
+    if (b.coastal) continue;
     const styleId = borderStyleId(b.kind);
     const style = project.styles.line[styleId]?.style;
     if (!style || style.width <= 0) continue;

@@ -39,6 +39,8 @@ import { propagateVertexEdit, repairTopology, type RepairOptions } from '@/geo/t
 import { boundaryFollows, reshapeBoundary } from '@/geo/reshape';
 import { BARRIER_WIDTH_KM, neighbourHoldingMostOf, regionAt } from '@/geo/floodFill';
 import { recolor, type RecolorOptions } from '@/geo/palette';
+import { boundsOf, clipToLand, indexLand, landPolygonsOf } from '@/geo/coastline';
+import { coastlineIfLoaded } from '@/io/importers';
 import type { Recorder } from './history';
 import type {
   MapLabel,
@@ -100,6 +102,27 @@ export function selectedTerritories(project = getProject()): Territory[] {
 const ENCLOSED_SHARE = 0.9;
 
 /**
+ * Trim an edited shape to the land (spec §3, §5).
+ *
+ * No editing gesture can take a territory over the sea: a border drawn past the
+ * coast means "to the coast", the way it does on a paper map, and the fill and
+ * the generator already answer the same way. The trim uses the same coastline
+ * they do, indexed around the shape so the boolean runs against a few pieces of
+ * coast rather than a hemisphere.
+ *
+ * Before the coastline has loaded there is nothing to trim against and the
+ * shape passes through — the tools warm the load when an editing tool is
+ * picked, so in practice that window is the first seconds of a session.
+ * Returns null for a shape that is entirely at sea.
+ */
+export function trimToLand(shape: Poly): Poly | null {
+  const land = coastlineIfLoaded();
+  if (!land?.length) return shape;
+  const index = indexLand(landPolygonsOf(land), boundsOf([shape]));
+  return (clipToLand(shape as Polygon | MultiPolygon, index) as Poly | null) ?? null;
+}
+
+/**
  * The territory a newly drawn shape belongs inside, if any (spec §7).
  *
  * The *smallest* one that contains it, because containment is nested: a border
@@ -150,9 +173,15 @@ export function enclosingTerritory(project: MapProject, shape: Poly): Territory 
  */
 export function addTerritory(geometry: Polygon | MultiPolygon, init: Partial<Territory> = {}): UUID | null {
   const project = getProject();
-  const cleaned = normalizePoly(geometry);
-  if (!cleaned) {
+  const cleaned0 = normalizePoly(geometry);
+  if (!cleaned0) {
     toast('That shape is not a valid polygon.', 'warn');
+    return null;
+  }
+  // To the coast and no further, however the shape got here.
+  const cleaned = trimToLand(cleaned0);
+  if (!cleaned) {
+    toast('That shape is entirely at sea.', 'warn');
     return null;
   }
   const ui = useUIStore.getState();
@@ -526,7 +555,10 @@ export function updateTerritoryGeometry(id: UUID, geometry: Poly, label = 'Edit 
   const project = getProject();
   const current = project.territories[id];
   if (!current || current.locked) return;
-  const cleaned = normalizePoly(geometry);
+  const valid = normalizePoly(geometry);
+  // A vertex dragged out to sea goes to the coast and stops, like every other
+  // way of pushing a border at the water.
+  const cleaned = valid && trimToLand(valid);
   if (!cleaned) return;
 
   const shared = useUIStore.getState().snapEnabled
@@ -1577,8 +1609,13 @@ const MOSTLY_OPEN = 0.6;
  * this is.
  */
 export function stateFromStroke(stroke: LineString): UUID | null {
-  const drawn = closeStroke(stroke, true);
-  if (!drawn) return null;
+  const loop = closeStroke(stroke, true);
+  if (!loop) return null;
+  // A loop half over the sea means the land half: the coast finishes the
+  // border. Trimmed before the openness test, so a bay inside the loop does
+  // not count against the ground being claimed.
+  const drawn = trimToLand(loop);
+  if (!drawn || !(areaKm2(drawn) > 0)) return null;
 
   const project = getProject();
   if (enclosingTerritory(project, drawn)) return null;
@@ -1648,11 +1685,15 @@ export function reshapeTerritoryBoundary(
   const target = project.territories[territoryId];
   if (!target || target.locked) return false;
 
-  const result = reshapeBoundary(target.geometry, stroke, tolerance);
-  if (!result) {
+  const raw = reshapeBoundary(target.geometry, stroke, tolerance);
+  if (!raw) {
     if (!quiet) toast('Draw over a border, starting and finishing on the same outline.', 'warn');
     return false;
   }
+  // A border redrawn out over the water stops at the coast.
+  const trimmed = trimToLand(raw.geometry);
+  if (!trimmed) return false;
+  const result = { ...raw, geometry: trimmed };
 
   // Whoever shares the stretch that was replaced has to move with it.
   const followers: { id: UUID; geometry: Poly }[] = [];
@@ -1660,7 +1701,8 @@ export function reshapeTerritoryBoundary(
     if (other.id === territoryId || other.locked || other.hidden) continue;
     if (!boundaryFollows(other.geometry, result.replaced, tolerance)) continue;
     const moved = reshapeBoundary(other.geometry, { type: 'LineString', coordinates: result.drawn }, tolerance);
-    if (moved) followers.push({ id: other.id, geometry: moved.geometry });
+    const kept = moved && trimToLand(moved.geometry);
+    if (kept) followers.push({ id: other.id, geometry: kept });
   }
 
   commit('Redraw border', (r) => {
