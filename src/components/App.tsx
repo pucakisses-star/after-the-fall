@@ -19,7 +19,7 @@ import { useKeyboard, useVertexToolRefresh } from './useKeyboard';
 import { useUIStore } from '@/state/uiStore';
 import { useProjectStore } from '@/state/projectStore';
 import { startAutosave } from '@/persistence/projectFile';
-import { buildAfterTheEndProject } from '@/demo/afterTheEnd';
+import { loadAfterTheEndProject } from '@/demo/afterTheEnd';
 
 export function App() {
   const { value, hostRef } = useMapEngine();
@@ -74,12 +74,14 @@ function useFirstRunDemo(controller: ReturnType<typeof useMapEngine>['value']['c
 
     void (async () => {
       try {
-        const { project: demo } = await buildAfterTheEndProject();
+        const { project: demo, saved } = await loadAfterTheEndProject();
         // Bail out if the user started work while the demo was loading.
         const now = useProjectStore.getState().project;
         if (Object.keys(now.territories).length > 0) return;
         useProjectStore.getState().loadProject(demo, null);
-        setTimeout(() => controller.fitAll(), 150);
+        // A saved map opens where it was left; only a freshly grown one needs
+        // the view fitted to it.
+        if (!saved) setTimeout(() => controller.fitAll(), 150);
         useUIStore.getState().toast('Loaded the After the End map. "New" starts a blank one.', 'info');
       } catch {
         useUIStore.getState().toast('Start by drawing a territory, or choose New.', 'info');

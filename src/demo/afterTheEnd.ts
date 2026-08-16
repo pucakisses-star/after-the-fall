@@ -33,6 +33,7 @@ import { recolor } from '@/geo/palette';
 import { DEFAULT_GROWTH, growRealms, type LandPolygon, type RealmSeed } from '@/geo/realmGrowth';
 import { PALETTES, STYLE_IDS, defaultFixedSize } from '@/model/defaults';
 import { createProject, findLayerByKind } from '@/model/project';
+import { deserializeProject } from '@/persistence/projectFile';
 import { newId } from '@/model/ids';
 import type {
   MapLabel,
@@ -576,6 +577,12 @@ const WATER_LABELS: { text: string; lon: number; lat: number; kind: MapLabel['ki
 ];
 
 export interface AfterTheEndResult {
+  /**
+   * True when this came off disk rather than out of the generator, so the
+   * caller knows the view in the file is a decision somebody made and not a
+   * default to be improved on.
+   */
+  saved?: boolean;
   project: MapProject;
   center: [number, number];
   zoom: number;
@@ -644,6 +651,38 @@ const NORTH_AMERICA: [number, number, number, number] = [-172, 13, -30, 76];
  * Build the map. Async because it fetches the real coastline to grow on;
  * returns an empty project if that fetch fails, rather than a half-built one.
  */
+/**
+ * Where the finished map is kept, relative to the document.
+ *
+ * Document-relative for the same reason the geography is: Pages serves this
+ * from a sub-path.
+ */
+const SAVED_MAP = 'data/after-the-end.atfmap';
+
+/**
+ * The After the End map as it was last drawn (spec §49, §65).
+ *
+ * The generator below builds this map from seats and weights, which is how it
+ * came to exist and what makes it reproducible — but it is also thirteen
+ * seconds of lattice growth, subdivision and colouring before anything appears,
+ * and it cannot know about anything done to the map by hand since. A saved file
+ * has neither problem: it is the map as it actually stands, edits and all, and
+ * reading it is a parse.
+ *
+ * The generator stays as the fallback, so a missing or unreadable file costs
+ * the wait rather than the map.
+ */
+export async function loadAfterTheEndProject(): Promise<AfterTheEndResult> {
+  try {
+    const res = await fetch(SAVED_MAP);
+    if (!res.ok) throw new Error(`${res.status}`);
+    const project = deserializeProject(await res.text());
+    return { project, saved: true, center: project.view.center as [number, number], zoom: project.view.zoom };
+  } catch {
+    return buildAfterTheEndProject();
+  }
+}
+
 export async function buildAfterTheEndProject(): Promise<AfterTheEndResult> {
   const project = createProject({
     title: 'After the End',

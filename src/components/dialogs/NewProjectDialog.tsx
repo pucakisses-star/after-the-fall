@@ -4,7 +4,7 @@ import { Field } from '../Inspector';
 import { PROJECTION_PRESETS } from '@/geo/projections';
 import { createProject } from '@/model/project';
 import { buildDemoProject } from '@/demo/demoProject';
-import { buildAfterTheEndProject } from '@/demo/afterTheEnd';
+import { loadAfterTheEndProject } from '@/demo/afterTheEnd';
 import { useProjectStore } from '@/state/projectStore';
 import { toast, useUIStore } from '@/state/uiStore';
 import { writeSnapshot } from '@/persistence/db';
@@ -102,10 +102,10 @@ export function NewProjectDialog({ onClose }: { onClose: () => void }) {
         <>
           <button
             className="btn"
-            onClick={() => void loadPrebuilt(buildAfterTheEndProject, 'the After the End map')}
+            onClick={() => void loadPrebuilt(loadAfterTheEndProject, 'the After the End map')}
             disabled={busy}
           >
-            {busy ? 'Building…' : 'After the End map'}
+            {busy ? 'Loading…' : 'After the End map'}
           </button>
           <button
             className="btn"
