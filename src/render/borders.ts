@@ -22,10 +22,9 @@ import { borderWeightFor } from '@/model/defaults';
 import { sovereignOf } from '@/model/hierarchy';
 import { visibleInTime } from '@/model/timeline';
 import { deriveBorders, mergeBorderSegments } from '@/geo/topology';
-import { indexLand, landContains, landPolygonsOf, type LandIndex } from '@/geo/coastline';
 import { coastlinePolygons } from '@/io/importers';
 import type { BorderStyleKind, MapProject, Territory, UUID } from '@/model/types';
-import type { LineString, Position } from 'geojson';
+import type { LineString, MultiPolygon, Polygon } from 'geojson';
 
 export interface ClassifiedBorder {
   geometry: LineString;
@@ -67,14 +66,14 @@ export function onCoastReady(cb: () => void): () => void {
   return () => coastListeners.delete(cb);
 }
 
-let coastIndex: LandIndex | null | undefined;
+let coastIndex: CoastVertices | null | undefined;
 
 function requestCoast(): void {
   if (coastIndex !== undefined) return;
   coastIndex = null;
   coastlinePolygons()
     .then((land) => {
-      coastIndex = indexLand(landPolygonsOf(land), [-180, -90, 180, 90]);
+      coastIndex = indexCoastVertices(land);
       invalidateBorderCache();
       coastGeneration++;
       for (const cb of coastListeners) cb();
@@ -85,25 +84,76 @@ function requestCoast(): void {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Is this vertex on the shore?
+// ---------------------------------------------------------------------------
+
 /**
- * How far to either side of a border the ground is sampled, in degrees.
- *
- * Two scales, because one cannot cover both errors. A probe long enough to be
- * safely clear of the line reaches the far shore of a narrow strait — Discovery
- * Passage is two kilometres wide — and reads land on both sides, giving the
- * strait's coast a frontier's hard stroke. A short probe resolves the strait
- * but sits closer to the data's own noise. So the near probe is asked first and
- * the far one is the fallback, and a segment is a coast if either sees water on
- * exactly one side.
+ * Grid side, in degrees. Two cells cover the tolerance below with room to
+ * spare, which is what lets a lookup read a 3×3 neighbourhood and stop.
  */
-const COAST_PROBES = [0.002, 0.01];
+const COAST_CELL = 0.01;
+/** How near a vertex has to be to the coastline to be *on* it, in degrees. */
+const COAST_TOLERANCE = 0.0008;
+
+/** Coastline vertices in a uniform grid, for asking the question in constant time. */
+export interface CoastVertices {
+  /** Flat [x, y, x, y, …] per cell. */
+  cells: Map<number, number[]>;
+}
+
+export function indexCoastVertices(land: (Polygon | MultiPolygon)[]): CoastVertices {
+  const cells = new Map<number, number[]>();
+  for (const g of land) {
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+    for (const rings of polys) {
+      for (const ring of rings) {
+        for (const [x, y] of ring) {
+          const k = cellKey(x, y);
+          const bucket = cells.get(k);
+          if (bucket) bucket.push(x, y);
+          else cells.set(k, [x, y]);
+        }
+      }
+    }
+  }
+  return { cells };
+}
+
+/** Cell id packed into one number, so the map is keyed without building strings. */
+function cellKey(x: number, y: number): number {
+  const cx = Math.floor(x / COAST_CELL);
+  const cy = Math.floor(y / COAST_CELL);
+  // Longitude spans 36,000 cells at this size; the shift is comfortably clear.
+  return cy * 131072 + cx;
+}
+
+/** Does a coastline vertex sit within the tolerance of this point? */
+export function onCoast(index: CoastVertices, x: number, y: number): boolean {
+  const cx = Math.floor(x / COAST_CELL);
+  const cy = Math.floor(y / COAST_CELL);
+  const tol2 = COAST_TOLERANCE * COAST_TOLERANCE;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const bucket = index.cells.get((cy + dy) * 131072 + (cx + dx));
+      if (!bucket) continue;
+      for (let i = 0; i < bucket.length; i += 2) {
+        const ex = bucket[i] - x;
+        const ey = bucket[i + 1] - y;
+        if (ex * ex + ey * ey <= tol2) return true;
+      }
+    }
+  }
+  return false;
+}
+
 /**
  * A stretch shorter than this many segments flips to match its neighbours.
  *
- * The probes read the ground a kilometre out to each side, and at a river mouth
- * or across a spit that reading flickers for a segment or two. Without the
- * smoothing the flicker draws: a run of coast grows a few isolated dashes of
- * hard border where a creek happened to sit beside it.
+ * Where a frontier meets the sea its last vertex is a coastline vertex too, so
+ * the join reads as a segment of coast in the middle of a frontier. Without the
+ * smoothing that draws as a one-segment gap in the border at every river mouth
+ * and headland the frontier ends on.
  */
 const COAST_SMOOTH = 3;
 
@@ -115,43 +165,36 @@ const COAST_SMOOTH = 3;
  * round — so its coast and its inland frontier arrive as one line, and a vote
  * either strokes the coast or silences the frontier, whichever is longer.
  * Measured on the demonstration map's Baja: one 778-point run around the whole
- * peninsula tip, coast and frontier together, drawn all-soft by the vote.
+ * peninsula tip, coast and frontier together, drawn all-soft by the vote. So
+ * each segment is classified on its own and consecutive segments of a kind
+ * become one stretch.
  *
- * So each segment is classified on its own — land to one side and water to the
- * other is coast — and consecutive segments of a kind become one stretch.
+ * The test is coincidence rather than geometry, and that is the whole
+ * performance of this file. Asking "is there land on one side and sea on the
+ * other" means a point-in-polygon probe either side of every segment, against a
+ * coastline of four thousand parts: it cost eight and a half seconds per
+ * classification on the demonstration map, and since the borders are re-derived
+ * whenever the territory set changes, that was eight and a half seconds on
+ * every fill, paint and border edit. But a territory's coastal edge does not
+ * merely run *near* the shore — it *is* the shore, vertex for vertex, because
+ * every path that puts ground on the map clips it to the coastline. So the
+ * question is whether this segment's endpoints are coastline vertices, which is
+ * a lookup in a grid: the same classification, measured at a hundredth of the
+ * cost.
  */
 export function splitByCoast(
   line: LineString,
-  land: LandIndex,
+  coast: CoastVertices,
 ): { coastal: boolean; geometry: LineString }[] {
   const ring = line.coordinates;
   if (ring.length < 2) return [{ coastal: false, geometry: line }];
 
+  // One lookup per vertex rather than two per segment: neighbouring segments
+  // share an end, and on a coastal run that is every vertex asked twice.
+  const shore: boolean[] = ring.map(([x, y]) => onCoast(coast, x, y));
+
   const kinds: boolean[] = [];
-  for (let i = 1; i < ring.length; i++) {
-    const a = ring[i - 1];
-    const b = ring[i];
-    const dx = b[0] - a[0];
-    const dy = b[1] - a[1];
-    const len = Math.hypot(dx, dy);
-    if (!(len > 0)) {
-      kinds.push(kinds[kinds.length - 1] ?? false);
-      continue;
-    }
-    const mid: Position = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-    let coastal = false;
-    for (const probe of COAST_PROBES) {
-      const nx = (-dy / len) * probe;
-      const ny = (dx / len) * probe;
-      const one = landContains(land, [mid[0] + nx, mid[1] + ny]);
-      const two = landContains(land, [mid[0] - nx, mid[1] - ny]);
-      if (one !== two) {
-        coastal = true;
-        break;
-      }
-    }
-    kinds.push(coastal);
-  }
+  for (let i = 1; i < ring.length; i++) kinds.push(shore[i - 1] && shore[i]);
 
   // Flip stretches too short to mean anything.
   for (let i = 0; i < kinds.length; ) {

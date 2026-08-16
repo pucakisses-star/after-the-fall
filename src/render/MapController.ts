@@ -307,14 +307,19 @@ export class MapController {
     this.unsubscribes.push(
       useUIStore.subscribe((state) => {
         const flags = flagsOf(state);
-        if (state.selection !== lastSelection || state.hoverId !== lastHover || flags !== lastFlags) {
+        const selectionChanged = state.selection !== lastSelection;
+        const hoverChanged = state.hoverId !== lastHover;
+        if (selectionChanged || hoverChanged || flags !== lastFlags) {
           lastSelection = state.selection;
           lastHover = state.hoverId;
           if (flags !== lastFlags) {
             lastFlags = flags;
             this.applyVisibilityFlags();
+            this.repaint();
+          } else {
+            // A hover is one layer's business; a selection is four layers'.
+            this.repaint(selectionChanged ? this.styledLayers() : [this.territoryLayer]);
           }
-          this.repaint();
         }
       }),
     );
@@ -350,23 +355,29 @@ export class MapController {
     this.map.setTarget(undefined);
   }
 
-  repaint(): void {
-    // `map.render()` alone re-composites the cached layer frames, so a style
-    // that depends on UI state — the selection outline, the hover tint — can
-    // survive the state that justified it. Deselecting a freshly drawn state
-    // left it wearing its selection blue until something else touched the
-    // document. Marking the layers changed makes the style functions run
-    // again; the per-style caches in olStyles keep that cheap.
-    for (const layer of [
-      this.territoryLayer,
-      this.borderLayer,
-      this.linearLayer,
-      this.settlementLayer,
-      this.labelLayer,
-    ]) {
-      layer.changed();
-    }
+  /**
+   * Redraw, re-running the style functions of the layers named.
+   *
+   * `map.render()` alone re-composites the cached layer frames, so a style that
+   * depends on UI state — the selection outline, the hover tint — can survive
+   * the state that justified it: deselecting a freshly drawn territory left it
+   * wearing its selection blue until something else touched the document.
+   * Marking a layer changed is what makes its styles run again.
+   *
+   * Which layers, though, is not a detail. Hover changes on every pointer move
+   * across the map, and invalidating all five layers on each one cost twenty
+   * milliseconds a move — the map went from sixty frames a second to eighteen
+   * while the mouse was over it. Only the territory layer draws a hover tint,
+   * so only the territory layer needs redrawing for one.
+   */
+  repaint(layers: VectorLayer<VectorSource>[] = this.styledLayers()): void {
+    for (const layer of layers) layer.changed();
     this.map.render();
+  }
+
+  /** Every layer whose style function reads UI state. */
+  private styledLayers(): VectorLayer<VectorSource>[] {
+    return [this.territoryLayer, this.linearLayer, this.settlementLayer, this.labelLayer];
   }
 
   // -------------------------------------------------------------------------

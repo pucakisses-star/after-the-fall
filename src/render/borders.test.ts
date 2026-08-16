@@ -11,11 +11,21 @@
 
 import { describe, expect, it } from 'vitest';
 import type { LineString, Position } from 'geojson';
-import { splitByCoast } from './borders';
-import { indexLand } from '@/geo/coastline';
+import { indexCoastVertices, splitByCoast } from './borders';
 
-/** A square island from (0,0) to (10,10). */
-const ISLAND = indexLand([[[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]], [-5, -5, 15, 15]);
+/**
+ * A square island from (0,0) to (10,10), traced at every unit — the coastline
+ * a territory clipped to it would inherit its own edge vertices from.
+ */
+const shoreRing = (): Position[] => {
+  const out: Position[] = [];
+  for (let x = 0; x <= 10; x++) out.push([x, 0]);
+  for (let y = 1; y <= 10; y++) out.push([10, y]);
+  for (let x = 9; x >= 0; x--) out.push([x, 10]);
+  for (let y = 9; y >= 0; y--) out.push([0, y]);
+  return out;
+};
+const ISLAND = indexCoastVertices([{ type: 'Polygon', coordinates: [shoreRing()] }]);
 
 const line = (coords: Position[]): LineString => ({ type: 'LineString', coordinates: coords });
 
