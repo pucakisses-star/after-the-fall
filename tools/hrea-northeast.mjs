@@ -101,6 +101,15 @@ const serialized = await page.evaluate(async (SPEC) => {
   }
   log(`cleared: ${removed} removed, ${trimmed} trimmed`);
 
+  // The plate's internal county divisions are faint grey dots, noticed only
+  // when looked for. The app's default county border is a full dotted line,
+  // and four hundred member counties drawn with it read as a Census atlas
+  // laid over the realms rather than as the realms.
+  for (const cls of Object.values(project.styles.line)) {
+    if (cls.name === 'County border') Object.assign(cls.style, { width: 0.55, opacity: 0.4 });
+    if (cls.name === 'Subordinate-state border') Object.assign(cls.style, { width: 0.8, opacity: 0.75 });
+  }
+
   // --- the polities of the plate -------------------------------------------
   const put = (geometry, init, labelLayerId, labelKind) => {
     const t = store.makeTerritory(project, geometry, { layerId: territoryLayer.id, ...init });
