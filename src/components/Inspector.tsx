@@ -458,6 +458,8 @@ function PatternEditor({
 function SettlementInspector({ settlement: s }: { settlement: Settlement }) {
   const project = useProjectStore((s2) => s2.project);
   const style = resolveSymbolStyle(project, s);
+  const nameLabel = s.labelId ? project.labels[s.labelId] : undefined;
+  const nameStyle = nameLabel ? resolveTextStyle(project, nameLabel) : undefined;
   const update = (changes: Partial<Settlement>, label = 'Edit settlement') =>
     commit(label, (r) => r.update<Settlement>('settlements', s.id, changes));
 
@@ -523,6 +525,33 @@ function SettlementInspector({ settlement: s }: { settlement: Settlement }) {
           </span>
         </Field>
       </Section>
+
+      {/* A town's name is a label of its own, and selecting the town is what
+          you do when you mean the town — clicking the four pixels of text
+          beside a capital's ring to reach its size is not an interface. So the
+          two controls that decide how the name is drawn are repeated here; the
+          rest of a label's settings stay behind the label itself. */}
+      {nameLabel && (
+        <Section title="Name">
+          <Field label="Size">
+            <Slider
+              value={nameStyle!.fontSize}
+              min={1}
+              max={Math.max(40, Math.ceil(nameStyle!.fontSize / 20) * 20)}
+              step={0.5}
+              onChange={(v) =>
+                commit('Name size', (r) =>
+                  r.update<MapLabel>('labels', nameLabel.id, {
+                    styleOverrides: { ...nameLabel.styleOverrides, fontSize: v },
+                  }),
+                )
+              }
+              suffix="px"
+            />
+          </Field>
+          <FixedSizeSwitch label={nameLabel} />
+        </Section>
+      )}
 
       <Section title="Symbol">
         <Field label="Shape">
@@ -639,15 +668,18 @@ function useLabelScale(
   return scale;
 }
 
-function LabelInspector({ label: l }: { label: MapLabel }) {
+/**
+ * The switch that pins a name's size, wherever that name is being edited (§42).
+ *
+ * Its own component because a name is edited from more than one place. Select
+ * the text and you are in the label inspector; select the town the text belongs
+ * to — which is what you click when you mean the capital — and you are in the
+ * settlement inspector, where until now there was no way to pin its name
+ * without first hunting for the label behind it.
+ */
+function FixedSizeSwitch({ label: l }: { label: MapLabel }) {
   const project = useProjectStore((s) => s.project);
   const style = resolveTextStyle(project, l);
-  const update = (changes: Partial<MapLabel>, name = 'Edit label') =>
-    commit(name, (r) => r.update<MapLabel>('labels', l.id, changes));
-  const setStyle = (changes: Partial<TextStyle>) =>
-    update({ styleOverrides: { ...l.styleOverrides, ...changes } }, 'Edit label style');
-
-  const paths = Object.values(project.linearFeatures);
   const attachedToTerritory = !!l.attachedToId && !!project.territories[l.attachedToId];
 
   // What the map is currently multiplying this label's type size by (§42).
@@ -679,6 +711,37 @@ function LabelInspector({ label: l }: { label: MapLabel }) {
       r.update<MapLabel>('labels', l.id, changes),
     );
   };
+
+  return (
+    <>
+      <label className="checkbox">
+        <input type="checkbox" checked={l.fixedSize} onChange={(e) => setFixedSize(e.target.checked)} />
+        Fixed size (do not scale with zoom)
+      </label>
+      <p className="hint" style={{ marginTop: -2 }}>
+        {l.fixedSize
+          ? 'Pinned at its set size whatever the zoom.'
+          : attachedToTerritory
+            ? `Grows and shrinks with the land it names, so it spans its territory at every scale — drawn at ${
+                Math.round(scale * 100)
+              }% of its set size at this zoom.`
+            : `Grows and shrinks with the map, so it spans the same ground at every scale — drawn at ${
+                Math.round(scale * 100)
+              }% of its set size at this zoom.`}
+      </p>
+    </>
+  );
+}
+
+function LabelInspector({ label: l }: { label: MapLabel }) {
+  const project = useProjectStore((s) => s.project);
+  const style = resolveTextStyle(project, l);
+  const update = (changes: Partial<MapLabel>, name = 'Edit label') =>
+    commit(name, (r) => r.update<MapLabel>('labels', l.id, changes));
+  const setStyle = (changes: Partial<TextStyle>) =>
+    update({ styleOverrides: { ...l.styleOverrides, ...changes } }, 'Edit label style');
+
+  const paths = Object.values(project.linearFeatures);
 
   return (
     <>
@@ -895,21 +958,7 @@ function LabelInspector({ label: l }: { label: MapLabel }) {
           />
           Exempt from collision warnings
         </label>
-        <label className="checkbox">
-          <input type="checkbox" checked={l.fixedSize} onChange={(e) => setFixedSize(e.target.checked)} />
-          Fixed size (do not scale with zoom)
-        </label>
-        <p className="hint" style={{ marginTop: -2 }}>
-          {l.fixedSize
-            ? 'Pinned at the size set above whatever the zoom.'
-            : attachedToTerritory
-              ? `Grows and shrinks with the land it names, so it spans its territory at every scale — drawn at ${
-                  Math.round(scale * 100)
-                }% of the size above at this zoom.`
-              : `Grows and shrinks with the map, so it spans the same ground at every scale — drawn at ${
-                  Math.round(scale * 100)
-                }% of the size above at this zoom.`}
-        </p>
+        <FixedSizeSwitch label={l} />
       </Section>
 
       <Section title="Actions">
