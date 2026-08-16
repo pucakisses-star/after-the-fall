@@ -39,6 +39,7 @@ import { areaKm2 } from '@/geo/operations';
 import { formatArea } from '@/geo/topology';
 import { useMapController } from './MapContext';
 import type { MapController } from '@/render/MapController';
+import { CapitalField } from './CapitalField';
 import { ProjectPanel } from './ProjectPanel';
 import { StylePanel } from './StylePanel';
 import { SYMBOL_SHAPES } from '@/render/symbols';
@@ -132,7 +133,6 @@ function TerritoryInspector({ territory: t }: { territory: Territory }) {
     );
 
   const parents = Object.values(project.territories).filter((o) => o.id !== t.id);
-  const settlements = Object.values(project.settlements);
 
   return (
     <>
@@ -211,18 +211,7 @@ function TerritoryInspector({ territory: t }: { territory: Territory }) {
           </select>
         </Field>
         <Field label="Capital">
-          <select
-            className="select"
-            value={t.capitalId ?? ''}
-            onChange={(e) => update({ capitalId: e.target.value || null }, 'Set capital')}
-          >
-            <option value="">— none —</option>
-            {settlements.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
+          <CapitalField territory={t} />
         </Field>
         {/* Status, not rank. The two above it — political type and parent — say
             what this is called and who holds it; this says on what terms, which

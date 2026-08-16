@@ -8,7 +8,13 @@
 
 import type { LineString, Polygon, MultiPolygon, Position } from 'geojson';
 import { newId } from '@/model/ids';
-import { STYLE_IDS, politicalTypeInfo, relationshipInfo, settlementTypeForPlace } from '@/model/defaults';
+import {
+  STYLE_IDS,
+  politicalTypeInfo,
+  relationshipInfo,
+  settlementTypeForPlace,
+  settlementTypeInfo,
+} from '@/model/defaults';
 import { depthOf, descendantsOf, relationshipSubtitle, wouldCreateCycle } from '@/model/hierarchy';
 import { inheritedFill, resolveTerritoryStyle } from '@/model/resolveStyle';
 import {
@@ -34,7 +40,16 @@ import { boundaryFollows, reshapeBoundary } from '@/geo/reshape';
 import { BARRIER_WIDTH_KM, neighbourHoldingMostOf, regionAt } from '@/geo/floodFill';
 import { recolor, type RecolorOptions } from '@/geo/palette';
 import type { Recorder } from './history';
-import type { MapLabel, MapLayer, MapProject, PoliticalRelationship, Settlement, Territory, UUID } from '@/model/types';
+import type {
+  MapLabel,
+  MapLayer,
+  MapProject,
+  PoliticalRelationship,
+  Settlement,
+  SettlementType,
+  Territory,
+  UUID,
+} from '@/model/types';
 import {
   commit,
   getProject,
@@ -185,9 +200,30 @@ export function addSettlement(
   opts: { showNames?: boolean } = {},
 ): UUID {
   const project = getProject();
-  const ui = useUIStore.getState();
+  let id = '';
+  commit('Place settlement', (r) => {
+    id = recordSettlement(r, project, coordinates, { type: useUIStore.getState().draftSettlementType, ...init }, opts);
+    useUIStore.getState().selectAndReveal([id]);
+  });
+  return id;
+}
+
+/**
+ * Write a settlement and its name into a command in progress.
+ *
+ * Split out of `addSettlement` so that a caller which is *already* changing
+ * something else can create a town as part of that change rather than beside it.
+ * Appointing a capital is the case that wanted it: naming a city the map does
+ * not have yet is one decision, and one press of undo should take it back.
+ */
+function recordSettlement(
+  r: Recorder,
+  project: MapProject,
+  coordinates: [number, number],
+  init: Partial<Settlement>,
+  opts: { showNames?: boolean } = {},
+): UUID {
   const settlement = makeSettlement(project, { type: 'Point', coordinates }, {
-    type: ui.draftSettlementType,
     name: init.name ?? nextName(project, 'settlements', 'New Settlement'),
     ownerId: territoryAt(project, coordinates)?.id ?? null,
     ...init,
@@ -200,20 +236,17 @@ export function addSettlement(
     offset: [settlementLabelOffset(settlement), 0],
   });
 
-  commit('Place settlement', (r) => {
-    r.set('settlements', { ...settlement, labelId: label.id });
-    r.set('labels', label);
-    // A name nobody can see is not much of a name. Asked for by the callers that
-    // exist to put one on the map, and done inside the commit so switching the
-    // layer on undoes with the settlement rather than being left behind.
-    if (opts.showNames) {
-      for (let layer = project.layers[label.layerId]; layer; layer = layer.parentId ? project.layers[layer.parentId] : undefined!) {
-        if (!layer.visible) r.update<MapLayer>('layers', layer.id, { visible: true });
-        if (!layer.parentId) break;
-      }
+  r.set('settlements', { ...settlement, labelId: label.id });
+  r.set('labels', label);
+  // A name nobody can see is not much of a name. Asked for by the callers that
+  // exist to put one on the map, and done inside the commit so switching the
+  // layer on undoes with the settlement rather than being left behind.
+  if (opts.showNames) {
+    for (let layer = project.layers[label.layerId]; layer; layer = layer.parentId ? project.layers[layer.parentId] : undefined!) {
+      if (!layer.visible) r.update<MapLayer>('layers', layer.id, { visible: true });
+      if (!layer.parentId) break;
     }
-    useUIStore.getState().selectAndReveal([settlement.id]);
-  });
+  }
   return settlement.id;
 }
 
@@ -230,19 +263,26 @@ export function addSettlement(
  * it, move it, change what it is — and the reference layer stops drawing it,
  * because otherwise the old name sits under the new one saying the map has two.
  */
-export function adoptPlace(place: {
+export interface ReferencePlace {
   name: string;
   coordinates: [number, number];
   scalerank: number;
   population?: number;
-}): UUID | null {
-  const project = getProject();
-  const already = Object.values(project.settlements).find(
+}
+
+/** The settlement the document already has for a reference place, if any. */
+function settlementFor(project: MapProject, place: ReferencePlace): Settlement | undefined {
+  return Object.values(project.settlements).find(
     (s) =>
       s.name.trim().toLowerCase() === place.name.trim().toLowerCase() &&
       Math.abs(s.geometry.coordinates[0] - place.coordinates[0]) < 0.001 &&
       Math.abs(s.geometry.coordinates[1] - place.coordinates[1]) < 0.001,
   );
+}
+
+export function adoptPlace(place: ReferencePlace): UUID | null {
+  const project = getProject();
+  const already = settlementFor(project, place);
   if (already) {
     useUIStore.getState().selectAndReveal([already.id]);
     return already.id;
@@ -261,6 +301,125 @@ export function adoptPlace(place: {
   );
   toast(`${place.name} is yours now — rename it in the inspector.`, 'success');
   return id;
+}
+
+/**
+ * What the capital may be named as (spec §7, §47).
+ *
+ * Three kinds, because "which town does this realm run from" has three honest
+ * answers on a map of an invented world: one the document already has, one the
+ * reference gazetteer knows and the document has not taken yet, and one that
+ * exists nowhere because you have just made it up.
+ */
+export type CapitalChoice =
+  | { kind: 'none' }
+  | { kind: 'settlement'; id: UUID }
+  | { kind: 'place'; place: ReferencePlace }
+  | { kind: 'new'; name: string; coordinates?: [number, number] };
+
+/**
+ * Appoint a territory's capital (spec §7).
+ *
+ * A capital is two facts that have to agree: the realm records which town it is
+ * run from, and the town is drawn as a capital rather than as one dot among
+ * hundreds. Setting only the first is what a bare `capitalId` did, and it left
+ * the map saying nothing had happened.
+ *
+ * So this also moves the rank — up for the town appointed, and back down for the
+ * one it replaces, unless some other realm is still run from there. The rank
+ * matches the realm's standing: an empire's seat is an imperial capital, a
+ * sovereign's a national one, and a province's a regional one. The town it
+ * demotes goes back to the size its population says it is, which is where its
+ * rank came from in the first place if the map adopted it from the gazetteer.
+ *
+ * Everything happens in one command, including creating the town when the name
+ * is one the map has never heard of. Naming a capital is a single decision and
+ * takes a single undo.
+ */
+export function setCapital(territoryId: UUID, choice: CapitalChoice): UUID | null {
+  const project = getProject();
+  const territory = project.territories[territoryId];
+  if (!territory) return null;
+
+  // Resolved before the command, since an existing town needs no writing.
+  const existing =
+    choice.kind === 'settlement'
+      ? project.settlements[choice.id]
+      : choice.kind === 'place'
+        ? settlementFor(project, choice.place)
+        : undefined;
+  if (choice.kind === 'settlement' && !existing) return null;
+
+  const rank = capitalRankFor(project, territory);
+  const outgoing = territory.capitalId ? project.settlements[territory.capitalId] : undefined;
+
+  let capitalId: UUID | null = null;
+  commit(choice.kind === 'none' ? 'Clear capital' : 'Set capital', (r) => {
+    if (choice.kind !== 'none') {
+      if (existing) {
+        capitalId = existing.id;
+      } else if (choice.kind === 'place') {
+        capitalId = recordSettlement(
+          r,
+          project,
+          choice.place.coordinates,
+          { name: choice.place.name, type: rank, population: choice.place.population ?? null },
+          { showNames: true },
+        );
+      } else if (choice.kind === 'new') {
+        // A town nobody has heard of goes in the middle of the country it runs,
+        // which is somewhere to put it and somewhere to drag it from.
+        const at = choice.coordinates ?? interiorPoint(territory.geometry);
+        capitalId = recordSettlement(
+          r,
+          project,
+          at,
+          { name: choice.name, type: rank, ownerId: territory.id },
+          { showNames: true },
+        );
+      }
+    }
+
+    if (outgoing && outgoing.id !== capitalId && outgoing.type.includes('capital')) {
+      // Only if nothing else is run from there — one town can be the seat of a
+      // duchy and of the county under it, and losing one of those posts is not
+      // losing the other.
+      const stillSeat = Object.values(project.territories).some(
+        (t) => t.id !== territory.id && t.capitalId === outgoing.id,
+      );
+      if (!stillSeat) {
+        const back = settlementTypeForPlace({ population: outgoing.population ?? undefined });
+        r.update<Settlement>('settlements', outgoing.id, {
+          type: back,
+          styleClassId: settlementTypeInfo(back).styleClassId,
+        });
+        if (outgoing.labelId) {
+          r.update<MapLabel>('labels', outgoing.labelId, { styleClassId: STYLE_IDS.textCity });
+        }
+      }
+    }
+
+    // An existing town is promoted; one written above already came out at rank.
+    if (existing && existing.type !== rank) {
+      r.update<Settlement>('settlements', existing.id, {
+        type: rank,
+        styleClassId: settlementTypeInfo(rank).styleClassId,
+      });
+      if (existing.labelId) {
+        r.update<MapLabel>('labels', existing.labelId, { styleClassId: STYLE_IDS.textCapital });
+      }
+    }
+
+    r.update<Territory>('territories', territory.id, { capitalId });
+  });
+
+  return capitalId;
+}
+
+/** An empire's seat, a sovereign's, or a province's. */
+function capitalRankFor(project: MapProject, t: Territory): SettlementType {
+  if (String(t.politicalType) === 'empire') return 'imperial-capital';
+  return t.parentId && project.territories[t.parentId] ? 'regional-capital' : 'national-capital';
 }
 
 function settlementLabelOffset(s: Settlement): number {
@@ -297,6 +456,11 @@ export function territoryAt(project: MapProject, coordinates: [number, number]):
     }
   }
   return best;
+}
+
+/** Does a territory's ground include this point? Used to rank capital candidates. */
+export function territoryContains(t: Territory, coordinates: [number, number]): boolean {
+  return pointInPoly(coordinates, t.geometry);
 }
 
 function pointInPoly([x, y]: [number, number], g: Poly): boolean {

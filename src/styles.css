@@ -1010,3 +1010,9 @@ textarea {
 ::-webkit-scrollbar-thumb:hover {
   background: #57544f;
 }
+
+/* A field you type into that offers matches under it — the capital picker.
+   Shares the search box's list styling; only the anchoring is its own. */
+.combo {
+  position: relative;
+}

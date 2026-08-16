@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 import { Dialog } from '../Dialog';
 import { commit, useProjectStore } from '@/state/projectStore';
 import { useUIStore } from '@/state/uiStore';
-import { setParent } from '@/state/commands';
+import { setCapital, setParent } from '@/state/commands';
 import { POLITICAL_TYPES, SETTLEMENT_TYPES } from '@/model/defaults';
 import { resolveTerritoryStyle } from '@/model/resolveStyle';
 import { areaKm2 } from '@/geo/operations';
@@ -122,7 +122,15 @@ function TerritoryTable() {
               </select>
             </td>
             <td>
-              <select value={t.capitalId ?? ''} onChange={(e) => update(t.id, { capitalId: e.target.value || null })}>
+              {/* A grid row is the wrong place for a type-ahead, so the table
+                  keeps its list — but it goes through the same command, so the
+                  town it names is drawn as a capital here too. */}
+              <select
+                value={t.capitalId ?? ''}
+                onChange={(e) =>
+                  setCapital(t.id, e.target.value ? { kind: 'settlement', id: e.target.value } : { kind: 'none' })
+                }
+              >
                 <option value="">—</option>
                 {Object.values(project.settlements).map((s) => (
                   <option key={s.id} value={s.id}>
