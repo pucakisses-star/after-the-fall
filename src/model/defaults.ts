@@ -591,7 +591,13 @@ export function createDefaultStyleSheet(): StyleSheet {
     defaultTextStyle({ fontSize: 10, tracking: 1.2, italic: true, color: '#5d8197', haloColor: '#f2f7fa' }),
   );
 
-  sym(STYLE_IDS.symbolCapitalImperial, 'Imperial capital', defaultSymbolStyle({ shape: 'star', size: 13 }));
+  // The three capitals are one symbol at three sizes, not three symbols. An
+  // atlas distinguishes a seat of empire from a seat of state by weight rather
+  // than by inventing a new mark for each: the reader learns "ringed dot means
+  // capital" once and reads the rank off the size. A star said something else
+  // entirely — it read as a legend key or a place of note rather than as the
+  // top of the same series.
+  sym(STYLE_IDS.symbolCapitalImperial, 'Imperial capital', defaultSymbolStyle({ shape: 'double-circle', size: 13 }));
   sym(STYLE_IDS.symbolCapitalNational, 'National capital', defaultSymbolStyle({ shape: 'double-circle', size: 10 }));
   sym(STYLE_IDS.symbolCapitalRegional, 'Regional capital', defaultSymbolStyle({ shape: 'filled-circle', size: 7.5 }));
   sym(STYLE_IDS.symbolCity, 'City', defaultSymbolStyle({ shape: 'circle', size: 6.5 }));
