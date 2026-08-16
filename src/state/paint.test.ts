@@ -19,11 +19,12 @@ import {
   addTerritory,
   createTerritoryFromSelection,
   paintTerritory,
+  stateFromStroke,
   subdivisionFromStroke,
 } from './commands';
 import { useUIStore } from './uiStore';
 import { inheritedFill } from '@/model/resolveStyle';
-import { areaKm2 } from '@/geo/operations';
+import { areaKm2, bbox } from '@/geo/operations';
 import { colorDistance } from '@/model/color';
 import type { Territory } from '@/model/types';
 
@@ -236,5 +237,58 @@ describe('a border drawn inside a state with the redraw tool', () => {
   it('refuses a stroke too short to enclose anything', () => {
     setup();
     expect(subdivisionFromStroke(stroke([[0.3, 0.3], [0.4, 0.4]]))).toBeNull();
+  });
+});
+
+/**
+ * The redraw tool's third gesture (spec §5, §7).
+ *
+ * A loop drawn where nobody holds the ground is a country being drawn, and used
+ * to be a refusal — being told to find a state to draw inside first is no answer
+ * when the point was to put a state where there wasn't one.
+ */
+describe('a border drawn on open ground with the redraw tool', () => {
+  const stroke = (coords: [number, number][]) => ({ type: 'LineString' as const, coordinates: coords });
+
+  it('makes a sovereign state of the ground inside it', () => {
+    setup();
+    const id = stateFromStroke(stroke([[20, 20], [21, 20], [21, 21], [20, 21], [20.05, 20.1]]))!;
+    expect(id).toBeTruthy();
+    expect(current(id).parentId).toBeNull();
+    expect(current(id).relationship).toBe('sovereign');
+    expect(areaKm2(current(id).geometry)).toBeGreaterThan(0);
+  });
+
+  it('takes only the ground nobody holds', () => {
+    // A loop thrown generously around a gap, running well over the neighbour
+    // beside it: what comes back is the gap, not an overlap.
+    const { a } = setup();
+    const before = areaKm2(current(a.id).geometry);
+    const id = stateFromStroke(stroke([[3.8, 0.2], [5.4, 0.2], [5.4, 1.8], [3.8, 1.8], [3.85, 0.3]]))!;
+    expect(id).toBeTruthy();
+    // Beta held 3–4; the new state starts where Beta stops.
+    expect(bbox(current(id).geometry)[0]).toBeCloseTo(4, 3);
+    // And nobody lost anything.
+    expect(areaKm2(current(a.id).geometry)).toBeCloseTo(before, 3);
+  });
+
+  it('leaves a stroke that never comes back alone', () => {
+    // The one gesture with nothing to anchor it, so it is the one that insists:
+    // a line across open country is a line, not a country.
+    setup();
+    expect(stateFromStroke(stroke([[20, 20], [25, 20], [30, 20.2]]))).toBeNull();
+  });
+
+  it('leaves a loop that is mostly somebody else\'s alone', () => {
+    // A reshape that missed, most likely — and carving a crescent out of the
+    // sliver beside them is not what was meant.
+    setup();
+    expect(stateFromStroke(stroke([[2.1, 0.1], [3.9, 0.1], [3.9, 1.9], [2.1, 1.9], [2.15, 0.2]]))).toBeNull();
+  });
+
+  it('makes a subdivision, not a state, when the loop lands inside one', () => {
+    // The two gestures do not overlap: this one is the other function's.
+    setup();
+    expect(stateFromStroke(stroke([[0.3, 0.3], [1.5, 0.3], [1.5, 1.5], [0.3, 1.5], [0.35, 0.4]]))).toBeNull();
   });
 });

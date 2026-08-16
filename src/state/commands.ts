@@ -1504,21 +1504,124 @@ export const redo = () => useProjectStore.getState().redo();
  *
  * The stroke is closed to make a shape — a hand drawing a loop rarely lands
  * back on its own start — and passed through the clipper to resolve the
- * crossings freehand always leaves. It has to land inside a state: a loop drawn
- * on open ground is not a subdivision of anything, and the tool says so rather
- * than inventing a country out of a scribble.
+ * crossings freehand always leaves. It has to land inside a state; a loop drawn
+ * on open ground is not a subdivision of anything, and is `stateFromStroke`'s
+ * business instead.
  */
 export function subdivisionFromStroke(stroke: LineString): UUID | null {
+  const shape = closeStroke(stroke);
+  if (!shape) return null;
+  if (!enclosingTerritory(getProject(), shape)) return null;
+  return addTerritory(shape);
+}
+
+/**
+ * How far a stroke's ends may be apart, against its own length, to read as a
+ * loop rather than a line.
+ *
+ * The third gesture of the redraw tool is the one with nothing to check it
+ * against. A stroke along a border is anchored to that border; a loop inside a
+ * state is anchored to the state; a loop on open ground is anchored to nothing,
+ * so without a test of its own every failed attempt at the other two would
+ * silently leave a country behind. Measuring the gap against the stroke's own
+ * length rather than in degrees makes it the same gesture at every zoom: come
+ * most of the way back round and it is an area, run off in a line and it is not.
+ */
+const STROKE_CLOSES = 0.35;
+
+/**
+ * Does a freehand stroke read as a loop?
+ *
+ * Exported for the tool that has to choose between the gestures before calling
+ * any of them. Trying the reshape first and the loop-shaped commands on failure
+ * reads well but is wrong, and the failure is silent: a loop drawn *near* a
+ * border begins and ends "on" it as far as a generous freehand tolerance is
+ * concerned, so the reshape succeeds and grafts the whole loop onto the
+ * neighbour's outline as a lobe. Whether the stroke closes is what separates
+ * the gestures — a redraw runs along a stretch, a loop comes back to its start
+ * — so it has to be asked first, not used as a fallback.
+ */
+export function strokeCloses(stroke: LineString): boolean {
+  const ring = stroke.coordinates;
+  if (ring.length < 3) return false;
+  let length = 0;
+  for (let i = 1; i < ring.length; i++) {
+    length += Math.hypot(ring[i][0] - ring[i - 1][0], ring[i][1] - ring[i - 1][1]);
+  }
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  return length > 0 && Math.hypot(last[0] - first[0], last[1] - first[1]) <= length * STROKE_CLOSES;
+}
+
+/**
+ * How much of a drawn area has to be unclaimed for it to mean a new state.
+ *
+ * Below this the stroke is lying across somebody's country and means something
+ * else — a reshape that missed, most likely — and the tool says so rather than
+ * carving a crescent out of the gap beside them.
+ */
+const MOSTLY_OPEN = 0.6;
+
+/**
+ * Turn a loop drawn on open ground into a new state (spec §5, §7).
+ *
+ * The third thing the redraw tool does, and the one that used to be a refusal:
+ * drawing a border around unclaimed land is drawing a country, and being told
+ * to go and find a state to draw inside first is not an answer when the point
+ * was to put a state where there wasn't one.
+ *
+ * What comes back is the drawn area minus whatever was already claimed, so a
+ * loop thrown generously around a gap gives the gap and not an overlap with the
+ * neighbours it was drawn past. That is the same answer the paint bucket gives
+ * for the same ground, which is the point — two tools, one idea of whose land
+ * this is.
+ */
+export function stateFromStroke(stroke: LineString): UUID | null {
+  const drawn = closeStroke(stroke, true);
+  if (!drawn) return null;
+
+  const project = getProject();
+  if (enclosingTerritory(project, drawn)) return null;
+
+  // Only the parts nobody holds. Cheap because a stroke is a local thing: only
+  // the territories whose bounds reach it can be in the way.
+  const box = bbox(drawn);
+  let open: Poly | null = drawn;
+  for (const t of Object.values(project.territories)) {
+    if (t.hidden) continue;
+    const other = bbox(t.geometry);
+    if (other[0] > box[2] || other[2] < box[0] || other[1] > box[3] || other[3] < box[1]) continue;
+    open = difference(open, t.geometry);
+    if (!open) return null;
+  }
+
+  const area = areaKm2(open);
+  if (!(area > 0) || area < areaKm2(drawn) * MOSTLY_OPEN) return null;
+  // A freehand loop grazing two neighbours can leave crumbs between them; the
+  // state is the ground that was drawn, not the shavings around it.
+  const kept = dropSlivers(open, BARRIER_WIDTH_KM) ?? open;
+  return addTerritory(kept, { parentId: null });
+}
+
+/** A freehand stroke as a polygon, closed up and cleaned of its own crossings. */
+function closeStroke(stroke: LineString, requireLoop = false): Poly | null {
   const ring = [...stroke.coordinates];
   if (ring.length < 3) return null;
   const first = ring[0];
   const last = ring[ring.length - 1];
-  if (first[0] !== last[0] || first[1] !== last[1]) ring.push([...first]);
 
+  if (requireLoop) {
+    let length = 0;
+    for (let i = 1; i < ring.length; i++) {
+      length += Math.hypot(ring[i][0] - ring[i - 1][0], ring[i][1] - ring[i - 1][1]);
+    }
+    const gap = Math.hypot(last[0] - first[0], last[1] - first[1]);
+    if (!(length > 0) || gap > length * STROKE_CLOSES) return null;
+  }
+
+  if (first[0] !== last[0] || first[1] !== last[1]) ring.push([...first]);
   const shape = makeValid({ type: 'Polygon', coordinates: [ring] });
-  if (!shape || areaKm2(shape) <= 0) return null;
-  if (!enclosingTerritory(getProject(), shape)) return null;
-  return addTerritory(shape);
+  return shape && areaKm2(shape) > 0 ? shape : null;
 }
 
 /**

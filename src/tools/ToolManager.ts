@@ -36,6 +36,8 @@ import {
   moveSettlement,
   paintTerritory,
   reshapeTerritoryBoundary,
+  stateFromStroke,
+  strokeCloses,
   subdivisionFromStroke,
   splitTerritoryWithLine,
   updateTerritoryGeometry,
@@ -625,23 +627,35 @@ export class ToolManager {
           // A stroke that began nowhere near a border is not a reshape.
           if (best > tolerance * 4) targetId = undefined;
         }
-        // A stroke drawn inside a state is a new border rather than a move of
-        // an old one, and makes a subdivision bounded by what was drawn. Tried
-        // after the reshape, not before: a stroke that runs along an existing
-        // outline is unambiguous, and a shape drawn inside one is what is left.
-        if (!targetId) {
+        // Three gestures, separated by the stroke's own shape *before* anything
+        // is tried. A loop — a stroke that comes back to its start — is an area
+        // being drawn: a subdivision if it lands inside a state, a new state if
+        // it lands on open ground. A stroke that stays open is a stretch of
+        // border being moved. The shape test has to come first rather than
+        // falling through from a failed reshape, because the failure is not
+        // reliable: a loop drawn near a border begins and ends "on" it as far
+        // as the freehand tolerance cares, and the reshape "succeeds" by
+        // grafting the whole loop onto the neighbour as a lobe.
+        if (strokeCloses(wgs)) {
           if (subdivisionFromStroke(wgs)) return;
+          if (stateFromStroke(wgs)) return;
+          // A loop that is neither — straddling a border, or mostly over
+          // somebody's ground without being inside anyone — may still be a
+          // whole-outline redraw of a small state, so the reshape gets it last.
+          if (targetId && reshapeTerritoryBoundary(targetId, wgs, tolerance, true)) return;
           useUIStore
             .getState()
-            .toast('Start the stroke on a border to redraw it, or draw a shape inside a state.', 'warn');
+            .toast(
+              'That shape straddles a border. Draw it inside a state for a subdivision, or on open ground for a new state.',
+              'warn',
+            );
           return;
         }
-        if (reshapeTerritoryBoundary(targetId, wgs, tolerance, true)) return;
-        if (subdivisionFromStroke(wgs)) return;
+        if (targetId && reshapeTerritoryBoundary(targetId, wgs, tolerance, true)) return;
         useUIStore
           .getState()
           .toast(
-            'Draw over a border, starting and finishing on the same outline — or draw a shape inside a state to make a subdivision of it.',
+            'Draw over a border, starting and finishing on the same outline — or close the stroke into a shape: inside a state for a subdivision, on open ground for a new state.',
             'warn',
           );
       }, 0);
