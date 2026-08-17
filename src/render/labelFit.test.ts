@@ -321,6 +321,16 @@ describe('label zoom scale', () => {
     }
   });
 
+  it('refuses to pin a name down to a speck', () => {
+    // Pinned while drawn at a couple of percent of its set size: the honest
+    // fold writes a fraction of a pixel, a size no one can read or find again.
+    const speck = pinnedText(style, 0.02, true);
+    expect(speck.fontSize).toBeGreaterThanOrEqual(4);
+    // And an unpin at the same extreme cannot ratchet it back below the floor.
+    const loose = pinnedText(speck, 50, false);
+    expect(loose.fontSize).toBeGreaterThanOrEqual(4);
+  });
+
   it('carries the halo through a pin at a zoomed-out scale', () => {
     const mpp = PLATE_METERS_PER_PIXEL * 4; // factor 0.25, so the halo has thinned
     const factor = labelZoomScale(mpp);

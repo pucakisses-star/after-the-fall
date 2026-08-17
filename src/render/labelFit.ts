@@ -399,14 +399,25 @@ export function scaledText<T extends ScalableText>(style: T, factor: number): T 
  *
  * `factor` is the scale the map *would* apply to this label, i.e. what
  * `labelZoomScale` says at the current view, whichever way the flag is moving.
+ *
+ * The fold is floored so the written size stays legible: pin a name while it
+ * is drawn at 5% and the honest fold would set it to a fraction of a pixel — a
+ * speck it keeps forever, and one more pin/unpin round at a different zoom
+ * ratchets it further down. Below the floor the glyphs do move through the
+ * click, which beats quietly writing a size no one can read or find again.
  */
+const PIN_MIN_SIZE = 4;
+
 export function pinnedText<T extends ScalableText>(style: T, factor: number, pin: boolean): T {
-  const k = pin ? factor : 1 / factor;
-  const halo = pin ? Math.min(1, factor) : 1 / Math.min(1, factor);
+  const k0 = pin ? factor : 1 / factor;
+  const size = Math.max(PIN_MIN_SIZE, style.fontSize * k0);
+  const k = style.fontSize > 0 ? size / style.fontSize : 1;
+  const halo0 = pin ? Math.min(1, factor) : 1 / Math.min(1, factor);
+  const halo = Math.min(4, Math.max(0.25, halo0));
   const round = (n: number) => Math.round(n * 100) / 100;
   return {
     ...style,
-    fontSize: round(style.fontSize * k),
+    fontSize: round(size),
     tracking: round(style.tracking * k),
     haloWidth: round(style.haloWidth * halo),
   };
