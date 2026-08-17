@@ -16,7 +16,10 @@
  */
 
 import { findBasemapSource, loadBasemap } from './basemap';
+import { lakePolygons } from '@/io/importers';
 import { layerEffective } from '@/model/hierarchy';
+import { normalizePoly } from './operations';
+import type { Poly } from './operations';
 import type { MapProject, UUID } from '@/model/types';
 import type { Position } from 'geojson';
 
@@ -26,10 +29,9 @@ import type { Position } from 'geojson';
  * Water and administrative divisions, not roads or places: a road network runs
  * through every territory it serves and would shatter each fill into the blocks
  * between junctions, which is not a political boundary anybody has ever drawn.
- * Lakes count the same way rivers do — a shoreline is as real a frontier as a
- * channel, and a fill clicked on one bank of a great lake should not swallow
- * the far shore. A lake is a polygon, but `linesOf` reads its rings as the
- * lines they are.
+ * Lakes are listed so the panel names them among the barriers, but they are
+ * consumed as water rather than as lines — `barrierWaters` below — because a
+ * lake bounds a fill the way the sea does, not the way a river does.
  */
 export const BARRIER_ROLES = ['rivers', 'lakes', 'counties', 'states', 'countries'] as const;
 
@@ -91,6 +93,12 @@ function projectLines(project: MapProject, selection: UUID[]): Position[][] {
  * rest are immediate. A layer that fails to load is skipped rather than failing
  * the fill: a barrier that is not there is a fill that goes further, which the
  * user can see and undo.
+ *
+ * Lakes are deliberately absent: a lake is not a line but water, and a fill
+ * treats it the way it treats the sea — `barrierWaters` below is its half.
+ * Cutting a shoreline as a line taught us why: the fill's pocket-healing pass,
+ * which repairs the scraps where two barrier lines cross, sees the severed lake
+ * as ground that was solid before the cut and quietly pastes it back.
  */
 export async function barrierLines(project: MapProject, selection: UUID[] = []): Promise<Position[][]> {
   const own = projectLines(project, selection);
@@ -100,6 +108,8 @@ export async function barrierLines(project: MapProject, selection: UUID[] = []):
 
   const lines = [...own];
   for (const source of barrierSources(project)) {
+    const role = findBasemapSource(source.id)?.role;
+    if (role === 'lakes') continue;
     try {
       for (const f of await loadBasemap(source.id)) lines.push(...linesOf(f.geometry));
     } catch {
@@ -108,4 +118,29 @@ export async function barrierLines(project: MapProject, selection: UUID[] = []):
     }
   }
   return lines;
+}
+
+/**
+ * The standing water the fill may not pour over, in WGS84.
+ *
+ * Lake polygons, subtracted from the fill region the same way the sea already
+ * is: a fill clicked on one bank stops at the shore, the far bank is reached
+ * only around the ends of the lake — real land connectivity — and the water
+ * itself belongs to nobody. Unlike the line barriers this is not a visibility
+ * gesture: a lake does not stop being a lake because the layer showing it is
+ * hidden, any more than the sea stops being the sea — the same bundled lakes
+ * the trim subtracts on every commit.
+ */
+export async function barrierWaters(): Promise<Poly[]> {
+  try {
+    const waters: Poly[] = [];
+    for (const g of await lakePolygons()) {
+      const p = normalizePoly(g as Poly);
+      if (p) waters.push(p);
+    }
+    return waters;
+  } catch {
+    // Same bargain as above: a missing lake is a fill that goes further.
+    return [];
+  }
 }

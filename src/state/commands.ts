@@ -40,7 +40,7 @@ import { boundaryFollows, reshapeBoundary } from '@/geo/reshape';
 import { BARRIER_WIDTH_KM, neighbourHoldingMostOf, regionAt } from '@/geo/floodFill';
 import { recolor, type RecolorOptions } from '@/geo/palette';
 import { clipToLand, indexLand, landPolygonsOf, type LandPolygon } from '@/geo/coastline';
-import { coastlineIfLoaded } from '@/io/importers';
+import { coastlineIfLoaded, lakesIfLoaded } from '@/io/importers';
 import type { Recorder } from './history';
 import type {
   MapLabel,
@@ -127,7 +127,31 @@ export function trimToLand(shape: Poly): Poly | null {
   // tile of the American mainland to clip against — measured at 437 ms a call,
   // against 4 ms for the tile cut to the shape.
   const index = indexLand(near, [box[0] - 1, box[1] - 1, box[2] + 1, box[3] + 1]);
-  return (clipToLand(shape as Polygon | MultiPolygon, index) as Poly | null) ?? null;
+  const ashore = (clipToLand(shape as Polygon | MultiPolygon, index) as Poly | null) ?? null;
+  return ashore ? lessLakes(ashore) : null;
+}
+
+/**
+ * A shape minus the lakes it reaches — the freshwater half of the trim.
+ *
+ * A territory cannot run over a lake for the same reason it cannot run over the
+ * sea, and the rule is applied in the same place: whatever path a shape arrives
+ * by — drawn, reshaped, filled, imported — it passes through here on commit.
+ * Only lakes whose bounds touch the shape are differenced, which is what keeps
+ * a vertex drag affordable against a continent of them.
+ */
+function lessLakes(shape: Poly): Poly | null {
+  const lakes = lakesIfLoaded();
+  if (!lakes?.length) return shape;
+  const box = bbox(shape);
+  let dry: Poly | null = shape;
+  for (const lake of lakes) {
+    const lb = bbox(lake);
+    if (lb[0] > box[2] || lb[2] < box[0] || lb[1] > box[3] || lb[3] < box[1]) continue;
+    dry = difference(dry, lake);
+    if (!dry) return null;
+  }
+  return dry;
 }
 
 let landBoxCache: { land: unknown; parts: LandPolygon[]; boxes: [number, number, number, number][] } | null = null;
@@ -908,11 +932,12 @@ export function fillLandAt(
   land: Poly[],
   preferredId: UUID | null = null,
   walls: Position[][] = [],
+  waters: Poly[] = [],
 ): { filled: boolean; message: string } {
   const project = getProject();
   const claimed = Object.values(project.territories).filter((t) => !t.hidden);
 
-  const region = regionAt(point, land, claimed, walls);
+  const region = regionAt(point, land, claimed, walls, undefined, waters);
   if (!region) {
     return { filled: false, message: 'No land there — that looks like open water.' };
   }

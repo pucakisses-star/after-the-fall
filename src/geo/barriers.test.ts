@@ -17,7 +17,7 @@ function withBasemap(sourceIds: string[], visible = true) {
 }
 
 describe('barrier layers', () => {
-  it('counts lakes among the walls, like rivers', () => {
+  it('counts lakes among the barriers, like rivers', () => {
     expect(BARRIER_ROLES).toContain('lakes');
     expect(BARRIER_ROLES).toContain('rivers');
     const project = withBasemap(['world-lakes-10m', 'world-rivers-10m']);

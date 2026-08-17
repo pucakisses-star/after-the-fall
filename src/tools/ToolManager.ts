@@ -43,7 +43,7 @@ import {
   updateTerritoryGeometry,
 } from '@/state/commands';
 import { coastlinePolygons } from '@/io/importers';
-import { barrierLines } from '@/geo/barriers';
+import { barrierLines, barrierWaters } from '@/geo/barriers';
 import type { Territory, UUID } from '@/model/types';
 
 const geojson = new GeoJSON();
@@ -175,6 +175,7 @@ export class ToolManager {
         // the first click of a session look dead.
         void coastlinePolygons().catch(() => undefined);
         void barrierLines(getProject(), []).catch(() => undefined);
+        void barrierWaters().catch(() => undefined);
         break;
       case 'settlement':
       case 'label':
@@ -349,8 +350,9 @@ export class ToolManager {
       const project = getProject();
       const preferred = ui.selection.find((id) => project.territories[id]) ?? null;
       const walls = ui.fillStopsAtLines ? await barrierLines(project, ui.selection) : [];
+      const waters = await barrierWaters();
 
-      const result = fillLandAt(point, land, preferred, walls);
+      const result = fillLandAt(point, land, preferred, walls, waters);
       toast(result.message, result.filled ? 'success' : 'warn');
     } catch (err) {
       toast(`Could not fill: ${(err as Error).message}`, 'error');

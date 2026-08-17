@@ -90,14 +90,37 @@ export function regionAt(
   claimed: { id: string; geometry: Poly }[],
   walls: Position[][] = [],
   maxSpan = MAX_SPAN,
+  waters: Poly[] = [],
 ): FillResult | null {
   const owner = claimed.find((c) => polyContains(c.geometry, point));
   if (owner) {
-    const held = cutByWalls(owner.geometry, walls, point);
+    const dry = lessWaters(owner.geometry, waters);
+    if (!dry) return null;
+    const held = cutByWalls(dry, walls, point);
     return held ? { geometry: held, ownerId: owner.id, truncated: false } : null;
   }
-  const open = unclaimedRegionAt(point, land, claimed.map((c) => c.geometry), walls, maxSpan);
+  const open = unclaimedRegionAt(point, land, claimed.map((c) => c.geometry), walls, maxSpan, waters);
   return open && { ...open, ownerId: null };
+}
+
+/**
+ * A shape minus the standing water that reaches it.
+ *
+ * Lakes are subtracted rather than cut as lines: water is not ground the fill
+ * may take, exactly as the sea is not. Only lakes whose bounds touch the shape
+ * are differenced, which keeps a click affordable against a continent of them.
+ */
+function lessWaters(shape: Poly, waters: Poly[]): Poly | null {
+  if (!waters.length) return normalizePoly(shape);
+  let dry: Poly | null = normalizePoly(shape);
+  if (!dry) return null;
+  const box = bboxOf(dry);
+  for (const w of waters) {
+    if (!boxesTouch(box, bboxOf(w), 0)) continue;
+    dry = difference(dry, w);
+    if (!dry) return null;
+  }
+  return dry;
 }
 
 /**
@@ -273,6 +296,7 @@ export function unclaimedRegionAt(
   claimed: Poly[],
   walls: Position[][] = [],
   maxSpan = MAX_SPAN,
+  waters: Poly[] = [],
 ): FillResult | null {
   // Which landmass was clicked, decided once against the un-clipped coastline.
   //
@@ -290,7 +314,7 @@ export function unclaimedRegionAt(
     const capped = Math.min(span, maxSpan);
     const box = windowAround(point, capped);
 
-    const region = unclaimedInBox(point, box, island, claimed, walls);
+    const region = unclaimedInBox(point, box, island, claimed, walls, waters);
     if (!region) return null;
 
     if (!touchesBox(region, box)) return { geometry: region, ownerId: null, truncated: false };
@@ -321,9 +345,18 @@ function unclaimedInBox(
   island: Poly,
   claimed: Poly[],
   walls: Position[][],
+  waters: Poly[] = [],
 ): Polygon | MultiPolygon | null {
   let open: Poly | null = clipToBox(island, box);
   if (!open) return null;
+
+  // Standing water first: a lake is not ground, the same way the sea is not.
+  for (const w of waters) {
+    const near = clipToBox(w, box);
+    if (!near) continue;
+    open = difference(open, near);
+    if (!open) return null;
+  }
 
   // Only the territories that reach into the window can be in the way, and
   // subtracting them one at a time beats unioning the whole map first.

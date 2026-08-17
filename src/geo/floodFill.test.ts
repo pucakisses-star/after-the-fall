@@ -54,6 +54,30 @@ describe('unclaimedRegionAt', () => {
     expect(area).toBeLessThan(areaKm2(box(4, 0, 6, 10)) * 1.02);
   });
 
+  it('pours around a lake, never over it', () => {
+    // A lake in the middle of open country: the fill takes the land around it
+    // and none of the water — a lake is subtracted like the sea, not cut like
+    // a river, so no healing pass can quietly paste it back.
+    const lake = box(4, 4, 6, 6);
+    const result = unclaimedRegionAt([1, 1], [CONTINENT], [], [], undefined, [lake]);
+    expect(result).not.toBeNull();
+    const area = areaKm2(result!.geometry);
+    const expected = areaKm2(CONTINENT) - areaKm2(lake);
+    expect(area).toBeGreaterThan(expected * 0.98);
+    expect(area).toBeLessThan(expected * 1.02);
+  });
+
+  it('stops at a lake that walls off a peninsula with the coast', () => {
+    // A lake spanning all but a 1° isthmus at the top: the west side is reached
+    // from the east only through that gap, so a fill clicked in the west with
+    // the gap claimed stays in the west.
+    const lake = box(4, 0, 6, 9);
+    const plug = box(4, 9, 6, 10);
+    const result = unclaimedRegionAt([2, 5], [CONTINENT], [plug], [], undefined, [lake]);
+    expect(result).not.toBeNull();
+    expect(Math.max(...lonsOf(result!.geometry))).toBeLessThanOrEqual(4.001);
+  });
+
   it('stops at the coast rather than filling the sea', () => {
     // Nothing is claimed at all, so the only thing bounding the fill is the
     // shoreline — the whole continent comes back and not a degree more.
@@ -211,6 +235,36 @@ describe('regionAt', () => {
     const right = regionAt([8, 5], [CONTINENT], claimed, [meridian])!;
     expect(Math.max(...lonsOf(left.geometry))).toBeLessThan(5.01);
     expect(Math.min(...lonsOf(right.geometry))).toBeGreaterThan(4.99);
+  });
+
+  it('keeps a lake out of a fill of claimed ground', () => {
+    // One realm holds the continent, a lake sits in the middle of it: a fill
+    // re-taking the realm's ground gets the ground, not the water.
+    const claimed = [{ id: 'all', geometry: CONTINENT }];
+    const lake = box(4, 4, 6, 6);
+    const result = regionAt([2, 5], [CONTINENT], claimed, [], undefined, [lake])!;
+    expect(result.ownerId).toBe('all');
+    const expected = areaKm2(CONTINENT) - areaKm2(lake);
+    expect(areaKm2(result.geometry)).toBeGreaterThan(expected * 0.98);
+    expect(areaKm2(result.geometry)).toBeLessThan(expected * 1.02);
+  });
+
+  it('answers nothing for a click on the lake itself', () => {
+    const claimed = [{ id: 'all', geometry: CONTINENT }];
+    const lake = box(4, 4, 6, 6);
+    expect(regionAt([5, 5], [CONTINENT], claimed, [], undefined, [lake])).toBeNull();
+  });
+
+  it('lets a river ending in a lake wall off a whole side', () => {
+    // The river alone peters out at the lake and stops nothing; the lake alone
+    // is rounded at both ends; together they cross the continent. This is the
+    // chain a real frontier is made of.
+    const claimed = [{ id: 'all', geometry: CONTINENT }];
+    const lake = box(4, 4, 6, 6);
+    const riverNorth = [[5, 11], [5, 6]];
+    const riverSouth = [[5, 4], [5, -1]];
+    const left = regionAt([2, 5], [CONTINENT], claimed, [riverNorth, riverSouth], undefined, [lake])!;
+    expect(Math.max(...lonsOf(left.geometry))).toBeLessThan(5.01);
   });
 
   it('leaves no ground between the two sides', () => {

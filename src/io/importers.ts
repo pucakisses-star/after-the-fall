@@ -449,7 +449,43 @@ export function coastlinePolygons(): Promise<(Polygon | MultiPolygon)[]> {
     // The load's own failures are reported where it is awaited; this side
     // channel just never learns the answer.
     .catch(() => undefined);
+  // Land and lakes bound the same shapes now, so whoever warms one warms the
+  // other — every trim and fill wants both, and a second warm site to forget
+  // is how a rule gets applied to half the tools.
+  void lakePolygons().catch(() => undefined);
   return coastlineCache;
+}
+
+/**
+ * The standing water territories may not cover — the app's lakes, as polygons.
+ *
+ * Same contract as the coastline above, and deliberately the fixed bundled
+ * dataset rather than whatever lake layer is switched on: ground does not stop
+ * being a lake because the reference layer showing it is hidden, any more than
+ * the sea stops being the sea.
+ */
+const LAKES_SOURCE = 'world-lakes-10m';
+
+let lakesCache: Promise<(Polygon | MultiPolygon)[]> | null = null;
+let lakesLoaded: (Polygon | MultiPolygon)[] | null = null;
+
+/** The lakes if they have already arrived, for the synchronous commands. */
+export function lakesIfLoaded(): (Polygon | MultiPolygon)[] | null {
+  return lakesLoaded;
+}
+
+export function lakePolygons(): Promise<(Polygon | MultiPolygon)[]> {
+  lakesCache ??= loadBasemap(LAKES_SOURCE).then((features) =>
+    polygonsOf(features)
+      .map((f) => f.geometry as Polygon | MultiPolygon)
+      .filter((g): g is Polygon | MultiPolygon => !!g),
+  );
+  void lakesCache
+    .then((lakes) => {
+      lakesLoaded = lakes;
+    })
+    .catch(() => undefined);
+  return lakesCache;
 }
 
 /** The land the conversion trims against, indexed around what is being converted. */
