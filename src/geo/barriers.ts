@@ -23,11 +23,15 @@ import type { Position } from 'geojson';
 /**
  * Reference layers whose geometry is a boundary worth stopping at.
  *
- * Rivers and administrative divisions, not roads or places: a road network runs
+ * Water and administrative divisions, not roads or places: a road network runs
  * through every territory it serves and would shatter each fill into the blocks
  * between junctions, which is not a political boundary anybody has ever drawn.
+ * Lakes count the same way rivers do — a shoreline is as real a frontier as a
+ * channel, and a fill clicked on one bank of a great lake should not swallow
+ * the far shore. A lake is a polygon, but `linesOf` reads its rings as the
+ * lines they are.
  */
-export const BARRIER_ROLES = ['rivers', 'counties', 'states', 'countries'] as const;
+export const BARRIER_ROLES = ['rivers', 'lakes', 'counties', 'states', 'countries'] as const;
 
 /** One human-readable name per barrier layer in play, for the panel and the toast. */
 export function barrierSources(project: MapProject): { id: string; name: string }[] {
