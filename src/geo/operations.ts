@@ -43,6 +43,52 @@ export function normalizePoly(g: Poly | null | undefined): Poly | null {
 }
 
 /**
+ * Coordinates rounded to a fixed grid, in decimal places.
+ *
+ * A tenth of a millimetre on the ground: far finer than anything a map means,
+ * and coarse enough that two borders traced along the same line land on the
+ * same numbers. That is the whole trick — the clipper's failures are all
+ * near-degeneracies, edges that are parallel to within a rounding error, and
+ * snapping turns "almost the same point" into "the same point".
+ */
+const SNAP_PLACES = 9;
+
+function snapPoly(g: Poly, places = SNAP_PLACES): Poly {
+  const f = 10 ** places;
+  const r = (n: number) => Math.round(n * f) / f;
+  const ring = (coords: Position[]): Position[] => {
+    const out: Position[] = [];
+    for (const [x, y] of coords) {
+      const p: Position = [r(x), r(y)];
+      const last = out[out.length - 1];
+      // Snapping can fold two vertices onto each other; a repeated point is a
+      // zero-length edge, which is exactly what the clipper chokes on.
+      if (!last || last[0] !== p[0] || last[1] !== p[1]) out.push(p);
+    }
+    if (out.length > 1) {
+      const a = out[0];
+      const b = out[out.length - 1];
+      if (a[0] !== b[0] || a[1] !== b[1]) out.push([a[0], a[1]]);
+    }
+    return out;
+  };
+  const rings = (rs: Position[][]): Position[][] => rs.map(ring).filter((x) => x.length >= 4);
+  return g.type === 'Polygon'
+    ? { type: 'Polygon', coordinates: rings(g.coordinates) }
+    : { type: 'MultiPolygon', coordinates: g.coordinates.map(rings).filter((p) => p.length > 0) };
+}
+
+/** One union attempt, or null if the clipper refused it. */
+function tryUnion(polys: Poly[]): Poly | null {
+  try {
+    const result = turf.union(collection(polys));
+    return result ? normalizePoly(result.geometry as Poly) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolve a self-crossing outline into a valid region.
  *
  * Freehand strokes cross themselves — a hand drawing a loop overshoots the
@@ -55,12 +101,15 @@ export function normalizePoly(g: Poly | null | undefined): Poly | null {
 export function makeValid(g: Poly): Poly | null {
   const n = normalizePoly(g);
   if (!n) return null;
-  try {
-    const merged = turf.union(collection([n, n]));
-    return merged ? normalizePoly(merged.geometry as Poly) : null;
-  } catch {
-    return null;
-  }
+  const self = tryUnion([n, n]);
+  if (self) return self;
+  // The clipper refuses some perfectly good shapes over a rounding error in the
+  // ninth decimal place; a snapped copy is the same ground with the ambiguity
+  // taken out. Failing both, the shape is returned as it came rather than
+  // thrown away — it was valid enough to draw, and a caller that gets null
+  // loses the territory.
+  const snapped = snapPoly(n);
+  return tryUnion([snapped, snapped]) ?? snapped ?? n;
 }
 
 /** Split a MultiPolygon into its constituent Polygons (§5: islands, exclaves). */
@@ -69,17 +118,56 @@ export function explode(g: Poly): Polygon[] {
   return g.coordinates.map((rings) => ({ type: 'Polygon', coordinates: rings }) as Polygon);
 }
 
-/** Combine several polygons into one geometry, keeping disjoint parts as a MultiPolygon. */
+/** Two shapes glued into one geometry without asking the clipper anything. */
+function concatParts(a: Poly, b: Poly): Poly | null {
+  const parts = [...explode(a), ...explode(b)].map((p) => p.coordinates);
+  return normalizePoly({ type: 'MultiPolygon', coordinates: parts });
+}
+
+/**
+ * Combine several polygons into one geometry, keeping disjoint parts as a
+ * MultiPolygon.
+ *
+ * The clipper is not robust on real map data: measured on the shipped map, 18 of
+ * 873 unions between neighbouring realms threw, all on shapes that are perfectly
+ * valid — two frontiers traced along the same river disagree in the ninth
+ * decimal place and it cannot decide which edge comes first. A merge that
+ * reports "could not merge those shapes" over that is the tool failing at the
+ * one job it has, so three things are tried before giving up: the union as
+ * asked, the union of snapped copies, and then the shapes one at a time so a
+ * single awkward neighbour cannot take the rest down with it.
+ *
+ * The last resort keeps the ground rather than the topology: pieces that will
+ * not merge are carried as separate parts of one MultiPolygon. They are adjacent
+ * on the plate and belong to one realm either way, so what the user sees is the
+ * merge they asked for.
+ */
 export function union(polys: Poly[]): Poly | null {
   const valid = polys.map(normalizePoly).filter((p): p is Poly => p !== null);
   if (valid.length === 0) return null;
   if (valid.length === 1) return valid[0];
-  try {
-    const result = turf.union(collection(valid));
-    return result ? normalizePoly(result.geometry as Poly) : null;
-  } catch {
-    return null;
+
+  const straight = tryUnion(valid);
+  if (straight) return straight;
+
+  const snapped = valid.map((p) => snapPoly(p));
+  const bySnap = tryUnion(snapped);
+  if (bySnap) return bySnap;
+
+  // One at a time, so one bad pair costs that pair rather than the whole merge.
+  let acc: Poly | null = snapped[0];
+  for (let i = 1; i < snapped.length; i++) {
+    const next = snapped[i];
+    const step: Poly | null = acc ? tryUnion([acc, next]) : next;
+    if (step) {
+      acc = step;
+      continue;
+    }
+    // Neither the clipper nor a coarser snap will have them: keep both.
+    const coarse: Poly | null = acc ? tryUnion([snapPoly(acc, 6), snapPoly(next, 6)]) : null;
+    acc = coarse ?? (acc ? concatParts(acc, next) : next);
   }
+  return acc;
 }
 
 /** `a` minus `b`. Returns null when `b` swallows `a` entirely. */

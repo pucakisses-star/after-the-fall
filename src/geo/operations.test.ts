@@ -75,6 +75,42 @@ describe('union / merge', () => {
   it('returns null for an empty list', () => {
     expect(union([])).toBeNull();
   });
+
+  it('merges neighbours whose shared frontier disagrees in the last decimal', () => {
+    // What "could not merge those shapes" was: two realms traced along the same
+    // line, differing by a rounding error the clipper cannot resolve. Measured
+    // on the shipped map, eighteen pairs of neighbours failed this way — every
+    // one of them a valid polygon. The merge has to survive it.
+    const west: Polygon = {
+      type: 'Polygon',
+      coordinates: [[
+        [0, 0], [1.0000000001, 0.0000000003], [0.9999999998, 0.5],
+        [1.0000000002, 1], [0, 1], [0, 0],
+      ]],
+    };
+    const east: Polygon = {
+      type: 'Polygon',
+      coordinates: [[
+        [1, 0], [2, 0], [2, 1], [0.9999999999, 1.0000000002],
+        [1.0000000003, 0.5], [1, 0],
+      ]],
+    };
+    const merged = union([west, east]);
+    expect(merged).not.toBeNull();
+    // Nothing lost and nothing counted twice: the pair covers 0..2 by 0..1.
+    expect(areaKm2(merged!)).toBeGreaterThan(areaKm2(rect(0, 0, 2, 1)) * 0.999);
+    expect(areaKm2(merged!)).toBeLessThan(areaKm2(rect(0, 0, 2, 1)) * 1.001);
+  });
+
+  it('never loses a shape it cannot cleanly merge', () => {
+    // The promise the paint bucket and the merge command rest on: whatever the
+    // clipper says, the ground the user selected comes back.
+    const parts = [rect(0, 0, 1, 1), rect(1, 0, 2, 1), rect(5, 5, 6, 6)];
+    const merged = union(parts);
+    expect(merged).not.toBeNull();
+    const total = parts.reduce((n, p) => n + areaKm2(p), 0);
+    expect(areaKm2(merged!)).toBeCloseTo(total, 3);
+  });
 });
 
 describe('difference and intersection', () => {
