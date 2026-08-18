@@ -106,10 +106,35 @@ export async function barrierLines(project: MapProject, selection: UUID[] = []):
   // meant, and adding every river on the continent to it would ignore them.
   if (selection.some((id) => project.linearFeatures[id])) return own;
 
-  const lines = [...own];
-  for (const source of barrierSources(project)) {
-    const role = findBasemapSource(source.id)?.role;
-    if (role === 'lakes') continue;
+  const { reference, close } = await referenceNetwork(project);
+  // The map's own rivers are closed against the same network; there are a
+  // handful of them and the index is already built, so this costs nothing.
+  return [...close(own), ...reference];
+}
+
+/**
+ * The reference barriers, gap-closed, built once per set of visible layers.
+ *
+ * Indexing a continent of rivers takes the better part of a second, and the
+ * fill asks for the barriers on every click — so the answer is held until the
+ * layers behind it change, which is the only thing that can alter it.
+ */
+let networkCache:
+  | { key: string; reference: Position[][]; close: (lines: Position[][]) => Position[][] }
+  | null = null;
+
+async function referenceNetwork(project: MapProject): Promise<{
+  reference: Position[][];
+  close: (lines: Position[][]) => Position[][];
+}> {
+  const sources = barrierSources(project).filter(
+    (s) => findBasemapSource(s.id)?.role !== 'lakes',
+  );
+  const key = sources.map((s) => s.id).join('|');
+  if (networkCache?.key === key) return networkCache;
+
+  const lines: Position[][] = [];
+  for (const source of sources) {
     try {
       for (const f of await loadBasemap(source.id)) lines.push(...linesOf(f.geometry));
     } catch {
@@ -120,13 +145,15 @@ export async function barrierLines(project: MapProject, selection: UUID[] = []):
   // The coast is where a river ends, so it has to be in the network the ends are
   // closed against — the shore itself is already the region's edge, and a
   // hairline drawn along it changes nothing.
-  let coast: Position[][] = [];
+  const coast: Position[][] = [];
   try {
     for (const g of await coastlinePolygons()) coast.push(...linesOf(g));
   } catch {
-    coast = [];
+    // No coastline: mouths stay as they are, which is how it was before.
   }
-  return closeBarrierGaps(lines, coast);
+  const close = makeGapCloser([...lines, ...coast]);
+  networkCache = { key, reference: close(lines), close };
+  return networkCache;
 }
 
 /**
@@ -178,7 +205,19 @@ const DEGREE_KM = 111.32;
  * two banks connected around its source, which is the truth about that ground.
  */
 export function closeBarrierGaps(lines: Position[][], extra: Position[][] = []): Position[][] {
-  const all = [...lines, ...extra];
+  return makeGapCloser([...lines, ...extra])(lines);
+}
+
+/**
+ * Build the closer once, use it many times.
+ *
+ * The index over the network is the whole cost of this file — a pass over
+ * every segment of every river on the continent — and the fill asks for the
+ * barriers on every click. Handing back a function that owns the index lets the
+ * reference network be indexed once a session while the map's own lines, which
+ * do change, are closed against it for the price of the lines themselves.
+ */
+export function makeGapCloser(all: Position[][]): (lines: Position[][]) => Position[][] {
   // Segment index: cell -> [lineIndex, segIndex, ...]
   const cells = new Map<number, number[]>();
   const key = (cx: number, cy: number) => cy * 131072 + cx;
@@ -296,6 +335,7 @@ export function closeBarrierGaps(lines: Position[][], extra: Position[][] = []):
     return best;
   };
 
+  return (lines: Position[][]): Position[][] => {
   const out: Position[][] = [];
   for (let li = 0; li < lines.length; li++) {
     const line = lines[li];
@@ -336,6 +376,7 @@ export function closeBarrierGaps(lines: Position[][], extra: Position[][] = []):
     out.push(joined);
   }
   return out;
+  };
 }
 
 /**

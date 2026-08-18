@@ -96,6 +96,37 @@ describe('exportSvg', () => {
     expect(svg.trimEnd().endsWith('</svg>')).toBe(true);
   });
 
+  it('never writes the same attribute on an element twice', async () => {
+    // An SVG is XML, and XML has no "last one wins": a repeated attribute is a
+    // parse error that kills the whole document. A browser showing the file
+    // inline is lenient and hid it, so the export looked fine while every
+    // strict reader — the PNG rasteriser, Illustrator, Inkscape — refused it.
+    const svg = await exportSvg(sampleProject(), {
+      ...OPTIONS,
+      includeTitle: true,
+      includeLegend: true,
+      includeCompass: true,
+      includeGraticule: true,
+      includeScaleBar: true,
+    });
+    for (const tag of svg.match(/<[a-zA-Z][^>]*>/g) ?? []) {
+      const names = [...tag.matchAll(/(?:^|\s)([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=/g)].map((m) => m[1]);
+      const seen = new Set<string>();
+      for (const n of names) {
+        expect(seen.has(n), `attribute "${n}" repeated in ${tag.slice(0, 90)}`).toBe(false);
+        seen.add(n);
+      }
+    }
+  });
+
+  it('leaves no NaN or undefined in the output', async () => {
+    // A missing dimension used to sail straight through and write two million
+    // NaNs into the path data rather than failing.
+    const svg = await exportSvg(sampleProject(), OPTIONS);
+    expect(svg).not.toContain('NaN');
+    expect(svg).not.toContain('undefined');
+  });
+
   it('emits every group named in §66, in order', async () => {
     const svg = await exportSvg(sampleProject(), OPTIONS);
     const expected = [

@@ -249,8 +249,18 @@ function strokeAttrs(s: LineStyle, scale: number): string {
   );
 }
 
-function textAttrs(s: TextStyle, scale: number): string {
-  const anchor = s.align === 'left' ? 'start' : s.align === 'right' ? 'end' : 'middle';
+/**
+ * `anchorOverride` wins over the style's own alignment, and is taken here rather
+ * than appended by the caller: an SVG is XML, and XML has no "last one wins" —
+ * a second `text-anchor` on the same element is a parse error that kills the
+ * whole file. It read as valid because a browser showing the SVG inline is
+ * lenient and takes the *first*, which also quietly threw the override away;
+ * anything strict — the PNG rasteriser, Illustrator, Inkscape — refused the
+ * document outright.
+ */
+function textAttrs(s: TextStyle, scale: number, anchorOverride?: string): string {
+  const anchor =
+    anchorOverride ?? (s.align === 'left' ? 'start' : s.align === 'right' ? 'end' : 'middle');
   let attrs =
     `font-family="${esc(s.fontFamily)}" font-size="${num(s.fontSize * scale)}" ` +
     `font-weight="${s.fontWeight}" fill="${toCss(s.color, s.opacity)}" ` +
@@ -632,9 +642,8 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
       .join('');
     // A pinned name overrides the style's own alignment, which is about how its
     // lines sit against each other rather than where the block goes.
-    const anchored = pin ? ` text-anchor="${pin.anchorX}"` : '';
     labels.push(
-      `<text id="label-${esc(l.id)}" ${textAttrs(style, scale)}${transform}${anchored}>${tspans}</text>`,
+      `<text id="label-${esc(l.id)}" ${textAttrs(style, scale, pin?.anchorX)}${transform}>${tspans}</text>`,
     );
   }
   if (labelPathDefs.length) defs.push(...labelPathDefs);
