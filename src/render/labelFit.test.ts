@@ -20,6 +20,8 @@ import {
   labelZoomScale,
   nameFitsItsLand,
   pinnedText,
+  nameIsLegible,
+  MIN_READABLE_FONT_SIZE,
   scaledText,
 } from './labelFit';
 import type { Polygon } from 'geojson';
@@ -268,6 +270,26 @@ describe('label zoom scale', () => {
     expect(round.fontSize).toBeCloseTo(style.fontSize, 1);
     expect(round.tracking).toBeCloseTo(style.tracking, 1);
     expect(round.haloWidth).toBeCloseTo(style.haloWidth, 1);
+  });
+
+  it('leaves a name off the plate once it is too small to read', () => {
+    // The rule the two kinds of label share. A pinned name is culled by the fit
+    // test as its land shrinks under it; a scaling name shrinks *with* its land
+    // and so answers the fit test the same at every zoom — legibility is what
+    // stops it lingering as a smudge on a world view.
+    expect(nameIsLegible(scaledText(style, 1))).toBe(true);
+    expect(nameIsLegible({ fontSize: MIN_READABLE_FONT_SIZE, tracking: 0, haloWidth: 1 })).toBe(true);
+    expect(nameIsLegible({ fontSize: MIN_READABLE_FONT_SIZE - 1, tracking: 0, haloWidth: 1 })).toBe(false);
+
+    // A country name at the map's own type size, on a world view: the zoom
+    // scale bottoms out at its floor and the name is a smudge, so it is left
+    // off the plate rather than printed unreadably small.
+    const country = { fontSize: 17, tracking: 0, haloWidth: 2 };
+    const worldView = scaledText(country, labelZoomScale(PLATE_METERS_PER_PIXEL * 200));
+    expect(worldView.fontSize).toBeLessThan(MIN_READABLE_FONT_SIZE);
+    expect(nameIsLegible(worldView)).toBe(false);
+    // At the scale it was composed for, the same name is on the plate.
+    expect(nameIsLegible(scaledText(country, labelZoomScale(PLATE_METERS_PER_PIXEL)))).toBe(true);
   });
 
   it('never lets a name grow wider than the window it is drawn in', () => {

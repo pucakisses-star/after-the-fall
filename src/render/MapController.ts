@@ -59,7 +59,7 @@ import {
 } from './olStyles';
 import { drawSymbol } from './symbols';
 import { placeNameBySymbol } from './namePlacement';
-import { fitToPlate, inscriptionScale, nameFitsItsLand, scaledText } from './labelFit';
+import { fitToPlate, inscriptionScale, nameFitsItsLand, nameIsLegible, scaledText } from './labelFit';
 import { drawText, drawTextOnPath, boxContains, type TextBox } from './textRenderer';
 import { useProjectStore } from '@/state/projectStore';
 import { useUIStore } from '@/state/uiStore';
@@ -972,6 +972,11 @@ export class MapController {
    * rules, and a label the user placed by hand is never second-guessed.
    */
   private labelEarnsItsPlace(project: MapProject, label: MapLabel, style: TextStyle): boolean {
+    // Legibility first, and for every label rather than only the political ones:
+    // a name drawn below reading size is a smudge whatever it names, and this is
+    // the one rule that applies alike to a pinned name and a scaling one.
+    if (!nameIsLegible(style)) return false;
+
     const owner = label.attachedToId ? project.territories[label.attachedToId] : undefined;
     if (!owner) return true;
 

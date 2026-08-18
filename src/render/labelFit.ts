@@ -363,6 +363,30 @@ export function nameFitsItsLand(
   return unit <= room * slack;
 }
 
+/**
+ * The smallest type that is worth putting on the plate, in px.
+ *
+ * Below about this a name is a grey smudge: you can see that something is
+ * written and not what. An atlas leaves it off the plate rather than printing
+ * it too small to read.
+ */
+export const MIN_READABLE_FONT_SIZE = 5;
+
+/**
+ * Whether a label is large enough to read as drawn (spec §28).
+ *
+ * The companion to `nameFitsItsLand`, and the rule that makes the two kinds of
+ * label behave alike. A pinned name is culled by the fit test as its land
+ * shrinks under it; a scaling name never is, because it shrinks *with* its land
+ * and so returns the same verdict at every zoom — which left the map with two
+ * populations under two laws, one appearing as you zoomed in and one always
+ * present as illegible specks. Legibility is the law they share: a name is on
+ * the plate when it fits its land *and* can be read.
+ */
+export function nameIsLegible(style: ScalableText, min = MIN_READABLE_FONT_SIZE): boolean {
+  return style.fontSize >= min;
+}
+
 /** The parts of a text style that scaling touches. */
 export interface ScalableText {
   fontSize: number;
