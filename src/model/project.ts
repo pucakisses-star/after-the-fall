@@ -190,6 +190,9 @@ export function createProject(opts: NewProjectOptions = {}): MapProject {
     // carries an empty box or a key to things it does not contain (§26, §28).
     legend: { enabled: false, title: 'Legend', position: 'bottom-left', auto: true, entries: [] },
     compass: { enabled: false, style: 'star', position: 'top-right', size: 46 },
+    // Off by default: the thinning is what makes a map of four hundred realms
+    // readable from a hemisphere away.
+    nameEverything: false,
   };
 }
 
@@ -280,6 +283,7 @@ export function migrate(raw: unknown): MapProject {
     basemap: migrateBasemap(p.basemap ?? []),
     legend: p.legend ?? createProject().legend,
     compass: p.compass ?? createProject().compass,
+    nameEverything: p.nameEverything ?? false,
     politicalCohesion: p.politicalCohesion ?? 'strong',
     territories: migrateTerritories(p.territories ?? {}),
     labels: migrateLabels(p.labels ?? {}, p.territories ?? {}),

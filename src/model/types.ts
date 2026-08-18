@@ -554,6 +554,17 @@ export interface MapProject {
   landColor: Color;
   legend: LegendSettings;
   compass: CompassSettings;
+  /**
+   * Print every realm's name, whatever the zoom (spec §28).
+   *
+   * Off, the map thins its names the way an atlas does: a realm is named on the
+   * plate that shows the realm, and what is inside it waits for a closer one, so
+   * a hemisphere reads as thirty realms rather than four hundred overlapping
+   * halos. On, nothing is held back — which is what you want when the map *is*
+   * the index, or when you are working and need to see the name of the thing you
+   * are editing however far out you happen to be.
+   */
+  nameEverything: boolean;
 }
 
 /** Where a piece of map furniture sits inside the frame. */

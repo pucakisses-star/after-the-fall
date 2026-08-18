@@ -101,6 +101,26 @@ export function ProjectPanel() {
         <p className="hint">The ocean colour fills the map background and the exported page.</p>
       </Section>
 
+      <Section title="Names">
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={project.nameEverything}
+            onChange={(e) =>
+              commit(e.target.checked ? 'Name everything' : 'Thin names by scale', (r) =>
+                r.setDoc('nameEverything', e.target.checked),
+              )
+            }
+          />
+          Name every realm at every zoom
+        </label>
+        <p className="hint">
+          {project.nameEverything
+            ? 'Every realm keeps its name however far out you zoom, overlaps and all — and the same on an exported plate.'
+            : 'Names thin out as you zoom away, the way an atlas does it: a realm is named on the plate that shows it, and what is inside it waits for a closer one.'}
+        </p>
+      </Section>
+
       {/*
         One control over the whole plate, because "how unified should realms
         look" is a decision about the map, not about any one territory. It scales

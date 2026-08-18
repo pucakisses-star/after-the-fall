@@ -96,6 +96,33 @@ describe('exportSvg', () => {
     expect(svg.trimEnd().endsWith('</svg>')).toBe(true);
   });
 
+  it('names what a screen of the same scale would name, and everything when asked', async () => {
+    // The exporter used to print every name in the document while the screen
+    // showed the ones that fitted, so a wide plate came out as a mat of
+    // overlapping halos. Now the two agree — and "name everything" lifts the
+    // thinning in both places at once.
+    const project = sampleProject();
+    // A name belonging to a territory is the only kind that thins: a city's or
+    // an ocean's is an annotation with its own rules.
+    const owner = Object.values(project.territories).find((t) => t.name === 'Disputed Zone')!;
+    const owned = makeLabel(project, { type: 'Point', coordinates: [5, 12] }, {
+      kind: 'country',
+      text: 'A LONG NAME FOR A SMALL PLACE',
+      attachedToId: owner.id,
+    });
+    project.labels[owned.id] = owned;
+
+    // A plate a hundred degrees wide: the territory is a few pixels across, so
+    // its name has nowhere to sit.
+    const wide: typeof OPTIONS = { ...OPTIONS, extent: [-40, -40, 60, 55] };
+    const texts = (svg: string) => (svg.match(/<text /g) ?? []).length;
+    const thinned = texts(await exportSvg({ ...project, nameEverything: false }, wide));
+    const all = texts(await exportSvg({ ...project, nameEverything: true }, wide));
+    expect(all).toBeGreaterThan(thinned);
+    // Every label in the document reaches the plate when nothing is held back.
+    expect(all).toBe(Object.keys(project.labels).length);
+  });
+
   it('never writes the same attribute on an element twice', async () => {
     // An SVG is XML, and XML has no "last one wins": a repeated attribute is a
     // parse error that kills the whole document. A browser showing the file

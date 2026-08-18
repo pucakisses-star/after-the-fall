@@ -29,7 +29,8 @@ export type DocKey =
   | 'oceanColor'
   | 'landColor'
   | 'legend'
-  | 'compass';
+  | 'compass'
+  | 'nameEverything';
 
 export interface EntityPatch {
   key: EntityKey;

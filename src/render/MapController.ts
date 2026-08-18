@@ -980,6 +980,12 @@ export class MapController {
     const owner = label.attachedToId ? project.territories[label.attachedToId] : undefined;
     if (!owner) return true;
 
+    // "Name everything" turns the atlas thinning off: every realm keeps its
+    // name at every zoom, overlaps and all. Legibility above still applies —
+    // a name too small to read is not a name on the plate — but nothing is
+    // held back for being deep in the hierarchy or short of room.
+    if (project.nameEverything) return true;
+
     const resolution = this.map.getView().getResolution() ?? 1;
     const metersPerPixel = resolution * metersPerUnit(project.projection?.units);
     if (!territoryLabelVisible(depthOf(project, owner.id), metersPerPixel)) return false;

@@ -32,11 +32,14 @@ import {
   roadClass,
   roadRankStyle,
   roadVisible,
+  territoryLabelVisible,
 } from '@/render/olStyles';
 import type { RoadClass } from '@/render/olStyles';
+import { nameFitsItsLand, scaledText } from '@/render/labelFit';
 import { symbolToSvg } from '@/render/symbols';
 import { placeNameBySymbol } from '@/render/namePlacement';
 import { compassToSvg, legendToSvg } from './legend';
+import { depthOf } from '@/model/hierarchy';
 import { toCss } from '@/model/color';
 import { STYLE_IDS } from '@/model/defaults';
 import { layerEffective } from '@/model/hierarchy';
@@ -48,7 +51,7 @@ import {
   resolveTerritoryStyle,
   resolveTextStyle,
 } from '@/model/resolveStyle';
-import type { HatchPattern, LineStyle, MapProject, TextStyle, UUID } from '@/model/types';
+import type { HatchPattern, LineStyle, MapLabel, MapProject, TextStyle, UUID } from '@/model/types';
 import type { LineString, MultiLineString, MultiPolygon, Polygon, Position } from 'geojson';
 
 export interface SvgExportOptions {
@@ -273,6 +276,56 @@ function textAttrs(s: TextStyle, scale: number, anchorOverride?: string): string
     attrs += ` paint-order="stroke" stroke="${toCss(s.outlineColor, 1)}" stroke-width="${num(s.outlineWidth * scale)}"`;
   }
   return attrs;
+}
+
+/**
+ * Whether a name belongs on the printed plate (spec §28).
+ *
+ * The same rule the screen applies, which `territoryLabelVisible` has always
+ * claimed to share with this exporter and did not: the export printed every
+ * name in the document while the screen showed the eighty that fitted, so a
+ * continental plate came out as a mat of overlapping halos. Now a plate names
+ * what a screen of the same scale would name — and "name everything" turns the
+ * thinning off in both places at once.
+ *
+ * Only territory names are thinned. An ocean, a river or a city name is an
+ * annotation with its own rules, and a name the author placed by hand is never
+ * second-guessed.
+ */
+function labelEarnsItsPlace(
+  project: MapProject,
+  label: MapLabel,
+  style: TextStyle,
+  metersPerPixel: number,
+  project2d: Projector,
+  scale: number,
+): boolean {
+  if (project.nameEverything) return true;
+  const owner = label.attachedToId ? project.territories[label.attachedToId] : undefined;
+  if (!owner) return true;
+  if (!territoryLabelVisible(depthOf(project, owner.id), metersPerPixel)) return false;
+
+  // How wide the territory is on the plate, in output px — the same measure the
+  // screen takes from the feature's extent.
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const rings =
+    owner.geometry.type === 'Polygon' ? owner.geometry.coordinates : owner.geometry.coordinates.flat();
+  for (const ring of rings) {
+    for (const [lon, lat] of ring) {
+      const pt = project2d(lon, lat);
+      if (!pt) continue;
+      if (pt[0] < minX) minX = pt[0];
+      if (pt[0] > maxX) maxX = pt[0];
+      if (pt[1] < minY) minY = pt[1];
+      if (pt[1] > maxY) maxY = pt[1];
+    }
+  }
+  if (!Number.isFinite(minX)) return true;
+  const room = Math.max(maxX - minX, maxY - minY);
+  return nameFitsItsLand(label.text, scaledText(style, scale), room);
 }
 
 // ---------------------------------------------------------------------------
@@ -599,6 +652,7 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
     if (!visibleInTime(l.timeline, project.timeline)) continue;
     const style = resolveTextStyle(project, l);
     const content = applyTextTransform(l.text, style.transform);
+    if (!labelEarnsItsPlace(project, l, style, metersPerPixel, p, scale)) continue;
 
     // Text on a path (§12) uses SVG's own textPath, so it stays editable.
     if (l.pathId && project.linearFeatures[l.pathId]) {
