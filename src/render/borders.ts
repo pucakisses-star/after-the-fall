@@ -93,31 +93,62 @@ function requestCoast(): void {
  * spare, which is what lets a lookup read a 3×3 neighbourhood and stop.
  */
 const COAST_CELL = 0.01;
-/** How near a vertex has to be to the coastline to be *on* it, in degrees. */
+/** How near a vertex has to be to a coastline *vertex* to be on it, in degrees. */
 const COAST_TOLERANCE = 0.0008;
+/**
+ * How near a vertex has to be to the coastline itself, in degrees — about a
+ * kilometre. The vertex test above answers for ground the app trimmed, which
+ * shares the coast's vertices exactly. But a map carries coasts it did not
+ * draw: realms built from county datasets follow the *Census* shoreline, which
+ * disagrees with Natural Earth's by a few hundred metres for stretches at a
+ * time — and every such stretch was stroked as a scatter of border dashes
+ * along the sea's edge. Distance to the coast's segments, not its vertices, is
+ * the question that survives two datasets drawing one shore.
+ */
+const COAST_LINE_TOLERANCE = 0.009;
 
-/** Coastline vertices in a uniform grid, for asking the question in constant time. */
+/** The coastline in a uniform grid, for asking the question in constant time. */
 export interface CoastVertices {
   /** Flat [x, y, x, y, …] per cell. */
   cells: Map<number, number[]>;
+  /** Flat [x1, y1, x2, y2, …] per cell: every coast segment crossing near it. */
+  segments: Map<number, number[]>;
 }
 
 export function indexCoastVertices(land: (Polygon | MultiPolygon)[]): CoastVertices {
   const cells = new Map<number, number[]>();
+  const segments = new Map<number, number[]>();
+  const addSeg = (k: number, x1: number, y1: number, x2: number, y2: number) => {
+    const bucket = segments.get(k);
+    if (bucket) bucket.push(x1, y1, x2, y2);
+    else segments.set(k, [x1, y1, x2, y2]);
+  };
   for (const g of land) {
     const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
     for (const rings of polys) {
       for (const ring of rings) {
-        for (const [x, y] of ring) {
+        for (let i = 0; i < ring.length; i++) {
+          const [x, y] = ring[i];
           const k = cellKey(x, y);
           const bucket = cells.get(k);
           if (bucket) bucket.push(x, y);
           else cells.set(k, [x, y]);
+          if (i === 0) continue;
+          // Register the segment with every cell its bounds touch, so a point
+          // query can stop at its own 3×3 neighbourhood.
+          const [px, py] = ring[i - 1];
+          const cx0 = Math.floor(Math.min(px, x) / COAST_CELL);
+          const cx1 = Math.floor(Math.max(px, x) / COAST_CELL);
+          const cy0 = Math.floor(Math.min(py, y) / COAST_CELL);
+          const cy1 = Math.floor(Math.max(py, y) / COAST_CELL);
+          for (let cy = cy0; cy <= cy1; cy++) {
+            for (let cx = cx0; cx <= cx1; cx++) addSeg(cy * 131072 + cx, px, py, x, y);
+          }
         }
       }
     }
   }
-  return { cells };
+  return { cells, segments };
 }
 
 /** Cell id packed into one number, so the map is keyed without building strings. */
@@ -128,7 +159,18 @@ function cellKey(x: number, y: number): number {
   return cy * 131072 + cx;
 }
 
-/** Does a coastline vertex sit within the tolerance of this point? */
+/** Squared distance from a point to a segment. */
+function segDist2(x: number, y: number, x1: number, y1: number, x2: number, y2: number): number {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / len2)) : 0;
+  const ex = x1 + t * dx - x;
+  const ey = y1 + t * dy - y;
+  return ex * ex + ey * ey;
+}
+
+/** Does this point sit on the coastline — a shared vertex, or within a kilometre of the line? */
 export function onCoast(index: CoastVertices, x: number, y: number): boolean {
   const cx = Math.floor(x / COAST_CELL);
   const cy = Math.floor(y / COAST_CELL);
@@ -141,6 +183,16 @@ export function onCoast(index: CoastVertices, x: number, y: number): boolean {
         const ex = bucket[i] - x;
         const ey = bucket[i + 1] - y;
         if (ex * ex + ey * ey <= tol2) return true;
+      }
+    }
+  }
+  const line2 = COAST_LINE_TOLERANCE * COAST_LINE_TOLERANCE;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const bucket = index.segments.get((cy + dy) * 131072 + (cx + dx));
+      if (!bucket) continue;
+      for (let i = 0; i < bucket.length; i += 4) {
+        if (segDist2(x, y, bucket[i], bucket[i + 1], bucket[i + 2], bucket[i + 3]) <= line2) return true;
       }
     }
   }

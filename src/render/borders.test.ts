@@ -64,6 +64,17 @@ describe('splitByCoast', () => {
     expect(total).toBe(run.length - 1);
   });
 
+  it('calls a shore drawn from another dataset a coast still', () => {
+    // The same west edge as another cartographer traced it: a few hundred
+    // metres off ours, sharing none of our vertices. A run along it hugs the
+    // coast without touching a single coastline vertex, and used to draw as a
+    // scatter of border dashes along the sea's edge.
+    const offset = along(0, 1, 9).map(([, y]) => [0.005, y + 0.4] as Position);
+    const pieces = splitByCoast(line(offset), ISLAND);
+    expect(pieces).toHaveLength(1);
+    expect(pieces[0].coastal).toBe(true);
+  });
+
   it('does not let a creek dash the coast', () => {
     // One segment reading "land both sides" in the middle of a shore run is
     // noise, and without smoothing it draws as an isolated dash of border.
