@@ -22,7 +22,7 @@ import { borderWeightFor } from '@/model/defaults';
 import { sovereignOf } from '@/model/hierarchy';
 import { visibleInTime } from '@/model/timeline';
 import { deriveBorders, mergeBorderSegments } from '@/geo/topology';
-import { coastlinePolygons } from '@/io/importers';
+import { coastlinePolygons, lakePolygons } from '@/io/importers';
 import type { BorderStyleKind, MapProject, Territory, UUID } from '@/model/types';
 import type { LineString, MultiPolygon, Polygon } from 'geojson';
 
@@ -71,9 +71,15 @@ let coastIndex: CoastVertices | null | undefined;
 function requestCoast(): void {
   if (coastIndex !== undefined) return;
   coastIndex = null;
-  coastlinePolygons()
-    .then((land) => {
-      coastIndex = indexCoastVertices(land);
+  // Lake shores belong in this index as much as sea coasts do. A realm stops at
+  // the water either way, and the line where it stops was drawn by the water
+  // rather than agreed with a neighbour — so a border running along a lake is
+  // left to the lake, exactly as one running along the sea is left to the coast.
+  // Without this, subtracting the lakes from the realms turned every shore into
+  // a hard political border ringing the Great Lakes.
+  Promise.all([coastlinePolygons(), lakePolygons().catch(() => [])])
+    .then(([land, lakes]) => {
+      coastIndex = indexCoastVertices([...land, ...lakes]);
       invalidateBorderCache();
       coastGeneration++;
       for (const cb of coastListeners) cb();
