@@ -424,17 +424,25 @@ export function scaledText<T extends ScalableText>(style: T, factor: number): T 
  * `factor` is the scale the map *would* apply to this label, i.e. what
  * `labelZoomScale` says at the current view, whichever way the flag is moving.
  *
- * The fold is floored so the written size stays legible: pin a name while it
- * is drawn at 5% and the honest fold would set it to a fraction of a pixel — a
- * speck it keeps forever, and one more pin/unpin round at a different zoom
- * ratchets it further down. Below the floor the glyphs do move through the
- * click, which beats quietly writing a size no one can read or find again.
+ * Pinning is floored so the written size stays legible: pin a name while it is
+ * drawn at 5% and the honest fold would set it to a fraction of a pixel — a
+ * speck it keeps forever. Below the floor the glyphs do move through the click,
+ * which beats quietly writing a size no one can read or find again.
+ *
+ * Unpinning is *not* floored, and the difference is the whole point. A pinned
+ * name is drawn at the size written down, so a tiny number there is a tiny
+ * name; an unpinned one is drawn at that size times the zoom scale, so a tiny
+ * number is ordinary and correct — at a plate zoomed eight times in, 17px on
+ * screen is 2px written down. Flooring it there inflated the name instead of
+ * holding it still: unchecking "do not scale with zoom" close in made it jump
+ * to nearly four times its size, which is the opposite of what the switch says.
  */
 const PIN_MIN_SIZE = 4;
 
 export function pinnedText<T extends ScalableText>(style: T, factor: number, pin: boolean): T {
   const k0 = pin ? factor : 1 / factor;
-  const size = Math.max(PIN_MIN_SIZE, style.fontSize * k0);
+  const folded = style.fontSize * k0;
+  const size = pin ? Math.max(PIN_MIN_SIZE, folded) : folded;
   const k = style.fontSize > 0 ? size / style.fontSize : 1;
   const halo0 = pin ? Math.min(1, factor) : 1 / Math.min(1, factor);
   const halo = Math.min(4, Math.max(0.25, halo0));

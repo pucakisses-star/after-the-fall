@@ -343,14 +343,31 @@ describe('label zoom scale', () => {
     }
   });
 
+  it('holds a name still when it is unpinned close in', () => {
+    // The switch says "do not scale with zoom", so turning it off must not
+    // resize anything at the click. Flooring the written size in this direction
+    // made a country name jump to nearly four times its size at a close zoom:
+    // an unpinned name is drawn at its size *times* the zoom scale, so a small
+    // number written down is ordinary rather than a speck.
+    const country = { fontSize: 17, tracking: 1, haloWidth: 2 };
+    for (const factor of [0.5, 1, 2, 4, 8, 16]) {
+      const loose = pinnedText(country, factor, false);
+      expect(loose.fontSize * factor).toBeCloseTo(country.fontSize, 0);
+    }
+  });
+
   it('refuses to pin a name down to a speck', () => {
     // Pinned while drawn at a couple of percent of its set size: the honest
     // fold writes a fraction of a pixel, a size no one can read or find again.
+    // A pinned name is drawn at exactly the size written down, so the floor is
+    // about what ends up on the plate.
     const speck = pinnedText(style, 0.02, true);
     expect(speck.fontSize).toBeGreaterThanOrEqual(4);
-    // And an unpin at the same extreme cannot ratchet it back below the floor.
+    // Unpinning has no such floor and must not have one: what is written down
+    // is multiplied by the zoom scale before it is drawn, so a small number is
+    // the right answer rather than a speck. What matters is the ink.
     const loose = pinnedText(speck, 50, false);
-    expect(loose.fontSize).toBeGreaterThanOrEqual(4);
+    expect(loose.fontSize * 50).toBeCloseTo(speck.fontSize, 1);
   });
 
   it('carries the halo through a pin at a zoomed-out scale', () => {
