@@ -220,6 +220,9 @@ export class ToolManager {
     };
 
     const onDown = (evt: MapBrowserEvent<PointerEvent>) => {
+      // A press on the reference image, while it is the thing being positioned,
+      // belongs to the image (spec §32).
+      if (this.controller.referenceGrabsAt(evt.coordinate)) return;
       const ui = useUIStore.getState();
       if (ui.tool === 'paint') {
         this.painting = true;

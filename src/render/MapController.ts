@@ -25,6 +25,7 @@ import GeoJSON from 'ol/format/GeoJSON';
 import Style from 'ol/style/Style';
 import Stroke from 'ol/style/Stroke';
 import { defaults as defaultInteractions } from 'ol/interaction';
+import PointerInteraction from 'ol/interaction/Pointer';
 import { defaults as defaultControls, ScaleLine } from 'ol/control';
 import type { Coordinate } from 'ol/coordinate';
 import type Projection from 'ol/proj/Projection';
@@ -59,6 +60,15 @@ import {
 } from './olStyles';
 import { drawSymbol } from './symbols';
 import { placeNameBySymbol } from './namePlacement';
+import {
+  movedBy,
+  placementContains,
+  placementExtent,
+  placementFromExtent,
+  resized,
+  type ReferencePlacement,
+  type ReferenceSize,
+} from './referenceImage';
 import { fitToPlate, inscriptionScale, nameFitsItsLand, nameIsLegible, scaledText } from './labelFit';
 import { drawText, drawTextOnPath, boxContains, type TextBox } from './textRenderer';
 import { useProjectStore } from '@/state/projectStore';
@@ -156,6 +166,12 @@ export class MapController {
   readonly overlayLayer: VectorLayer<VectorSource>;
   private graticuleLayer: Graticule | null = null;
   private referenceLayer: ImageLayer<Static> | null = null;
+  /** Where the reference image sits and how big it is (spec §32). */
+  private referencePlacement: ReferencePlacement | null = null;
+  private referenceUrl: string | null = null;
+  private referenceOpacity = 0.6;
+  private referenceMovable = false;
+  private referenceListeners = new Set<(p: ReferencePlacement | null) => void>();
 
   private basemapLayers = new Map<string, VectorLayer<VectorSource>>();
 
@@ -276,6 +292,7 @@ export class MapController {
     this.lastWorkingExtent = extentKey(project.workingExtent);
     this.attachStore();
     this.attachPointer();
+    this.attachReferenceDrag();
     this.syncAll(project, true);
 
     // The first frames draw before the coastline has loaded, so every coast
@@ -1460,24 +1477,135 @@ export class MapController {
       this.map.removeLayer(this.referenceLayer);
       this.referenceLayer = null;
     }
-    if (!url || !extentLonLat) return;
+    this.referencePlacement = null;
+    this.referenceUrl = null;
+    this.referenceOpacity = opacity;
+    if (!url || !extentLonLat) {
+      this.referenceChanged();
+      return;
+    }
+    this.referenceUrl = url;
+    this.referencePlacement = placementFromExtent(extentLonLat);
+    this.drawReference();
+    this.referenceChanged();
+  }
+
+  /** Rebuild the image layer at the placement's current extent. */
+  private drawReference(): void {
+    const placement = this.referencePlacement;
+    const url = this.referenceUrl;
+    if (this.referenceLayer) {
+      this.map.removeLayer(this.referenceLayer);
+      this.referenceLayer = null;
+    }
+    if (!placement || !url) return;
+    const [w, s, e, n] = placementExtent(placement);
     const proj = this.projection();
-    const a = transformCoord([extentLonLat[0], extentLonLat[1]], 'EPSG:4326', proj);
-    const b = transformCoord([extentLonLat[2], extentLonLat[3]], 'EPSG:4326', proj);
+    const a = transformCoord([w, s], 'EPSG:4326', proj);
+    const b = transformCoord([e, n], 'EPSG:4326', proj);
     this.referenceLayer = new ImageLayer({
       source: new Static({ url, imageExtent: [a[0], a[1], b[0], b[1]], projection: proj }),
-      opacity,
+      opacity: this.referenceOpacity,
       zIndex: -10,
     });
     this.map.getLayers().insertAt(0, this.referenceLayer);
   }
 
   setReferenceOpacity(opacity: number): void {
+    this.referenceOpacity = opacity;
     this.referenceLayer?.setOpacity(opacity);
   }
 
   hasReferenceImage(): boolean {
     return !!this.referenceLayer;
+  }
+
+  /** What the panel's sliders read, or null when no image is placed. */
+  referencePlacementState(): ReferencePlacement | null {
+    return this.referencePlacement;
+  }
+
+  /** Size the image from the panel: uniform, or width and height on their own. */
+  setReferenceSize(size: Partial<ReferenceSize>): void {
+    if (!this.referencePlacement) return;
+    this.referencePlacement = resized(this.referencePlacement, size);
+    this.drawReference();
+    this.referenceChanged();
+  }
+
+  /** Move the image by a step in degrees — the arrow keys and the drag both. */
+  nudgeReference(dLon: number, dLat: number): void {
+    if (!this.referencePlacement) return;
+    this.referencePlacement = movedBy(this.referencePlacement, dLon, dLat);
+    this.drawReference();
+    this.referenceChanged();
+  }
+
+  /**
+   * Whether dragging the map moves the image instead of panning.
+   *
+   * A tracing aid is aligned by eye, and eyes work in one gesture: pick the
+   * corner up and put it where it belongs. Panning stays available on every
+   * other part of the map — only a drag that starts *on* the image takes it.
+   */
+  setReferenceMovable(on: boolean): void {
+    this.referenceMovable = on;
+  }
+
+  isReferenceMovable(): boolean {
+    return this.referenceMovable;
+  }
+
+  /**
+   * Would a press here take the reference image?
+   *
+   * The tools ask before they act on a press: while the image is being
+   * positioned, a drag across it is moving the tracing aid, not painting a
+   * realm or picking up the town it happens to pass over.
+   */
+  referenceGrabsAt(coordinate: Coordinate): boolean {
+    if (!this.referenceMovable || !this.referencePlacement || !this.referenceLayer) return false;
+    const [lon, lat] = this.toLonLat(coordinate);
+    return placementContains(this.referencePlacement, lon, lat);
+  }
+
+  /** Told whenever the image moves or resizes, so the panel can follow it. */
+  onReferenceChange(fn: (p: ReferencePlacement | null) => void): () => void {
+    this.referenceListeners.add(fn);
+    return () => this.referenceListeners.delete(fn);
+  }
+
+  private referenceChanged(): void {
+    for (const fn of this.referenceListeners) fn(this.referencePlacement);
+  }
+
+  /**
+   * The drag itself, as an OpenLayers interaction so it competes with panning
+   * on equal terms: taking the event stops the map moving under the image.
+   */
+  private attachReferenceDrag(): void {
+    let last: [number, number] | null = null;
+    const drag = new PointerInteraction({
+      handleDownEvent: (evt) => {
+        const p = this.referencePlacement;
+        if (!this.referenceMovable || !p || !this.referenceLayer) return false;
+        const [lon, lat] = this.toLonLat(evt.coordinate);
+        if (!placementContains(p, lon, lat)) return false;
+        last = [lon, lat];
+        return true;
+      },
+      handleDragEvent: (evt) => {
+        if (!last) return;
+        const [lon, lat] = this.toLonLat(evt.coordinate);
+        this.nudgeReference(lon - last[0], lat - last[1]);
+        last = [lon, lat];
+      },
+      handleUpEvent: () => {
+        last = null;
+        return false;
+      },
+    });
+    this.map.addInteraction(drag);
   }
 }
 

@@ -3,13 +3,14 @@
  * and the reference image (spec §4, §17, §25, §32).
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { commit, useProjectStore } from '@/state/projectStore';
 import { toast, useUIStore } from '@/state/uiStore';
 import { PROJECTION_PRESETS, registerCustomProjection } from '@/geo/projections';
 import { BASEMAP_SIZES, BUILTIN_BASEMAPS, allBasemapSources } from '@/geo/basemap';
 import { POLITICAL_COHESION } from '@/model/defaults';
 import { referenceImageForView, registerImportedBasemap } from '@/io/importers';
+import { MAX_FACTOR, MIN_FACTOR } from '@/render/referenceImage';
 import { deriveLegendEntries } from '@/export/legend';
 import { useMapController } from './MapContext';
 import { Field, Section, Slider } from './Inspector';
@@ -556,6 +557,24 @@ function ReferenceImageSection() {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [opacity, setOpacity] = useState(0.6);
   const [placed, setPlaced] = useState(false);
+  const [movable, setMovable] = useState(true);
+  // The sliders read the controller's placement, so a drag on the map and a
+  // slider in the panel are two views of the same thing.
+  const [size, setSize] = useState({ scale: 1, stretchX: 1, stretchY: 1 });
+
+  useEffect(() => {
+    if (!controller) return;
+    return controller.onReferenceChange((p) => {
+      setPlaced(!!p);
+      if (p) setSize({ scale: p.scale, stretchX: p.stretchX, stretchY: p.stretchY });
+    });
+  }, [controller]);
+
+  const resize = (change: Partial<typeof size>) => {
+    const next = { ...size, ...change };
+    setSize(next);
+    controller?.setReferenceSize(change);
+  };
 
   return (
     <Section title="Reference image">
@@ -575,8 +594,10 @@ function ReferenceImageSection() {
             const b = controller.toLonLat([extent[2], extent[3]]);
             const state = await referenceImageForView(file, [a[0], a[1], b[0], b[1]]);
             controller.setReferenceImage(state.url, state.extent, opacity);
+            controller.setReferenceMovable(movable);
             setPlaced(true);
-            toast('Reference image placed. Trace over it, then hide it before exporting.', 'success');
+            setSize({ scale: 1, stretchX: 1, stretchY: 1 });
+            toast('Reference image placed. Drag it into position, then size it.', 'success');
           } catch (err) {
             toast((err as Error).message, 'error');
           }
@@ -597,6 +618,53 @@ function ReferenceImageSection() {
           Remove
         </button>
       </div>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={movable}
+          disabled={!placed}
+          onChange={(e) => {
+            setMovable(e.target.checked);
+            controller?.setReferenceMovable(e.target.checked);
+          }}
+        />
+        Drag the image to move it
+      </label>
+      <p className="hint" style={{ marginTop: -2 }}>
+        {movable
+          ? 'A drag that starts on the image carries it; anywhere else still pans the map.'
+          : 'The image is pinned where it is, and dragging pans the map as usual.'}
+      </p>
+      <Field label="Size">
+        <Slider
+          value={size.scale}
+          min={MIN_FACTOR}
+          max={MAX_FACTOR}
+          step={0.05}
+          onChange={(v) => resize({ scale: v })}
+          suffix="×"
+        />
+      </Field>
+      <Field label="Width">
+        <Slider
+          value={size.stretchX}
+          min={MIN_FACTOR}
+          max={MAX_FACTOR}
+          step={0.05}
+          onChange={(v) => resize({ stretchX: v })}
+          suffix="×"
+        />
+      </Field>
+      <Field label="Height">
+        <Slider
+          value={size.stretchY}
+          min={MIN_FACTOR}
+          max={MAX_FACTOR}
+          step={0.05}
+          onChange={(v) => resize({ stretchY: v })}
+          suffix="×"
+        />
+      </Field>
       <Field label="Opacity">
         <Slider
           value={opacity}
@@ -609,9 +677,18 @@ function ReferenceImageSection() {
           }}
         />
       </Field>
+      <button
+        className="btn btn--full"
+        disabled={!placed}
+        style={{ marginTop: 4 }}
+        onClick={() => resize({ scale: 1, stretchX: 1, stretchY: 1 })}
+      >
+        Reset to the size it was placed at
+      </button>
       <p className="hint">
-        The image is placed to fill the current view. Zoom and re-place to reposition it. It is a
-        session aid and is not saved into the project file.
+        The image lands filling the view; drag it into place, then size it — Size scales both ways
+        at once, Width and Height stretch one at a time. It is a session aid and is not saved into
+        the project file.
       </p>
     </Section>
   );
