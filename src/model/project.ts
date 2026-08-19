@@ -190,9 +190,11 @@ export function createProject(opts: NewProjectOptions = {}): MapProject {
     // carries an empty box or a key to things it does not contain (§26, §28).
     legend: { enabled: false, title: 'Legend', position: 'bottom-left', auto: true, entries: [] },
     compass: { enabled: false, style: 'star', position: 'top-right', size: 46 },
-    // Off by default: the thinning is what makes a map of four hundred realms
-    // readable from a hemisphere away.
-    nameEverything: false,
+    // On by default: an author wants to see what they have named while they are
+    // drawing it, and a name that vanishes at the wrong zoom reads as a name
+    // that was lost. Turn it off for the atlas thinning, which is what makes a
+    // map of four hundred realms readable from a hemisphere away.
+    nameEverything: true,
   };
 }
 
@@ -220,12 +222,16 @@ function migrateBasemap(basemap: MapProject['basemap']): MapProject['basemap'] {
  * document that carries the field is one the inspector can round-trip without
  * writing it for the first time on an unrelated edit.
  *
- * The second pass keeps old documents looking like themselves. Scaling used to
- * be reserved for names describing a territory: everything else was held at its
- * own size whatever its flag said. Now the flag decides for every label, so a
- * name saved unpinned and unattached — a city, an ocean, a note — would start
- * scaling on the way in. It is pinned instead, which is not a guess about what
- * its author wanted but a record of what it did.
+ * Where the field is missing the old behaviour is written down instead of
+ * guessed at: scaling used to be reserved for names describing a territory, so
+ * a name with nothing to describe was held at its own size whatever its flag
+ * said, and an old document that never carried the field opens pinned.
+ *
+ * A document that does carry it is taken at its word, whichever way it points.
+ * Overriding a stored `false` on an unattached name — a city, an ocean, a note
+ * — is how the switch came to be un-turn-off-able on two thirds of the map's
+ * text: the inspector cleared the flag, the file recorded it, and the next open
+ * put it back.
  */
 function migrateLabels(
   labels: Record<UUID, MapLabel>,
@@ -234,7 +240,7 @@ function migrateLabels(
   const out: Record<UUID, MapLabel> = {};
   for (const [id, l] of Object.entries(labels)) {
     const scaled = !!l.attachedToId && !!territories[l.attachedToId];
-    const fixedSize = typeof l.fixedSize === 'boolean' ? l.fixedSize || !scaled : !scaled;
+    const fixedSize = typeof l.fixedSize === 'boolean' ? l.fixedSize : !scaled;
     out[id] = fixedSize === l.fixedSize ? l : { ...l, fixedSize };
   }
   return out;
@@ -283,7 +289,7 @@ export function migrate(raw: unknown): MapProject {
     basemap: migrateBasemap(p.basemap ?? []),
     legend: p.legend ?? createProject().legend,
     compass: p.compass ?? createProject().compass,
-    nameEverything: p.nameEverything ?? false,
+    nameEverything: p.nameEverything ?? true,
     politicalCohesion: p.politicalCohesion ?? 'strong',
     territories: migrateTerritories(p.territories ?? {}),
     labels: migrateLabels(p.labels ?? {}, p.territories ?? {}),

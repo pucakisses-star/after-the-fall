@@ -20,6 +20,12 @@ describe('createProject', () => {
       expect(entry.sourceId).not.toMatch(/-(110|50)m$/);
     }
   });
+
+  it('names every realm at every zoom to begin with', () => {
+    // A name that disappears while you are drawing reads as a name that was
+    // lost, so a new map shows all of them and the author thins them by choice.
+    expect(createProject().nameEverything).toBe(true);
+  });
 });
 
 describe('migrate', () => {
@@ -51,6 +57,16 @@ describe('migrate', () => {
       ],
     };
     expect(migrate(old).basemap).toHaveLength(1);
+  });
+
+  it('opens a file saved before the switch existed with names showing', () => {
+    const old = { ...createProject(), schemaVersion: 0 } as Record<string, unknown>;
+    delete old.nameEverything;
+    expect(migrate(old).nameEverything).toBe(true);
+  });
+
+  it('keeps the thinning on a file that asked for it', () => {
+    expect(migrate({ ...createProject(), schemaVersion: 0, nameEverything: false }).nameEverything).toBe(false);
   });
 
   it('refuses a file from a newer build rather than mangling it', () => {

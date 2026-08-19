@@ -972,19 +972,23 @@ export class MapController {
    * rules, and a label the user placed by hand is never second-guessed.
    */
   private labelEarnsItsPlace(project: MapProject, label: MapLabel, style: TextStyle): boolean {
-    // Legibility first, and for every label rather than only the political ones:
-    // a name drawn below reading size is a smudge whatever it names, and this is
-    // the one rule that applies alike to a pinned name and a scaling one.
+    // "Name everything" turns every rule below off, the reading-size one
+    // included, and says so on the switch: every name at every zoom. A name that
+    // scales with the map is small when the map is small, and dropping it there
+    // for being small is the disappearing act the switch exists to stop — the
+    // author asked to see all of them, not all of them that happen to be big
+    // enough. This is also what the exporter does, so a plate and the screen it
+    // was taken from name the same things.
+    if (project.nameEverything) return true;
+
+    // Otherwise legibility first, and for every label rather than only the
+    // political ones: a name drawn below reading size is a smudge whatever it
+    // names, and this is the one rule that applies alike to a pinned name and a
+    // scaling one.
     if (!nameIsLegible(style)) return false;
 
     const owner = label.attachedToId ? project.territories[label.attachedToId] : undefined;
     if (!owner) return true;
-
-    // "Name everything" turns the atlas thinning off: every realm keeps its
-    // name at every zoom, overlaps and all. Legibility above still applies —
-    // a name too small to read is not a name on the plate — but nothing is
-    // held back for being deep in the hierarchy or short of room.
-    if (project.nameEverything) return true;
 
     const resolution = this.map.getView().getResolution() ?? 1;
     const metersPerPixel = resolution * metersPerUnit(project.projection?.units);

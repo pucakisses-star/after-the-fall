@@ -116,7 +116,7 @@ export function ProjectPanel() {
         </label>
         <p className="hint">
           {project.nameEverything
-            ? 'Every realm keeps its name however far out you zoom, overlaps and all — and the same on an exported plate.'
+            ? 'Every realm keeps its name however far out you zoom, overlaps and all, and however small the zoom draws it — and the same on an exported plate.'
             : 'Names thin out as you zoom away, the way an atlas does it: a realm is named on the plate that shows it, and what is inside it waits for a closer one.'}
         </p>
       </Section>

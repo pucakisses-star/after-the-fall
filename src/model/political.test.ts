@@ -385,6 +385,21 @@ describe('label sizing', () => {
     };
     expect(migrate(JSON.parse(JSON.stringify(doc))).labels.a.fixedSize).toBe(true);
   });
+
+  it('lets an unattached name be unpinned and stay unpinned', () => {
+    // The switch used to be un-turn-off-able on every name that did not describe
+    // a territory: the inspector cleared the flag, the file recorded it, and the
+    // next open pinned it again on the way in.
+    const doc = {
+      ...createProject(),
+      labels: { a: { id: 'a', text: 'Gulf of Alaska', attachedToId: null, fixedSize: false } as unknown as Record<
+        string,
+        unknown
+      >,
+      },
+    };
+    expect(migrate(JSON.parse(JSON.stringify(doc))).labels.a.fixedSize).toBe(false);
+  });
 });
 
 describe('country names are set apart from the geography', () => {
