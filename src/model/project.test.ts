@@ -69,6 +69,35 @@ describe('migrate', () => {
     expect(migrate({ ...createProject(), schemaVersion: 0, nameEverything: false }).nameEverything).toBe(false);
   });
 
+  it('strips the zero-area spurs an old file carries, keeping the realm', () => {
+    // Saved before the booleans dropped them: a realm with a four-point ring
+    // that goes out along a line and comes back. It encloses nothing, but the
+    // renderer strokes every ring, so it draws as a border across open ground.
+    const old = {
+      ...createProject(),
+      schemaVersion: 0,
+      territories: {
+        a: {
+          id: 'a',
+          name: 'Duchy of Verdigris',
+          politicalType: 'duchy',
+          relationship: 'sovereign',
+          parentId: null,
+          geometry: {
+            type: 'MultiPolygon',
+            coordinates: [
+              [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
+              [[[-97, 37], [-94, 37], [-97, 37], [-97, 37]]],
+            ],
+          },
+        },
+      },
+    } as unknown as Record<string, unknown>;
+    const out = migrate(old).territories.a.geometry;
+    expect(out.type).toBe('Polygon');
+    expect(out.coordinates).toEqual([[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]);
+  });
+
   it('refuses a file from a newer build rather than mangling it', () => {
     expect(() => migrate({ ...createProject(), schemaVersion: SCHEMA_VERSION + 1 })).toThrow(/newer version/);
   });

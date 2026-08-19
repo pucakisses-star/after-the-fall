@@ -50,6 +50,48 @@ describe('normalizePoly', () => {
   it('rejects degenerate rings', () => {
     expect(normalizePoly({ type: 'Polygon', coordinates: [[[0, 0], [1, 1]]] })).toBeNull();
   });
+
+  it('drops a ring that goes out along a line and comes back', () => {
+    // What a boolean leaves where two edges cancel: four points, closed, and
+    // enclosing nothing. Invisible as a region and loud as a line — the
+    // renderer strokes a realm's rings, so this draws as a border dash across
+    // open country, which is how it was found.
+    const spur: Polygon = {
+      type: 'Polygon',
+      coordinates: [[[-97, 37], [-94, 37], [-97, 37], [-97, 37]]],
+    };
+    expect(normalizePoly(spur)).toBeNull();
+  });
+
+  it('drops such a spur without touching the realm it is attached to', () => {
+    const mp: MultiPolygon = {
+      type: 'MultiPolygon',
+      coordinates: [rect(0, 0, 1, 1).coordinates, [[[5, 5], [8, 5], [5, 5], [5, 5]]]],
+    };
+    const out = normalizePoly(mp);
+    expect(out?.type).toBe('Polygon');
+    expect((out as Polygon).coordinates).toEqual(rect(0, 0, 1, 1).coordinates);
+  });
+
+  it('drops a zero-area hole and keeps a real one', () => {
+    const holed: Polygon = {
+      type: 'Polygon',
+      coordinates: [
+        rect(0, 0, 10, 10).coordinates[0],
+        rect(2, 2, 4, 4).coordinates[0],
+        [[6, 6], [9, 6], [6, 6], [6, 6]],
+      ],
+    };
+    expect(normalizePoly(holed)?.coordinates).toHaveLength(2);
+  });
+
+  it('keeps a real island, however small a map draws it', () => {
+    // The floor is a square metre; the smallest thing anyone would draw is
+    // orders of magnitude bigger, and losing an islet to a cleanup is worse
+    // than the dash it was meant to stop.
+    const islet = rect(-70, 41, -70 + 0.0005, 41 + 0.0005); // ~55 m a side
+    expect(normalizePoly(islet)).not.toBeNull();
+  });
 });
 
 describe('union / merge', () => {

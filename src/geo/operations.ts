@@ -29,17 +29,50 @@ function collection(polys: Poly[]): FeatureCollection<Poly> {
   return { type: 'FeatureCollection', features: polys.map(feat) };
 }
 
+/**
+ * A square metre, in square degrees — the floor under a ring that means
+ * anything (spec §5).
+ *
+ * A ring that goes out along a line and comes straight back encloses nothing:
+ * it is what a boolean leaves behind when two edges cancel, and every
+ * subsequent union carries it forward. It is invisible as a region and loud as
+ * a line — the renderer strokes a realm's rings as its borders, so a spur like
+ * this draws as a border dash lying across open country with no frontier
+ * anywhere near it. Nothing a map means is a square metre, so anything under
+ * that is arithmetic rather than ground.
+ */
+const MIN_RING_AREA = 1e-10;
+
+/** Twice the signed area of a ring — the shoelace sum, sign and all. */
+function ringArea2(ring: Position[]): number {
+  let sum = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    sum += (ring[j][0] - ring[i][0]) * (ring[j][1] + ring[i][1]);
+  }
+  return sum;
+}
+
+function isRegion(ring: Position[]): boolean {
+  return ring.length >= 4 && Math.abs(ringArea2(ring)) / 2 > MIN_RING_AREA;
+}
+
+/** The rings of one part that enclose ground, outer ring first, or null. */
+function usableRings(rings: Position[][]): Position[][] | null {
+  if (rings.length === 0 || !isRegion(rings[0])) return null;
+  return [rings[0], ...rings.slice(1).filter(isRegion)];
+}
+
 /** Normalise a MultiPolygon with a single ring set down to a Polygon. */
 export function normalizePoly(g: Poly | null | undefined): Poly | null {
   if (!g) return null;
   if (g.type === 'MultiPolygon') {
-    const parts = g.coordinates.filter((p) => p.length > 0 && p[0].length >= 4);
+    const parts = g.coordinates.map(usableRings).filter((p): p is Position[][] => p !== null);
     if (parts.length === 0) return null;
     if (parts.length === 1) return { type: 'Polygon', coordinates: parts[0] };
     return { type: 'MultiPolygon', coordinates: parts };
   }
-  if (g.coordinates.length === 0 || g.coordinates[0].length < 4) return null;
-  return g;
+  const rings = usableRings(g.coordinates);
+  return rings ? { type: 'Polygon', coordinates: rings } : null;
 }
 
 /**

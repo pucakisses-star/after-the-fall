@@ -5,6 +5,7 @@
 import { newId } from './ids';
 import { createDefaultStyleSheet, inferRelationship } from './defaults';
 import { defaultProjection, findPreset } from '@/geo/projections';
+import { normalizePoly } from '@/geo/operations';
 import type {
   LayerKind,
   MapLabel,
@@ -307,13 +308,23 @@ export function migrate(raw: unknown): MapProject {
  *
  * The rank is deliberately left alone. Rewriting "vassal" to a guessed rank
  * would be inventing information the file never carried.
+ *
+ * The geometry is passed through `normalizePoly` on the way in for a different
+ * reason: a file written before it dropped them carries the zero-area rings a
+ * boolean leaves behind, and those draw as border dashes lying across open
+ * country. They enclose nothing, so dropping them changes no ground — only
+ * what gets stroked.
  */
 function migrateTerritories(territories: Record<UUID, Territory>): Record<UUID, Territory> {
   const out: Record<UUID, Territory> = {};
   for (const [id, t] of Object.entries(territories)) {
-    out[id] = t.relationship
-      ? t
-      : { ...t, relationship: inferRelationship(t.politicalType, !!t.parentId) };
+    const relationship = t.relationship ?? inferRelationship(t.politicalType, !!t.parentId);
+    // A territory whose whole geometry is degenerate keeps it: it is the
+    // author's record of a realm, and silently emptying one on open is worse
+    // than an outline nobody can see.
+    const geometry = normalizePoly(t.geometry) ?? t.geometry;
+    out[id] =
+      relationship === t.relationship && geometry === t.geometry ? t : { ...t, relationship, geometry };
   }
   return out;
 }
