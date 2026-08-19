@@ -85,6 +85,34 @@ describe('normalizePoly', () => {
     expect(normalizePoly(holed)?.coordinates).toHaveLength(2);
   });
 
+  it('drops a ribbon part but keeps the realm it hangs off', () => {
+    // What a subtraction leaves where two edges nearly coincide: a part 10 km
+    // long and 10 m across. It survives the zero-area rule and draws as a line.
+    const ribbon: MultiPolygon = {
+      type: 'MultiPolygon',
+      coordinates: [
+        rect(0, 0, 1, 1).coordinates,
+        rect(-123.4, 47.3, -123.3, 47.30009).coordinates,
+      ],
+    };
+    const out = normalizePoly(ribbon);
+    expect(out?.type).toBe('Polygon');
+    expect((out as Polygon).coordinates).toEqual(rect(0, 0, 1, 1).coordinates);
+  });
+
+  it('keeps a narrow part that is most of what the realm is', () => {
+    // The rule is about crumbs hanging off a realm, not about realms that
+    // happen to be narrow: a spit with a small island beside it keeps both.
+    const spit: MultiPolygon = {
+      type: 'MultiPolygon',
+      coordinates: [
+        rect(-70, 41, -69.5, 41.0004).coordinates,
+        rect(-69.4, 41.1, -69.399, 41.101).coordinates,
+      ],
+    };
+    expect(normalizePoly(spit)?.type).toBe('MultiPolygon');
+  });
+
   it('keeps a real island, however small a map draws it', () => {
     // The floor is a square metre; the smallest thing anyone would draw is
     // orders of magnitude bigger, and losing an islet to a cleanup is worse

@@ -62,11 +62,47 @@ function usableRings(rings: Position[][]): Position[][] | null {
   return [rings[0], ...rings.slice(1).filter(isRegion)];
 }
 
+/**
+ * How wide a ring is, in degrees: the width of the rectangle with its area and
+ * its perimeter, which for a long thin shape is about its narrow dimension.
+ */
+function ringWidth(ring: Position[]): number {
+  let perimeter = 0;
+  for (let i = 1; i < ring.length; i++) {
+    perimeter += Math.hypot(ring[i][0] - ring[i - 1][0], ring[i][1] - ring[i - 1][1]);
+  }
+  if (perimeter === 0) return 0;
+  return (4 * (Math.abs(ringArea2(ring)) / 2)) / perimeter;
+}
+
+/**
+ * Sixty metres, in degrees — the narrowest a separate piece of a realm can be
+ * and still be a piece of it rather than a ribbon (spec §5).
+ *
+ * A subtraction along two edges that nearly coincide leaves a ribbon: a whole
+ * part of a realm, kilometres long and metres across, with just enough area to
+ * survive the zero-area rule. It has the same problem — no map draws a realm
+ * sixty metres wide, but the renderer strokes it, so it shows up as a stray
+ * line across open country. Rough at the edges (a degree of longitude narrows
+ * to the north), which is fine for a rule this coarse.
+ */
+const MIN_PART_WIDTH = 60 / 111_320;
+
+/** Ribbon parts, dropped only where the realm plainly stands somewhere else. */
+function withoutRibbons(parts: Position[][][]): Position[][][] {
+  if (parts.length < 2) return parts;
+  const area = (p: Position[][]) => Math.abs(ringArea2(p[0])) / 2;
+  const total = parts.reduce((n, p) => n + area(p), 0);
+  const kept = parts.filter((p) => ringWidth(p[0]) >= MIN_PART_WIDTH || area(p) > total / 100);
+  return kept.length > 0 ? kept : parts;
+}
+
 /** Normalise a MultiPolygon with a single ring set down to a Polygon. */
 export function normalizePoly(g: Poly | null | undefined): Poly | null {
   if (!g) return null;
   if (g.type === 'MultiPolygon') {
-    const parts = g.coordinates.map(usableRings).filter((p): p is Position[][] => p !== null);
+    const usable = g.coordinates.map(usableRings).filter((p): p is Position[][] => p !== null);
+    const parts = withoutRibbons(usable);
     if (parts.length === 0) return null;
     if (parts.length === 1) return { type: 'Polygon', coordinates: parts[0] };
     return { type: 'MultiPolygon', coordinates: parts };
