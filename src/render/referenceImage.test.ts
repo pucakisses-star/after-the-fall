@@ -5,6 +5,7 @@ import {
   MAX_FACTOR,
   MIN_FACTOR,
   movedBy,
+  nativeExtent,
   placementContains,
   placementExtent,
   placementFromExtent,
@@ -12,6 +13,40 @@ import {
 } from './referenceImage';
 
 const placed = () => placementFromExtent([-100, 30, -90, 40]);
+
+describe('where an image lands', () => {
+  // A view 20° wide over 1000 px: one screen pixel is 0.02° of longitude.
+  const view: [number, number, number, number] = [-100, 30, -80, 40];
+  const size: [number, number] = [1000, 500];
+
+  it('places it at its own resolution, a pixel to a pixel', () => {
+    const [w, s, e, n] = nativeExtent(view, size, 400, 250);
+    expect(e - w).toBeCloseTo(400 * 0.02, 9); // 8° of longitude
+    expect(n - s).toBeCloseTo(250 * 0.02, 9); // 5° of latitude
+    // Centred on the view.
+    expect((w + e) / 2).toBeCloseTo(-90, 9);
+    expect((s + n) / 2).toBeCloseTo(35, 9);
+  });
+
+  it('lets a plate bigger than the window run past its edge', () => {
+    // 4000 px of scan on a 1000 px map: it is four views wide, and it should
+    // say so rather than shrink itself into the frame.
+    const [w, , e] = nativeExtent(view, size, 4000, 2500);
+    expect(e - w).toBeCloseTo(80, 9);
+    expect(e - w).toBeGreaterThan(20);
+  });
+
+  it('keeps the image its own shape', () => {
+    const [w, s, e, n] = nativeExtent(view, size, 300, 900);
+    expect((e - w) / (n - s)).toBeCloseTo(300 / 900, 9);
+  });
+
+  it('falls back to filling the view when it has nothing to measure with', () => {
+    const [w, s, e, n] = nativeExtent(view, [0, 0], 400, 200);
+    expect(e - w).toBeCloseTo(16, 9); // 80% of a 20° view
+    expect((e - w) / (n - s)).toBeCloseTo(2, 9);
+  });
+});
 
 describe('placement', () => {
   it('starts centred on where the image was dropped, at the size it landed', () => {

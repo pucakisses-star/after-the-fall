@@ -427,6 +427,14 @@ export class MapController {
     // you are; opening a different map should not. Both went through the old
     // view before, which is why a prebuilt map opened at whatever zoom the
     // previous one happened to be left at rather than the view it ships with.
+    // The reference image is measured in the map's units, so a change of
+    // projection would leave it in the wrong place at the wrong size. Its
+    // ground and its size on screen are what the author set, so both are what
+    // is carried across.
+    const refBefore = this.referencePlacement
+      ? { lonlat: this.toLonLat(this.referencePlacement.centre), res: old.getResolution() ?? 1 }
+      : null;
+
     const seed = loaded ? project.view : { center: centreLonLat, zoom: old.getZoom() ?? 4, rotation: old.getRotation() };
     const view = buildView(project, projection, {
       center: transformCoord(seed.center as Coordinate, 'EPSG:4326', projection.getCode()),
@@ -435,6 +443,19 @@ export class MapController {
     });
     this.map.setView(view);
     this.lastProjectionId = settings.id;
+
+    if (refBefore && this.referencePlacement) {
+      const res = view.getResolution() ?? refBefore.res;
+      const k = refBefore.res > 0 ? res / refBefore.res : 1;
+      const centre = transformCoord(refBefore.lonlat as Coordinate, 'EPSG:4326', projection.getCode());
+      this.referencePlacement = {
+        ...this.referencePlacement,
+        centre: [centre[0], centre[1]],
+        base: [this.referencePlacement.base[0] * k, this.referencePlacement.base[1] * k],
+      };
+      this.drawReference();
+      this.referenceChanged();
+    }
 
     // Geometry is stored in WGS84, so every source has to be rebuilt in the new
     // projected space. Cheaper and far less error-prone than transforming in place.
@@ -1470,7 +1491,7 @@ export class MapController {
 
   setReferenceImage(
     url: string | null,
-    extentLonLat: [number, number, number, number] | null,
+    extentInView: [number, number, number, number] | null,
     opacity = 0.6,
   ): void {
     if (this.referenceLayer) {
@@ -1480,12 +1501,12 @@ export class MapController {
     this.referencePlacement = null;
     this.referenceUrl = null;
     this.referenceOpacity = opacity;
-    if (!url || !extentLonLat) {
+    if (!url || !extentInView) {
       this.referenceChanged();
       return;
     }
     this.referenceUrl = url;
-    this.referencePlacement = placementFromExtent(extentLonLat);
+    this.referencePlacement = placementFromExtent(extentInView);
     this.drawReference();
     this.referenceChanged();
   }
@@ -1499,12 +1520,11 @@ export class MapController {
       this.referenceLayer = null;
     }
     if (!placement || !url) return;
-    const [w, s, e, n] = placementExtent(placement);
-    const proj = this.projection();
-    const a = transformCoord([w, s], 'EPSG:4326', proj);
-    const b = transformCoord([e, n], 'EPSG:4326', proj);
+    // The placement is already in the view's units, so the image lands exactly
+    // where it was measured — no round trip through degrees to distort it.
+    const extent = placementExtent(placement);
     this.referenceLayer = new ImageLayer({
-      source: new Static({ url, imageExtent: [a[0], a[1], b[0], b[1]], projection: proj }),
+      source: new Static({ url, imageExtent: extent, projection: this.projection() }),
       opacity: this.referenceOpacity,
       zIndex: -10,
     });
@@ -1533,10 +1553,10 @@ export class MapController {
     this.referenceChanged();
   }
 
-  /** Move the image by a step in degrees — the arrow keys and the drag both. */
-  nudgeReference(dLon: number, dLat: number): void {
+  /** Move the image by a step in the map's units — what the drag does. */
+  nudgeReference(dx: number, dy: number): void {
     if (!this.referencePlacement) return;
-    this.referencePlacement = movedBy(this.referencePlacement, dLon, dLat);
+    this.referencePlacement = movedBy(this.referencePlacement, dx, dy);
     this.drawReference();
     this.referenceChanged();
   }
@@ -1565,8 +1585,7 @@ export class MapController {
    */
   referenceGrabsAt(coordinate: Coordinate): boolean {
     if (!this.referenceMovable || !this.referencePlacement || !this.referenceLayer) return false;
-    const [lon, lat] = this.toLonLat(coordinate);
-    return placementContains(this.referencePlacement, lon, lat);
+    return placementContains(this.referencePlacement, coordinate[0], coordinate[1]);
   }
 
   /** Told whenever the image moves or resizes, so the panel can follow it. */
@@ -1589,16 +1608,16 @@ export class MapController {
       handleDownEvent: (evt) => {
         const p = this.referencePlacement;
         if (!this.referenceMovable || !p || !this.referenceLayer) return false;
-        const [lon, lat] = this.toLonLat(evt.coordinate);
-        if (!placementContains(p, lon, lat)) return false;
-        last = [lon, lat];
+        const [x, y] = evt.coordinate;
+        if (!placementContains(p, x, y)) return false;
+        last = [x, y];
         return true;
       },
       handleDragEvent: (evt) => {
         if (!last) return;
-        const [lon, lat] = this.toLonLat(evt.coordinate);
-        this.nudgeReference(lon - last[0], lat - last[1]);
-        last = [lon, lat];
+        const [x, y] = evt.coordinate;
+        this.nudgeReference(x - last[0], y - last[1]);
+        last = [x, y];
       },
       handleUpEvent: () => {
         last = null;

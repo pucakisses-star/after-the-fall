@@ -588,16 +588,21 @@ function ReferenceImageSection() {
           e.target.value = '';
           if (!file || !controller) return;
           try {
-            const view = controller.map.getView();
-            const extent = view.calculateExtent(controller.map.getSize());
-            const a = controller.toLonLat([extent[0], extent[1]]);
-            const b = controller.toLonLat([extent[2], extent[3]]);
-            const state = await referenceImageForView(file, [a[0], a[1], b[0], b[1]]);
+            const size = controller.map.getSize() ?? [0, 0];
+            const extent = controller.map.getView().calculateExtent(size);
+            const state = await referenceImageForView(
+              file,
+              [extent[0], extent[1], extent[2], extent[3]],
+              [size[0], size[1]],
+            );
             controller.setReferenceImage(state.url, state.extent, opacity);
             controller.setReferenceMovable(movable);
             setPlaced(true);
             setSize({ scale: 1, stretchX: 1, stretchY: 1 });
-            toast('Reference image placed. Drag it into position, then size it.', 'success');
+            toast(
+              `Reference image placed at its own size, ${state.naturalWidth}×${state.naturalHeight}. Drag it into position.`,
+              'success',
+            );
           } catch (err) {
             toast((err as Error).message, 'error');
           }
@@ -686,9 +691,10 @@ function ReferenceImageSection() {
         Reset to the size it was placed at
       </button>
       <p className="hint">
-        The image lands filling the view; drag it into place, then size it — Size scales both ways
-        at once, Width and Height stretch one at a time. It is a session aid and is not saved into
-        the project file.
+        The image lands at its own resolution — one image pixel to one screen pixel at the zoom it
+        was placed at — so a large plate may run past the edge of the window. Drag it into place,
+        then size it: Size scales both ways at once, Width and Height stretch one at a time. It is
+        a session aid and is not saved into the project file.
       </p>
     </Section>
   );

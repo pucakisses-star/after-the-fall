@@ -19,6 +19,7 @@ import type {
 } from 'geojson';
 
 import { newId } from '@/model/ids';
+import { nativeExtent } from '@/render/referenceImage';
 import { STYLE_IDS } from '@/model/defaults';
 import { dissolve, interiorPoint } from '@/geo/operations';
 import { boundsOf, clipToLand, indexLand, landPolygonsOf, type LandIndex } from '@/geo/coastline';
@@ -853,7 +854,7 @@ export function registerImportedBasemap(filename: string, text: string): string 
 
 export interface ReferenceImageState {
   url: string;
-  /** WGS84 [minLon, minLat, maxLon, maxLat]. */
+  /** [minX, minY, maxX, maxY] in the map's own units. */
   extent: [number, number, number, number];
   opacity: number;
   naturalWidth: number;
@@ -861,33 +862,22 @@ export interface ReferenceImageState {
 }
 
 /**
- * Place an image over the current view, keeping its aspect ratio, ready to be
- * traced. Nudging and rescaling happen through the Reference Image panel.
+ * Place an image over the current view at its own resolution, ready to be
+ * traced: one image pixel to one screen pixel, wherever the view happens to be.
+ * Moving and resizing happen through the Reference Image panel.
  */
 export function referenceImageForView(
   file: File,
   viewExtent: [number, number, number, number],
+  viewSizePx: [number, number],
 ): Promise<ReferenceImageState> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
-      const [w, s, e, n] = viewExtent;
-      const viewW = e - w;
-      const viewH = n - s;
-      const imgAspect = img.naturalWidth / img.naturalHeight;
-      // Fit inside the view, centred.
-      let width = viewW * 0.8;
-      let height = width / imgAspect;
-      if (height > viewH * 0.8) {
-        height = viewH * 0.8;
-        width = height * imgAspect;
-      }
-      const cx = (w + e) / 2;
-      const cy = (s + n) / 2;
       resolve({
         url,
-        extent: [cx - width / 2, cy - height / 2, cx + width / 2, cy + height / 2],
+        extent: nativeExtent(viewExtent, viewSizePx, img.naturalWidth, img.naturalHeight),
         opacity: 0.6,
         naturalWidth: img.naturalWidth,
         naturalHeight: img.naturalHeight,
