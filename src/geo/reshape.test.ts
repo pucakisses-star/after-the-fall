@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { boundaryFollows, reshapeBoundary } from './reshape';
 import { areaKm2 } from './operations';
-import type { LineString, Polygon, Position } from 'geojson';
+import type { LineString, MultiPolygon, Polygon, Position } from 'geojson';
 
 /** A ten-degree square with a vertex every degree, so a run has points in it. */
 function square(): Polygon {
@@ -128,5 +128,67 @@ describe('boundaryFollows', () => {
 
   it('does not claim a shape that only comes near it', () => {
     expect(boundaryFollows(neighbour, [[3, 4], [5, 4], [7, 4]], 0.1)).toBe(false);
+  });
+});
+
+/**
+ * A realm of several parts (spec §5, §21).
+ *
+ * The pencil used to ask each end of the stroke for its own nearest ring and
+ * refuse unless the two agreed. On a realm with an island — or a hole — an end
+ * lying squarely on the main outline can still measure a hair nearer the other
+ * ring, and the reshape was refused although a ring carrying both ends was
+ * there the whole time.
+ */
+describe('a stroke over the outline of a realm that has more than one part', () => {
+  /** A big square, and a small island just off the stretch being redrawn. */
+  const mainland: Position[] = [
+    [0, 0],
+    [10, 0],
+    [10, 10],
+    [0, 10],
+    [0, 0],
+  ];
+  const island: Position[] = [
+    [10.05, 4.9],
+    [10.35, 4.9],
+    [10.35, 5.1],
+    [10.05, 5.1],
+    [10.05, 4.9],
+  ];
+  const realm: MultiPolygon = {
+    type: 'MultiPolygon',
+    coordinates: [[mainland], [island]],
+  };
+
+  it('redraws the mainland edge even when an end sits nearer the island', () => {
+    // Drawn along the east edge, bulging inland, with both ends beside the island.
+    const stroke: LineString = {
+      type: 'LineString',
+      coordinates: [
+        [10, 4.6],
+        [9.6, 4.8],
+        [9.6, 5.2],
+        [10, 5.4],
+      ],
+    };
+    const out = reshapeBoundary(realm, stroke, 0.5);
+    expect(out).not.toBeNull();
+    // The island is untouched and the mainland ring has taken the bite.
+    const parts = (out!.geometry as MultiPolygon).coordinates;
+    expect(parts).toHaveLength(2);
+    expect(parts[1][0]).toEqual(island);
+    expect(JSON.stringify(parts[0][0])).toContain('9.6');
+  });
+
+  it('still refuses a stroke whose ends are nowhere near any one ring', () => {
+    const stroke: LineString = {
+      type: 'LineString',
+      coordinates: [
+        [5, 5],
+        [6, 6],
+      ],
+    };
+    expect(reshapeBoundary(realm, stroke, 0.5)).toBeNull();
   });
 });

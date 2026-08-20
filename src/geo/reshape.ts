@@ -53,22 +53,66 @@ function project(p: Position, a: Position, b: Position): { t: number; point: Pos
 
 const polygonsOf = (g: Polygon | MultiPolygon) => (g.type === 'Polygon' ? [g.coordinates] : g.coordinates);
 
+/** The nearest place on one particular ring to a given point. */
+function nearestOnRing(ring: Position[], pi: number, ri: number, p: Position): RingPosition | null {
+  let best: RingPosition | null = null;
+  for (let si = 0; si < ring.length - 1; si++) {
+    const hit = project(p, ring[si], ring[si + 1]);
+    if (!best || hit.distance < best.distance) {
+      best = { polygon: pi, ring: ri, segment: si, t: hit.t, point: hit.point, distance: hit.distance };
+    }
+  }
+  return best;
+}
+
 /** The nearest place on any ring of the shape to a given point. */
 function nearestOnBoundary(shape: Polygon | MultiPolygon, p: Position): RingPosition | null {
   let best: RingPosition | null = null;
   const polys = polygonsOf(shape);
   for (let pi = 0; pi < polys.length; pi++) {
     for (let ri = 0; ri < polys[pi].length; ri++) {
-      const ring = polys[pi][ri];
-      for (let si = 0; si < ring.length - 1; si++) {
-        const hit = project(p, ring[si], ring[si + 1]);
-        if (!best || hit.distance < best.distance) {
-          best = { polygon: pi, ring: ri, segment: si, t: hit.t, point: hit.point, distance: hit.distance };
-        }
-      }
+      const hit = nearestOnRing(polys[pi][ri], pi, ri, p);
+      if (hit && (!best || hit.distance < best.distance)) best = hit;
     }
   }
   return best;
+}
+
+/**
+ * The ring that suits *both* ends of a stroke, not the one nearest each.
+ *
+ * Asking each end for its own nearest ring and then insisting the two agree is
+ * the same question asked twice, and on a realm of several parts the answers
+ * differ for a reason that has nothing to do with the user: an end that lies on
+ * the main outline can still sit a shade nearer some island of the same realm,
+ * or nearer the rim of a hole, and the reshape is refused although a ring
+ * carrying both ends was there all along. So every ring is offered both ends,
+ * only those that can hold both within tolerance are kept, and of those the one
+ * that fits the worse-placed end best wins.
+ */
+function ringForBoth(
+  shape: Polygon | MultiPolygon,
+  head: Position,
+  tail: Position,
+  tolerance: number,
+): { from: RingPosition; to: RingPosition } | null {
+  let best: { from: RingPosition; to: RingPosition; worst: number; total: number } | null = null;
+  const polys = polygonsOf(shape);
+  for (let pi = 0; pi < polys.length; pi++) {
+    for (let ri = 0; ri < polys[pi].length; ri++) {
+      const ring = polys[pi][ri];
+      const from = nearestOnRing(ring, pi, ri, head);
+      const to = nearestOnRing(ring, pi, ri, tail);
+      if (!from || !to) continue;
+      if (from.distance > tolerance || to.distance > tolerance) continue;
+      const worst = Math.max(from.distance, to.distance);
+      const total = from.distance + to.distance;
+      if (!best || worst < best.worst || (worst === best.worst && total < best.total)) {
+        best = { from, to, worst, total };
+      }
+    }
+  }
+  return best ? { from: best.from, to: best.to } : null;
 }
 
 /** The run of ring from one position to another, walking forwards, ends included. */
@@ -143,11 +187,9 @@ export function reshapeBoundary(
   const points = dedupe(stroke.coordinates);
   if (points.length < 2) return null;
 
-  const from = nearestOnBoundary(shape, points[0]);
-  const to = nearestOnBoundary(shape, points[points.length - 1]);
-  if (!from || !to) return null;
-  if (from.distance > tolerance || to.distance > tolerance) return null;
-  if (from.polygon !== to.polygon || from.ring !== to.ring) return null;
+  const ends = ringForBoth(shape, points[0], points[points.length - 1], tolerance);
+  if (!ends) return null;
+  const { from, to } = ends;
   if (from.segment === to.segment && Math.abs(from.t - to.t) < 1e-9) return null;
 
   const polys = polygonsOf(shape).map((p) => p.map((r) => r.slice()));

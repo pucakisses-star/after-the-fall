@@ -622,22 +622,33 @@ export class ToolManager {
         const tolerance = Math.max(0.0005, (metres * 28) / 111_320);
 
         // The territory whose border it is: the selected one, or whichever
-        // outline the stroke started nearest.
+        // outlines the stroke started near.
+        //
+        // Near, plural. A stroke drawn over a frontier starts on two realms at
+        // once — they share that line — and which of them measures a hair
+        // closer is a coin toss the user cannot see or control. Taking only the
+        // winner meant that half the time the pencil was handed the realm for
+        // which the gesture happened not to work, and refused. So the ones
+        // within reach are ranked and each is offered the stroke in turn.
         const selection = useUIStore.getState().selection;
-        let targetId = selection.find((id) => project.territories[id]);
-        if (!targetId) {
-          let best = Infinity;
+        const chosen = selection.find((id) => project.territories[id]);
+        let candidates: UUID[];
+        if (chosen) {
+          candidates = [chosen];
+        } else {
+          const near: { id: UUID; d: number }[] = [];
           for (const t of Object.values(project.territories)) {
             if (t.locked || t.hidden) continue;
             const d = distanceToBoundary(t.geometry, start);
-            if (d < best) {
-              best = d;
-              targetId = t.id;
-            }
+            // A stroke that began nowhere near a border is not a reshape.
+            if (d <= tolerance * 4) near.push({ id: t.id, d });
           }
-          // A stroke that began nowhere near a border is not a reshape.
-          if (best > tolerance * 4) targetId = undefined;
+          near.sort((a, b) => a.d - b.d);
+          candidates = near.slice(0, 4).map((n) => n.id);
         }
+        const targetId = candidates[0];
+        const tryReshape = () =>
+          candidates.some((id) => reshapeTerritoryBoundary(id, wgs, tolerance, true));
         // Three gestures, separated by the stroke's own shape *before* anything
         // is tried. A loop — a stroke that comes back to its start — is an area
         // being drawn: a subdivision if it lands inside a state, a new state if
@@ -653,7 +664,7 @@ export class ToolManager {
           // A loop that is neither — straddling a border, or mostly over
           // somebody's ground without being inside anyone — may still be a
           // whole-outline redraw of a small state, so the reshape gets it last.
-          if (targetId && reshapeTerritoryBoundary(targetId, wgs, tolerance, true)) return;
+          if (tryReshape()) return;
           useUIStore
             .getState()
             .toast(
@@ -662,11 +673,13 @@ export class ToolManager {
             );
           return;
         }
-        if (targetId && reshapeTerritoryBoundary(targetId, wgs, tolerance, true)) return;
+        if (tryReshape()) return;
         useUIStore
           .getState()
           .toast(
-            'Draw over a border, starting and finishing on the same outline — or close the stroke into a shape: inside a state for a subdivision, on open ground for a new state.',
+            targetId
+              ? 'That stroke could not be fitted to the border. Draw over the line itself, starting and finishing on it.'
+              : 'Draw over a border, starting and finishing on the same outline — or close the stroke into a shape: inside a state for a subdivision, on open ground for a new state.',
             'warn',
           );
       }, 0);
