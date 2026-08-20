@@ -98,7 +98,10 @@ function projectLines(project: MapProject, selection: UUID[]): Position[][] {
  * treats it the way it treats the sea — `barrierWaters` below is its half.
  * Cutting a shoreline as a line taught us why: the fill's pocket-healing pass,
  * which repairs the scraps where two barrier lines cross, sees the severed lake
- * as ground that was solid before the cut and quietly pastes it back.
+ * as ground that was solid before the cut and quietly pastes it back. Absent
+ * from the answer, that is — a shoreline is still in the network the dangling
+ * ends are closed *against*, the same as the coast, so a river that stops short
+ * of the lake it runs into is carried the rest of the way.
  */
 export async function barrierLines(project: MapProject, selection: UUID[] = []): Promise<Position[][]> {
   const own = projectLines(project, selection);
@@ -151,7 +154,20 @@ async function referenceNetwork(project: MapProject): Promise<{
   } catch {
     // No coastline: mouths stay as they are, which is how it was before.
   }
-  const close = makeGapCloser([...lines, ...coast]);
+  // And so is a lakeshore, for exactly the same reason. A lake is water rather
+  // than a line and so stays out of `reference` below — but a river that runs
+  // into one still ends *at* it, and on the shipped rivers 486 of those mouths
+  // stop short of the shore, 471 of them by less than five hundred metres. With
+  // nothing there to reach, each was a hole the flood poured through and walked
+  // round the river by. The coast is in this network already and its mouths
+  // hold; the lakes were the half that was missing.
+  const shore: Position[][] = [];
+  try {
+    for (const g of await lakePolygons()) shore.push(...linesOf(g));
+  } catch {
+    // Same bargain as the coast: no lakes, no bridging, which is how it was.
+  }
+  const close = makeGapCloser([...lines, ...coast, ...shore]);
   networkCache = { key, reference: close(lines), close };
   return networkCache;
 }

@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { neighbourHoldingMostOf, regionAt, unclaimedRegionAt } from './floodFill';
+import { closeBarrierGaps } from './barriers';
 import { areaKm2 } from './operations';
 import type { MultiPolygon, Polygon } from 'geojson';
 
@@ -235,6 +236,27 @@ describe('regionAt', () => {
     const right = regionAt([8, 5], [CONTINENT], claimed, [meridian])!;
     expect(Math.max(...lonsOf(left.geometry))).toBeLessThan(5.01);
     expect(Math.min(...lonsOf(right.geometry))).toBeGreaterThan(4.99);
+  });
+
+  it('leaks past a river that stops short of the lake it runs into', () => {
+    // The river runs from the south coast to three hundred metres shy of the
+    // lake, and the lake runs off the north coast: together they wall the
+    // continent in two — except for the gap, which the flood pours through.
+    const lake = box(4.5, 8, 5.5, 11);
+    const river = [
+      [5, -1],
+      [5, 7.997],
+    ];
+    const claimed = [{ id: 'all', geometry: CONTINENT }];
+    const leaked = regionAt([2, 5], [CONTINENT], claimed, [river], undefined, [lake])!;
+    const dry = areaKm2(CONTINENT) - areaKm2(box(4.5, 8, 5.5, 10));
+    expect(areaKm2(leaked.geometry) / dry).toBeGreaterThan(0.9);
+
+    // Closed against the shoreline, the mouth reaches the water and the wall
+    // holds: the click keeps its own half.
+    const shore = lake.coordinates[0];
+    const held = regionAt([2, 5], [CONTINENT], claimed, closeBarrierGaps([river], [shore]), undefined, [lake])!;
+    expect(areaKm2(held.geometry) / dry).toBeCloseTo(0.5, 1);
   });
 
   it('keeps a lake out of a fill of claimed ground', () => {
