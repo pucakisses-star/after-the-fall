@@ -132,6 +132,17 @@ export interface NewProjectOptions {
   workingExtent?: [number, number, number, number] | null;
 }
 
+/**
+ * Where a settlement stood, to a hundred metres — the form a struck-out
+ * reference place is recorded in (`MapProject.dismissedPlaces`).
+ *
+ * Three decimals is finer than any two towns are apart and coarser than the
+ * rounding a coordinate picks up passing through a document.
+ */
+export function placePositionKey(at: number[]): string {
+  return `${at[0].toFixed(3)},${at[1].toFixed(3)}`;
+}
+
 export function createProject(opts: NewProjectOptions = {}): MapProject {
   const { layers } = createDefaultLayers();
   const now = new Date().toISOString();
@@ -196,6 +207,7 @@ export function createProject(opts: NewProjectOptions = {}): MapProject {
     // that was lost. Turn it off for the atlas thinning, which is what makes a
     // map of four hundred realms readable from a hemisphere away.
     nameEverything: true,
+    dismissedPlaces: [],
   };
 }
 
@@ -291,6 +303,7 @@ export function migrate(raw: unknown): MapProject {
     legend: p.legend ?? createProject().legend,
     compass: p.compass ?? createProject().compass,
     nameEverything: p.nameEverything ?? true,
+    dismissedPlaces: p.dismissedPlaces ?? [],
     politicalCohesion: p.politicalCohesion ?? 'strong',
     territories: migrateTerritories(p.territories ?? {}),
     labels: migrateLabels(p.labels ?? {}, p.territories ?? {}),

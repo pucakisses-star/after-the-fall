@@ -10,9 +10,9 @@
  */
 
 import { describe, expect, it, beforeEach } from 'vitest';
-import { createProject } from '@/model/project';
+import { createProject, placePositionKey } from '@/model/project';
 import { useProjectStore } from './projectStore';
-import { adoptPlace } from './commands';
+import { adoptPlace, deleteSelection } from './commands';
 import { useUIStore } from './uiStore';
 import { settlementTypeForPlace } from '@/model/defaults';
 
@@ -90,5 +90,46 @@ describe('adopting one', () => {
     useProjectStore.getState().undo();
     expect(Object.keys(project().settlements)).toHaveLength(0);
     expect(Object.keys(project().labels)).toHaveLength(0);
+  });
+});
+
+/**
+ * Deleting a city has to take its dot with it (spec §47).
+ *
+ * A settlement of your own almost always stands on a reference place, and the
+ * reference layer is drawn underneath it. Remove the settlement and the dot it
+ * was covering comes back — same spot, a name of its own — which reads as the
+ * deletion having done nothing at all. So the ground is struck out, and the
+ * reference layer is told to leave it alone from then on.
+ */
+describe('deleting an adopted city', () => {
+  it('strikes out the ground it stood on', () => {
+    const id = adoptPlace(CHARLOTTE)!;
+    expect(project().dismissedPlaces).toEqual([]);
+
+    useUIStore.getState().setSelection([id]);
+    deleteSelection();
+
+    expect(project().settlements[id]).toBeUndefined();
+    expect(project().dismissedPlaces).toEqual([placePositionKey(CHARLOTTE.coordinates)]);
+  });
+
+  it('gives the ground back when the deletion is undone', () => {
+    const id = adoptPlace(CHARLOTTE)!;
+    useUIStore.getState().setSelection([id]);
+    deleteSelection();
+    useProjectStore.getState().undo();
+
+    expect(project().settlements[id]).toBeDefined();
+    expect(project().dismissedPlaces).toEqual([]);
+  });
+
+  it('records a place once, however often it is adopted and deleted', () => {
+    for (let i = 0; i < 3; i++) {
+      const id = adoptPlace(CHARLOTTE)!;
+      useUIStore.getState().setSelection([id]);
+      deleteSelection();
+    }
+    expect(project().dismissedPlaces).toHaveLength(1);
   });
 });

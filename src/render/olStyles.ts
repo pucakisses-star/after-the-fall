@@ -205,7 +205,7 @@ export const BASEMAP_Z: Record<BasemapRole, number> = {
 export function basemapRoleStyle(
   role: BasemapRole,
   project: { landColor: string; oceanColor: string; projection?: { units: string } },
-  adopted?: (name: string, coordinates: number[]) => boolean,
+  covered?: (coordinates: number[]) => boolean,
 ): Style | StyleFunction {
   switch (role) {
     case 'land':
@@ -220,7 +220,7 @@ export function basemapRoleStyle(
     case 'roads':
       return basemapRoadStyle(metersPerUnit(project.projection?.units));
     case 'places':
-      return basemapPlaceStyle(metersPerUnit(project.projection?.units), adopted);
+      return basemapPlaceStyle(metersPerUnit(project.projection?.units), covered);
     default:
       return basemapStyle('rgba(0,0,0,0)', '#a89c86', 0.4);
   }
@@ -450,11 +450,13 @@ export function basemapRiverStyle(): StyleFunction {
 export function basemapPlaceStyle(
   unitsInMeters = 1,
   /**
-   * Places the document has taken over, which the reference layer must stop
-   * drawing: otherwise a city you have adopted and renamed sits under its own
-   * former name, on its own former dot, and the map says both.
+   * Ground the document has taken over — a settlement of its own standing here,
+   * or a place struck out by deleting one. The reference layer must stop drawing
+   * those: otherwise a city you have adopted sits on its own former dot and the
+   * map says the same place twice, and deleting the city uncovers the dot again
+   * as though the deletion had not worked.
    */
-  adopted?: (name: string, coordinates: number[]) => boolean,
+  covered?: (coordinates: number[]) => boolean,
 ): StyleFunction {
   const cache = new Map<string, Style>();
   return (feature, resolution) => {
@@ -464,10 +466,10 @@ export function basemapPlaceStyle(
     const labelRank = clampRank(Number(props.labelrank), 8);
     const name = typeof props.name === 'string' ? props.name : '';
 
-    if (adopted) {
+    if (covered) {
       const raw = feature.get('basemap') as { geometry?: { coordinates?: number[] } } | undefined;
       const at = raw?.geometry?.coordinates;
-      if (at && adopted(name, at)) return undefined;
+      if (at && at.length >= 2 && covered(at)) return undefined;
     }
 
     // `resolution` is metres — or degrees — per pixel, hence the conversion; a

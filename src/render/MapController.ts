@@ -71,6 +71,7 @@ import {
 } from './referenceImage';
 import { fitToPlate, inscriptionScale, nameFitsItsLand, nameIsLegible, scaledText } from './labelFit';
 import { drawText, drawTextOnPath, boxContains, type TextBox } from './textRenderer';
+import { placePositionKey } from '@/model/project';
 import { useProjectStore } from '@/state/projectStore';
 import { useUIStore } from '@/state/uiStore';
 import type {
@@ -86,16 +87,21 @@ import type {
 const geojson = new GeoJSON();
 
 /**
- * How a reference place and a settlement are matched up: name and position.
+ * How close a reference place has to be to count as the one a settlement stands
+ * on, in kilometres.
  *
- * Three decimal places is about a hundred metres, which is finer than any two
- * towns are apart and coarser than the rounding a coordinate picks up on its way
- * through a document. The name is folded because a place taken over and then
- * renamed is a different place — the reference dot for the old name should come
- * back, since nothing on the map is standing in for it any more.
+ * Matching by name was the obvious thing and does not work: the settlements on
+ * this map were placed by hand near their reference dots rather than exactly on
+ * them, and half of them were renamed as well — Gran Francisco over San
+ * Francisco, Lakotah over Rapid City. Position alone is the honest test, and two
+ * kilometres is inside the width of any town's own dot at the zooms these are
+ * read at, while still leaving a genuinely separate neighbouring town alone.
  */
-function placeKey(name: string, at: number[]): string {
-  return `${name.trim().toLowerCase()}@${at[0].toFixed(3)},${at[1].toFixed(3)}`;
+const PLACE_MATCH_KM = 2;
+
+function kmApart(a: number[], b: number[]): number {
+  const lat = ((a[1] + b[1]) / 2) * (Math.PI / 180);
+  return Math.hypot((a[0] - b[0]) * Math.cos(lat), a[1] - b[1]) * 111.32;
 }
 
 /** Comparable form of a working extent, for spotting a change cheaply. */
@@ -177,14 +183,15 @@ export class MapController {
 
   /** Label bounding boxes in CSS pixels, refreshed every frame. */
   /**
-   * Reference places the document has taken over, by name and position.
+   * Where the document has something of its own standing on the ground: one
+   * entry per settlement, plus one per place struck out by deleting a settlement.
    *
-   * Rebuilt whenever the settlements change, and read by the reference layer's
-   * style so a place that has become one of the map's own settlements stops
-   * being drawn twice.
+   * Rebuilt whenever the settlements or the struck-out list change, and read by
+   * the reference layer's style so a place the map has taken over stops being
+   * drawn underneath it.
    */
-  private adoptedPlaces = new Set<string>();
-  private lastSettlements: MapProject['settlements'] | null = null;
+  private coveredPlaces: number[][] = [];
+  private coveredKey = '';
 
   readonly labelBoxes = new Map<UUID, TextBox>();
   private labelBoxesDraft = new Map<UUID, TextBox>();
@@ -660,20 +667,26 @@ export class MapController {
   }
 
   private syncSettlements(project: MapProject): void {
-    if (this.lastSettlements !== project.settlements) {
-      this.lastSettlements = project.settlements;
-      const before = this.adoptedPlaces.size;
-      this.adoptedPlaces = new Set();
-      for (const s of Object.values(project.settlements)) {
-        const [lon, lat] = s.geometry.coordinates;
-        this.adoptedPlaces.add(placeKey(s.name, [lon, lat]));
-      }
+    const covered: number[][] = [];
+    for (const s of Object.values(project.settlements)) {
+      const [lon, lat] = s.geometry.coordinates;
+      covered.push([lon, lat]);
+    }
+    for (const key of project.dismissedPlaces) {
+      const [lon, lat] = key.split(',').map(Number);
+      if (Number.isFinite(lon) && Number.isFinite(lat)) covered.push([lon, lat]);
+    }
+    // Comparing positions rather than counting them: moving a settlement, or
+    // deleting one and adding another in the same gesture, leaves the count
+    // where it was while changing which dots have to go.
+    const key = covered.map(placePositionKey).sort().join(' ');
+    if (key !== this.coveredKey) {
+      this.coveredKey = key;
+      this.coveredPlaces = covered;
       // The reference layer draws from a style function, so it only notices when
       // it is asked to draw again.
-      if (before !== this.adoptedPlaces.size) {
-        for (const [id, layer] of this.basemapLayers) {
-          if (findBasemapSource(id)?.role === 'places') layer.changed();
-        }
+      for (const [id, layer] of this.basemapLayers) {
+        if (findBasemapSource(id)?.role === 'places') layer.changed();
       }
     }
 
@@ -810,7 +823,9 @@ export class MapController {
           const layer = new VectorLayer({
             source: new VectorSource({ features: olFeatures, wrapX: false }),
             opacity: entry.opacity,
-            style: basemapRoleStyle(role, project, (name, at) => this.adoptedPlaces.has(placeKey(name, at))),
+            style: basemapRoleStyle(role, project, (at) =>
+              this.coveredPlaces.some((p) => kmApart(p, at) <= PLACE_MATCH_KM),
+            ),
             // City names would otherwise pile into an unreadable mat at low zoom.
             declutter: role === 'places',
             renderBuffer: role === 'places' ? 400 : 200,

@@ -8,6 +8,7 @@
 
 import type { LineString, Polygon, MultiPolygon, Position } from 'geojson';
 import { newId } from '@/model/ids';
+import { placePositionKey } from '@/model/project';
 import {
   STYLE_IDS,
   politicalTypeInfo,
@@ -1263,6 +1264,7 @@ export function deleteSelection(): void {
   const sel = useUIStore.getState().selection;
   if (sel.length === 0) return;
 
+  const struck: string[] = [];
   commit('Delete', (r) => {
     for (const id of sel) {
       const t = project.territories[id];
@@ -1279,6 +1281,11 @@ export function deleteSelection(): void {
       if (s) {
         if (s.labelId) r.remove('labels', s.labelId);
         r.remove('settlements', id);
+        // A city of your own usually sits on top of a reference dot, and
+        // removing the city uncovers it — a dot with a name, in the place you
+        // just cleared, which reads as the deletion not having worked. Strike
+        // the ground out so the reference layer leaves it alone.
+        struck.push(placePositionKey(s.geometry.coordinates));
         continue;
       }
       const lf = project.linearFeatures[id];
@@ -1304,6 +1311,10 @@ export function deleteSelection(): void {
         }
         r.remove('labels', id);
       }
+    }
+    if (struck.length) {
+      const already = new Set(project.dismissedPlaces);
+      r.setDoc('dismissedPlaces', [...project.dismissedPlaces, ...struck.filter((k) => !already.has(k))]);
     }
   });
   useUIStore.getState().clearSelection();

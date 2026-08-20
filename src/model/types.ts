@@ -565,6 +565,17 @@ export interface MapProject {
    * are editing however far out you happen to be.
    */
   nameEverything: boolean;
+  /**
+   * Reference places the map has struck out, as `"lon,lat"` to three decimals.
+   *
+   * The places layer is reference geography, not part of the document, so there
+   * is nothing to select and nothing to delete — but a city of your own sits on
+   * top of one often enough that deleting the city uncovers a dot you thought
+   * you had just removed. Deleting a settlement records where it stood here, and
+   * the reference layer stops drawing whatever was underneath it. Nothing else
+   * writes to this: reference geography is otherwise never edited.
+   */
+  dismissedPlaces: string[];
 }
 
 /** Where a piece of map furniture sits inside the frame. */
