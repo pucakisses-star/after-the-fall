@@ -39,7 +39,7 @@ import { propagateVertexEdit, repairTopology, type RepairOptions } from '@/geo/t
 import { boundaryFollows, reshapeBoundary } from '@/geo/reshape';
 import { BARRIER_WIDTH_KM, neighbourHoldingMostOf, regionAt } from '@/geo/floodFill';
 import { recolor, type RecolorOptions } from '@/geo/palette';
-import { clipToLand, indexLand, landPolygonsOf, type LandPolygon } from '@/geo/coastline';
+import { clipToLand, indexLand, landContains, landPolygonsOf, type LandPolygon } from '@/geo/coastline';
 import { coastlineIfLoaded, lakesIfLoaded } from '@/io/importers';
 import type { Recorder } from './history';
 import type {
@@ -128,7 +128,20 @@ export function trimToLand(shape: Poly): Poly | null {
   // against 4 ms for the tile cut to the shape.
   const index = indexLand(near, [box[0] - 1, box[1] - 1, box[2] + 1, box[3] + 1]);
   const ashore = (clipToLand(shape as Polygon | MultiPolygon, index) as Poly | null) ?? null;
-  return ashore ? lessLakes(ashore) : null;
+  if (ashore) return lessLakes(ashore);
+
+  // The clip came back with nothing, and there are two ways that happens: the
+  // shape really is out at sea, or the boolean could not do it. Only the first
+  // means "delete this". Measured on the shipped map, the County of Jacksonville
+  // fails its own trim on the geometry it already has — so every edit to it,
+  // from any tool, was being thrown away in silence, and a neighbour asked to
+  // follow a redrawn border simply did not move.
+  //
+  // So the ground itself is asked, at a point known to be inside the shape
+  // rather than on its edge, where a coastline vertex makes the answer a coin
+  // toss. Land under it means the clip failed, not the shape, and the shape
+  // stands as it is.
+  return landContains(index, interiorPoint(shape)) ? lessLakes(shape) : null;
 }
 
 /**
