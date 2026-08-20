@@ -1,7 +1,7 @@
 /** Shared-border and topology behaviour (spec §6, §64). */
 
 import { describe, expect, it } from 'vitest';
-import type { Polygon } from 'geojson';
+import type { Polygon, Position } from 'geojson';
 import {
   applyVertexMoves,
   buildSnapIndex,
@@ -73,13 +73,61 @@ describe('diffVertexMoves', () => {
     expect(diffVertexMoves(rect(0, 0, 1, 1), rect(0, 0, 1, 1))).toEqual([]);
   });
 
-  it('refuses to guess when a vertex was inserted', () => {
+  it('reports no move when a vertex was only inserted', () => {
     const before = rect(0, 0, 10, 10);
     const after: Polygon = JSON.parse(JSON.stringify(before));
     after.coordinates[0].splice(1, 0, [5, 0]);
-    // Structure changed, so correspondence is ambiguous — must return null rather
-    // than mangle a neighbour.
-    expect(diffVertexMoves(before, after)).toBeNull();
+    // Nothing left its place: the outline is where it was, with one more point
+    // on it, and a neighbour has nothing to follow.
+    expect(diffVertexMoves(before, after)).toEqual([]);
+  });
+
+  /**
+   * The vertex tool writes its result through a GeoJSON writer set to the
+   * right-hand rule, and the map's rings are wound the other way, so a ring
+   * that was not touched at all comes back reversed. Read positionally that
+   * looks like every vertex jumping to the mirror of its place — which is
+   * exactly what used to be propagated into the neighbours.
+   */
+  it('sees no movement in a ring that came back reversed', () => {
+    const before = rect(0, 0, 10, 10);
+    const after: Polygon = { type: 'Polygon', coordinates: [[...before.coordinates[0]].reverse()] };
+    expect(diffVertexMoves(before, after)).toEqual([]);
+  });
+
+  it('finds the moved vertex even when the ring also came back reversed', () => {
+    const before = rect(0, 0, 10, 10);
+    const ring = [...before.coordinates[0]].reverse().map((v) => [...v]);
+    const corner = ring.findIndex((v) => v[0] === 10 && v[1] === 0);
+    ring[corner] = [12, 0];
+    const moves = diffVertexMoves(before, { type: 'Polygon', coordinates: [ring] });
+    expect(moves).toHaveLength(1);
+    expect(moves![0].from).toEqual([10, 0]);
+    expect(moves![0].to).toEqual([12, 0]);
+  });
+
+  it('reports no move when a vertex was deleted', () => {
+    const before = rect(0, 0, 10, 10);
+    const after: Polygon = JSON.parse(JSON.stringify(before));
+    after.coordinates[0].splice(1, 1);
+    // A neighbour cannot follow a deletion by moving one of its own vertices.
+    expect(diffVertexMoves(before, after)).toEqual([]);
+  });
+
+  it('reads a whole polygon dragged bodily as one translation', () => {
+    const dense: Polygon = {
+      type: 'Polygon',
+      coordinates: [Array.from({ length: 200 }, (_, i) => [i / 20, Math.sin(i) + 20] as Position)],
+    };
+    dense.coordinates[0].push(dense.coordinates[0][0]);
+    const shifted: Polygon = {
+      type: 'Polygon',
+      coordinates: [dense.coordinates[0].map(([x, y]) => [x + 3, y + 1] as Position)],
+    };
+    const moves = diffVertexMoves(dense, shifted);
+    expect(moves).not.toBeNull();
+    expect(moves!.length).toBeGreaterThan(100);
+    expect(moves!.every((m) => Math.abs(m.to[0] - m.from[0] - 3) < 1e-9)).toBe(true);
   });
 });
 

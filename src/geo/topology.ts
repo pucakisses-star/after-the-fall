@@ -135,29 +135,95 @@ export interface VertexMove {
   to: Position;
 }
 
+/** More vertices than this changing at once is a rebuild, not a drag. */
+const MAX_DRAGGED = 64;
+
+/** Every vertex of a polygon, once per distinct position. */
+function vertexSet(g: Poly, tol: number): Map<string, Position> {
+  const out = new Map<string, Position>();
+  for (const ring of ringsOf(g)) for (const v of ring) out.set(key(v, tol), v);
+  return out;
+}
+
+/**
+ * Read a large, equal-sized set of departures and arrivals as one translation.
+ *
+ * Dragging a whole territory moves every vertex at once, which is far too many
+ * to pair up one by one — but they all move by the same offset, and that is
+ * checkable: take the offset between the two centres and require every departed
+ * vertex to have an arrival exactly there. Anything else returns null and the
+ * caller leaves the neighbours alone.
+ */
+function asTranslation(gone: Position[], fresh: Position[], tol: number): VertexMove[] | null {
+  if (gone.length !== fresh.length) return null;
+  const mean = (vs: Position[], i: 0 | 1) => vs.reduce((s, v) => s + v[i], 0) / vs.length;
+  const dx = mean(fresh, 0) - mean(gone, 0);
+  const dy = mean(fresh, 1) - mean(gone, 1);
+  const arrived = new Set(fresh.map((v) => key(v, tol)));
+  const moves: VertexMove[] = [];
+  for (const v of gone) {
+    const to: Position = [v[0] + dx, v[1] + dy];
+    if (!arrived.has(key(to, tol))) return null;
+    moves.push({ from: v, to });
+  }
+  return moves;
+}
+
 /**
  * Compare the geometry before and after an edit and report which vertices moved.
  *
- * We match vertices by position in the ring rather than by value, which is exact
- * as long as the edit did not insert or delete vertices. That covers dragging one
- * vertex, dragging several, and translating a whole polygon — the cases where
- * neighbours must follow. When the ring structure changed (a vertex was added or
- * removed) we return `null`: there is no unambiguous correspondence, so the
- * caller skips propagation rather than guessing and corrupting a neighbour.
+ * Vertices are matched by value, not by their index in the ring. Index matching
+ * looks tempting — it is exact when nothing was inserted — but it assumes the
+ * ring comes back in the order it went out, and nothing guarantees that. The
+ * vertex tool hands its result back through a GeoJSON writer set to the
+ * right-hand rule, and the map's rings are wound the other way, so every ring
+ * arrives reversed: index matching then reads a reversed ring as every vertex
+ * having jumped to the mirror of its position, hundreds of kilometres away, and
+ * the neighbours faithfully follow it there.
+ *
+ * So: whatever positions are in the old shape and not the new one departed,
+ * whatever is in the new and not the old arrived, and each departure pairs with
+ * its nearest arrival. Reordering and re-winding produce no departures at all,
+ * which is the correct answer for them. A large equal-sized set is checked for
+ * being one translation; anything else large returns null, because there is no
+ * unambiguous correspondence and guessing would corrupt a neighbour.
  */
 export function diffVertexMoves(before: Poly, after: Poly, tol = DEFAULT_TOLERANCE): VertexMove[] | null {
-  const ringsBefore = ringsOf(before);
-  const ringsAfter = ringsOf(after);
-  if (ringsBefore.length !== ringsAfter.length) return null;
+  const was = vertexSet(before, tol);
+  const now = vertexSet(after, tol);
 
+  const gone: Position[] = [];
+  for (const [k, v] of was) if (!now.has(k)) gone.push(v);
+  const fresh: Position[] = [];
+  for (const [k, v] of now) if (!was.has(k)) fresh.push(v);
+
+  // Nothing left its place: the rings were reordered, or a vertex was inserted
+  // on an edge, and either way no border actually moved.
+  if (gone.length === 0) return [];
+  // Vertices were removed with nowhere to go. A neighbour cannot follow a
+  // deletion by moving, so it keeps what it has.
+  if (fresh.length === 0) return [];
+
+  if (gone.length > MAX_DRAGGED || fresh.length > MAX_DRAGGED) {
+    return asTranslation(gone, fresh, tol);
+  }
+
+  const taken = new Set<number>();
   const moves: VertexMove[] = [];
-  for (let r = 0; r < ringsBefore.length; r++) {
-    const rb = ringsBefore[r];
-    const ra = ringsAfter[r];
-    if (rb.length !== ra.length) return null;
-    for (let i = 0; i < rb.length; i++) {
-      if (!samePoint(rb[i], ra[i], tol)) moves.push({ from: rb[i], to: ra[i] });
+  for (const from of gone) {
+    let best = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < fresh.length; i++) {
+      if (taken.has(i)) continue;
+      const d = Math.hypot(fresh[i][0] - from[0], fresh[i][1] - from[1]);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
     }
+    if (best < 0) break; // more departures than arrivals: the rest were deletions
+    taken.add(best);
+    moves.push({ from, to: fresh[best] });
   }
   return moves;
 }

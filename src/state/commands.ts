@@ -35,7 +35,7 @@ import {
   union,
 } from '@/geo/operations';
 import type { Poly } from '@/geo/operations';
-import { propagateVertexEdit, repairTopology, type RepairOptions } from '@/geo/topology';
+import { diffVertexMoves, propagateVertexEdit, repairTopology, type RepairOptions } from '@/geo/topology';
 import { boundaryFollows, reshapeBoundary } from '@/geo/reshape';
 import { BARRIER_WIDTH_KM, neighbourHoldingMostOf, regionAt } from '@/geo/floodFill';
 import { recolor, type RecolorOptions } from '@/geo/palette';
@@ -144,6 +144,48 @@ export function trimToLand(shape: Poly): Poly | null {
   // toss. Land under it means the clip failed, not the shape, and the shape
   // stands as it is.
   return landContains(index, interiorPoint(shape)) ? lessLakes(shape) : null;
+}
+
+/**
+ * Is this point on dry ground — outside the sea and outside every lake?
+ *
+ * Used to decide whether an edit needs trimming at all, so it answers about one
+ * point rather than clipping a whole territory to find out.
+ */
+function pointIsDry(point: Position): boolean {
+  const land = coastlineIfLoaded();
+  if (land?.length) {
+    const near = landNear(land, [point[0] - 0.2, point[1] - 0.2, point[0] + 0.2, point[1] + 0.2]);
+    if (!near.length) return false;
+    const index = indexLand(near, [point[0] - 1, point[1] - 1, point[0] + 1, point[1] + 1]);
+    if (!landContains(index, point)) return false;
+  }
+  for (const lake of lakesIfLoaded() ?? []) {
+    const b = bbox(lake);
+    if (point[0] < b[0] || point[0] > b[2] || point[1] < b[1] || point[1] > b[3]) continue;
+    if (pointInPoly([point[0], point[1]], lake)) return false;
+  }
+  return true;
+}
+
+/**
+ * `trimToLand`, but only when the edit actually reached water.
+ *
+ * Clipping is not free of side effects. It re-cuts the shape against the
+ * coastline's and the lakes' own vertices, so a territory that was already
+ * ashore comes back with dozens or hundreds of points it did not have, and
+ * short by whatever its stored outline had been overlapping — measured on the
+ * shipped map, 45 km² for Comancheria and 128 km² for Amarillo, on an edit
+ * nowhere near either shore. Running that on every drag both bloated the file
+ * and quietly shaved ground off states nobody had touched.
+ *
+ * So the question is asked of the edit rather than of the whole shape: if every
+ * vertex the gesture put down is on dry ground, nothing was drawn past the
+ * water and the geometry stands as edited.
+ */
+function trimIfWet(shape: Poly, landed: Position[] | null): Poly | null {
+  if (landed && landed.every(pointIsDry)) return shape;
+  return trimToLand(shape);
 }
 
 /**
@@ -671,19 +713,35 @@ export function updateTerritoryGeometry(id: UUID, geometry: Poly, label = 'Edit 
   const current = project.territories[id];
   if (!current || current.locked) return;
   const valid = normalizePoly(geometry);
+  if (!valid) return;
+
+  // Where the gesture put its vertices down, read off the geometry as edited.
+  // Null means the change was too large to read as a set of moves, and then the
+  // cautious thing is to trim the whole shape as before.
+  const moves = diffVertexMoves(current.geometry, valid);
+  const landed = moves?.map((m) => m.to) ?? null;
+
   // A vertex dragged out to sea goes to the coast and stops, like every other
   // way of pushing a border at the water.
-  const cleaned = valid && trimToLand(valid);
+  const cleaned = trimIfWet(valid, landed);
   if (!cleaned) return;
 
+  // Neighbours follow the edit as it was made, not as the coast clip left it.
+  // Diffing against the clipped shape was the bug: the clip rewrites the whole
+  // seaward edge, the vertex counts stop matching, the diff gives up rather
+  // than guess, and the neighbour silently stays where it was — which is the
+  // overlap you get when one side of a shared border moves alone.
   const shared = useUIStore.getState().snapEnabled
-    ? propagateVertexEdit(Object.values(project.territories), id, current.geometry, cleaned)
+    ? propagateVertexEdit(Object.values(project.territories), id, current.geometry, valid)
     : new Map<UUID, Poly>();
 
   commit(label, (r) => {
     r.update<Territory>('territories', id, { geometry: cleaned });
     for (const [nid, geom] of shared) {
-      r.update<Territory>('territories', nid, { geometry: geom });
+      // The neighbour is held to the same rule: its side of the border stops at
+      // the water too, rather than following a vertex out to sea.
+      r.update<Territory>('territories', nid, { geometry: trimIfWet(geom, landed) ?? geom });
+      syncAttachedLabel(r, nid, geom);
     }
     syncAttachedLabel(r, id, cleaned);
   });
