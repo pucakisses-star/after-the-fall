@@ -1167,6 +1167,12 @@ export class MapController {
               width: box.width / scale,
               height: box.height / scale,
               rotation: box.rotation,
+              lines: box.lines?.map((l) => ({
+                dx: l.dx / scale,
+                dy: l.dy / scale,
+                width: l.width / scale,
+                height: l.height / scale,
+              })),
             });
 
             if (selected) {

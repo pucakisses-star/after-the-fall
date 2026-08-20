@@ -40,6 +40,7 @@ import { boundaryFollows, reshapeBoundary } from '@/geo/reshape';
 import { BARRIER_WIDTH_KM, neighbourHoldingMostOf, regionAt } from '@/geo/floodFill';
 import { recolor, type RecolorOptions } from '@/geo/palette';
 import { clipToLand, indexLand, landContains, landPolygonsOf, type LandPolygon } from '@/geo/coastline';
+import { PLACE_DOT_FILL, PLACE_DOT_STROKE, placeRankStyle } from '@/render/olStyles';
 import { coastlineIfLoaded, lakesIfLoaded } from '@/io/importers';
 import type { Recorder } from './history';
 import type {
@@ -49,6 +50,7 @@ import type {
   PoliticalRelationship,
   Settlement,
   SettlementType,
+  SymbolStyle,
   Territory,
   UUID,
 } from '@/model/types';
@@ -393,6 +395,25 @@ function settlementFor(project: MapProject, place: ReferencePlace): Settlement |
   );
 }
 
+/**
+ * The reference dot's own look, as symbol overrides.
+ *
+ * `placeRankStyle` is what the places layer draws with, so the two agree by
+ * construction: a rank-1 capital keeps its 3.6 px radius and a rank-8 hamlet its
+ * 2, and both keep the gazetteer's parchment fill and grey rim. Size is the
+ * diameter because a symbol is measured across and a dot by its radius.
+ */
+function placeSymbolOverrides(place: ReferencePlace): Partial<SymbolStyle> {
+  const { radius } = placeRankStyle(place.scalerank ?? 8);
+  return {
+    shape: 'circle',
+    size: radius * 2,
+    fillColor: PLACE_DOT_FILL,
+    strokeColor: PLACE_DOT_STROKE,
+    strokeWidth: 1,
+  };
+}
+
 export function adoptPlace(place: ReferencePlace): UUID | null {
   const project = getProject();
   const already = settlementFor(project, place);
@@ -409,6 +430,16 @@ export function adoptPlace(place: ReferencePlace): UUID | null {
       // The real population comes with it: it is what decided the rank, and a
       // map of a fallen world is more interesting for knowing what was there.
       population: place.population ?? null,
+      // Adopting a city should not redraw it. Before it was taken over it was a
+      // reference dot, drawn at a radius set by its rank in the gazetteer and in
+      // the gazetteer's own colours; the moment it became the document's it was
+      // handed a style class for its type and jumped to a different size, shape
+      // and pair of colours, which is not what "rename this city" asks for. So
+      // its appearance comes with it as overrides. The class is still underneath
+      // and clearing an override still falls back to it, so a town made to look
+      // like every other town is one click away — it is just no longer the
+      // unasked-for default.
+      styleOverrides: placeSymbolOverrides(place),
     },
     { showNames: true },
   );

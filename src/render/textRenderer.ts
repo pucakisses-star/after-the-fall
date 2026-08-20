@@ -16,6 +16,14 @@ import { toCss } from '@/model/color';
 import { applyTextTransform, fontShorthand } from '@/model/resolveStyle';
 import type { TextStyle } from '@/model/types';
 
+/** One line of a text block, as a rectangle offset from the block's centre. */
+export interface TextLineBox {
+  dx: number;
+  dy: number;
+  width: number;
+  height: number;
+}
+
 export interface TextBox {
   /** Centre of the laid-out text, in pixels. */
   cx: number;
@@ -23,6 +31,12 @@ export interface TextBox {
   width: number;
   height: number;
   rotation: number;
+  /**
+   * Each line's own rectangle, for hit-testing against the text rather than
+   * the block. A wide country label's block covers a great deal of ground it
+   * does not print on, and a click there means the ground.
+   */
+  lines?: TextLineBox[];
 }
 
 /** Total advance width of `text` including tracking, in px. */
@@ -70,6 +84,19 @@ export function drawText(
   const widths = lines.map((l) => measureTracked(ctx, l, style, scale));
   const blockWidth = Math.max(...widths, 0);
   const blockHeight = lineHeight * lines.length;
+
+  // Where each line actually prints, relative to the block's centre. Height is
+  // the glyphs' own, not the line's leading, so the gap between two lines is
+  // not part of either.
+  const inkHeight = fontPx * 0.9;
+  const lineBoxes: TextLineBox[] = lines.map((_line, i) => {
+    const w = widths[i];
+    const dx =
+      style.align === 'left' ? -blockWidth / 2 + w / 2
+      : style.align === 'right' ? blockWidth / 2 - w / 2
+      : 0;
+    return { dx, dy: -blockHeight / 2 + lineHeight * (i + 0.5), width: w, height: inkHeight };
+  });
 
   // Anchoring by an end is a shift of half the block, which is known here and
   // nowhere earlier.
@@ -130,7 +157,7 @@ export function drawText(
 
   ctx.restore();
 
-  return { cx: originX, cy: y, width: blockWidth, height: blockHeight, rotation: rotationDeg };
+  return { cx: originX, cy: y, width: blockWidth, height: blockHeight, rotation: rotationDeg, lines: lineBoxes };
 }
 
 // ---------------------------------------------------------------------------
@@ -326,5 +353,15 @@ export function boxContains(box: TextBox, px: number, py: number, padding = 3): 
   const dy = py - box.cy;
   const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
   const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
-  return Math.abs(lx) <= box.width / 2 + padding && Math.abs(ly) <= box.height / 2 + padding;
+  if (Math.abs(lx) > box.width / 2 + padding || Math.abs(ly) > box.height / 2 + padding) return false;
+
+  // Inside the block. For a label that knows where its lines print, that is not
+  // enough: a spaced-out country name is a block the size of the country, and a
+  // click in the empty half of it is a click on the ground, not on the name.
+  if (!box.lines?.length) return true;
+  return box.lines.some(
+    (l) =>
+      Math.abs(lx - l.dx) <= l.width / 2 + padding &&
+      Math.abs(ly - l.dy) <= l.height / 2 + padding,
+  );
 }
