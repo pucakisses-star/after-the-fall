@@ -7,6 +7,16 @@ import { useProjectStore } from '@/state/projectStore';
 import { toast } from '@/state/uiStore';
 import { DEFAULT_SVG_OPTIONS, exportSvg, type SvgExportOptions } from '@/export/svgExport';
 import { checkRasterLimits, exportPng, fitWithinRaster } from '@/export/pngExport';
+import {
+  DEFAULT_TILE_PX,
+  MANY_TILES,
+  canWriteFolder,
+  exportTiles,
+  folderSink,
+  planTiles,
+  stitchReadme,
+} from '@/export/tileExport';
+import { metersPerUnit } from '@/render/olStyles';
 import { downloadBlob, downloadText, safeFilename } from '@/persistence/projectFile';
 import { projectToGeoJson } from '@/io/importers';
 import { useMapController } from '../MapContext';
@@ -333,6 +343,10 @@ export function ExportPngDialog({ onClose }: { onClose: () => void }) {
   const fullExtent = useMemo(() => fullExtentOf(project) ?? extent, [project, extent]);
   /** The size the current extent choice wants, before the browser's ceiling. */
   const wantedFor = (whole: boolean) => sizeAtScreenScale(controller, whole ? fullExtent : extent);
+  /** Ground scale of the view, for saying what a tiled run will come out at. */
+  const metresPerPixel = controller
+    ? (controller.map.getView().getResolution() ?? 0) * metersPerUnit(project.projection.units)
+    : null;
 
   const [state, setState] = useState<ExportState>(() => {
     // The whole map, at the scale the screen is showing it. A picture of the
@@ -373,6 +387,59 @@ export function ExportPngDialog({ onClose }: { onClose: () => void }) {
 
   const limits = checkRasterLimits(state.width, state.height);
 
+  // Tiles are how the screen-scale answer is actually reachable: one image
+  // cannot hold it, so the plate comes out in pieces that reassemble exactly.
+  const [tiled, setTiled] = useState(false);
+  const [tilePx, setTilePx] = useState(DEFAULT_TILE_PX);
+  const plateSize: [number, number] = tiled && wanted ? wanted : [state.width, state.height];
+  const plan = useMemo(
+    () => (tiled ? planTiles(plateSize[0], plateSize[1], tilePx) : null),
+    [tiled, plateSize[0], plateSize[1], tilePx],
+  );
+
+  const runTiled = async () => {
+    if (!plan) return;
+    const folder = canWriteFolder() ? await folderSink() : null;
+    if (!folder && plan.tiles.length > 12) {
+      toast(
+        `This browser cannot be handed a folder, and ${plan.tiles.length} separate downloads will be blocked. Use Chrome or Edge, or raise the tile size.`,
+        'error',
+      );
+      return;
+    }
+    setBusy(true);
+    setProgress(0);
+    const base = safeFilename(project.meta.title, '').replace(/\.$/, '') || 'map';
+    try {
+      const chosenExtent = state.useFullExtent ? (fullExtentOf(project) ?? extent) : extent;
+      const sink =
+        folder?.sink ??
+        (async (_t, blob, filename) => {
+          downloadBlob(blob, filename);
+        });
+      const made = await exportTiles(
+        project,
+        { ...state, width: plan.plateWidth, height: plan.plateHeight, extent: chosenExtent },
+        sink,
+        {
+          base,
+          plan,
+          transparent,
+          onProgress: (done, total) => setProgress(done / total),
+        },
+      );
+      await folder?.write(`${base}_tiles.txt`, stitchReadme(base, plan, metresPerPixel));
+      toast(`Exported ${made} tiles. See ${base}_tiles.txt for how to stitch them.`, 'success');
+      onClose();
+    } catch (err) {
+      // Cancelling the folder picker is a decision, not a failure.
+      if ((err as Error).name === 'AbortError') return;
+      toast(`Export failed: ${(err as Error).message}`, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const run = async () => {
     setBusy(true);
     setProgress(0);
@@ -407,8 +474,12 @@ export function ExportPngDialog({ onClose }: { onClose: () => void }) {
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn--accent" onClick={() => void run()} disabled={busy || !limits.ok}>
-            {busy ? 'Rendering…' : 'Export PNG'}
+          <button
+            className="btn btn--accent"
+            onClick={() => void (tiled ? runTiled() : run())}
+            disabled={busy || (!tiled && !limits.ok)}
+          >
+            {busy ? 'Rendering…' : tiled ? `Export ${plan?.tiles.length ?? 0} tiles` : 'Export PNG'}
           </button>
         </>
       }
@@ -436,12 +507,49 @@ export function ExportPngDialog({ onClose }: { onClose: () => void }) {
           : `The whole map at the scale it is on screen now. Zoom in or out before opening this
              dialog to export at a different scale.`}
       </p>
-      {cappedFrom && (
+      {cappedFrom && !tiled && (
         <p className="hint" style={{ marginTop: 0 }}>
           Screen scale would be {cappedFrom[0].toLocaleString()} × {cappedFrom[1].toLocaleString()} px,
-          past what a browser canvas holds, so this is the largest image of the same map. Export SVG
-          for the full scale.
+          past what a browser canvas holds, so this is the largest single image of the same map — about{' '}
+          {Math.round((cappedFrom[0] / state.width) * (metresPerPixel ?? 0)).toLocaleString()} m to the pixel
+          instead of {Math.round(metresPerPixel ?? 0).toLocaleString()}. Tile it to keep the screen's detail.
         </p>
+      )}
+
+      <label className="checkbox" style={{ marginTop: 8 }}>
+        <input type="checkbox" checked={tiled} onChange={(e) => setTiled(e.target.checked)} />
+        Export as tiles, at the screen's own detail
+      </label>
+      {tiled && plan && (
+        <>
+          <Field label="Tile size">
+            <select className="select" value={tilePx} onChange={(e) => setTilePx(Number(e.target.value))}>
+              {[2048, 4096, 8192].map((n) => (
+                <option key={n} value={n}>
+                  {n} px
+                </option>
+              ))}
+            </select>
+          </Field>
+          <p className="hint">
+            {plan.plateWidth.toLocaleString()} × {plan.plateHeight.toLocaleString()} px —{' '}
+            {(plan.totalPixels / 1e9).toFixed(2)} gigapixels — as {plan.cols} × {plan.rows} ={' '}
+            {plan.tiles.length.toLocaleString()} tiles
+            {metresPerPixel ? `, at about ${Math.round(metresPerPixel).toLocaleString()} m to the pixel` : ''}.
+            Roughly {(plan.estimatedBytes / 1e9).toFixed(1)} GB in total.
+          </p>
+          <p className="hint" style={{ marginTop: 0 }}>
+            One drawing, cropped {plan.tiles.length.toLocaleString()} times, so the pieces line up exactly —
+            names, dashes and patterns are decided once for the whole plate rather than per tile. You will be
+            asked for a folder to write them into, along with a note on how to stitch them.
+          </p>
+          {plan.tiles.length > MANY_TILES && (
+            <p className="hint" style={{ color: 'var(--danger)', marginTop: 0 }}>
+              {plan.tiles.length.toLocaleString()} tiles will take a long time and a lot of disk. Zoom out
+              before opening this dialog, or raise the tile size, if that is more than you meant.
+            </p>
+          )}
+        </>
       )}
       {!limits.ok && (
         <p className="hint" style={{ color: 'var(--danger)' }}>
