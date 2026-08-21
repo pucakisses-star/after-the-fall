@@ -23,6 +23,35 @@ function star(points: number, inner: number): [number, number][] {
   return pts;
 }
 
+/**
+ * Rays around a point, as separate strokes.
+ *
+ * `skipDown` leaves out the one that would point at the ground, so a radiance
+ * sits *above* whatever it is shining out of rather than through it.
+ */
+function rays(
+  n: number,
+  cx: number,
+  cy: number,
+  from: number,
+  to: number,
+  skipDown = true,
+): Primitive[] {
+  const out: Primitive[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = ((Math.PI * 2) / n) * i - Math.PI / 2;
+    if (skipDown && Math.sin(a) > 0.9) continue;
+    out.push({
+      kind: 'polyline',
+      points: [
+        [cx + Math.cos(a) * from, cy + Math.sin(a) * from],
+        [cx + Math.cos(a) * to, cy + Math.sin(a) * to],
+      ],
+    });
+  }
+  return out;
+}
+
 function regular(n: number, rotation = -Math.PI / 2): [number, number][] {
   const pts: [number, number][] = [];
   for (let i = 0; i < n; i++) {
@@ -102,6 +131,62 @@ export function symbolPrimitives(shape: SymbolShape): Primitive[] {
             [0.6, -0.35],
             [0.9, -0.35],
             [0.9, 0.85],
+          ],
+          fill: true,
+          stroke: true,
+        },
+      ];
+    case 'keep':
+      // A castle the way an atlas draws one: two crenellated towers with a
+      // lower curtain wall between them. `castle` is a single crenellated
+      // block, which at 9 px reads as a stretch of wall or, next to it on the
+      // sheet, as the factory shed; the two-tower profile is what says castle
+      // at a glance, because the silhouette carries it even when the merlons
+      // themselves have blurred to nothing.
+      return [
+        {
+          kind: 'polygon',
+          points: [
+            [-0.95, 0.92],
+            [-0.95, -0.82],
+            [-0.76, -0.82],
+            [-0.76, -0.5],
+            [-0.61, -0.5],
+            [-0.61, -0.82],
+            [-0.42, -0.82],
+            [-0.42, -0.2],
+            [0.42, -0.2],
+            [0.42, -0.82],
+            [0.61, -0.82],
+            [0.61, -0.5],
+            [0.76, -0.5],
+            [0.76, -0.82],
+            [0.95, -0.82],
+            [0.95, 0.92],
+          ],
+          fill: true,
+          stroke: true,
+        },
+        // The gate, as an opening in the wall between the towers.
+        { kind: 'polyline', points: [[-0.22, 0.92], [-0.22, 0.28], [0, 0.06], [0.22, 0.28], [0.22, 0.92]] },
+      ];
+    case 'holy-site':
+      // A radiance over an altar. Deliberately of no particular faith: the only
+      // religious mark on the sheet before this was a Latin cross, with the
+      // temple's classical pediment as the nearest thing to a general one, and
+      // neither will do for a place that is holy to somebody else. A disc with
+      // rays above a stepped plinth reads as consecrated ground without saying
+      // whose.
+      return [
+        ...rays(6, 0, -0.3, 0.42, 0.68),
+        { kind: 'circle', cx: 0, cy: -0.3, r: 0.3, fill: true, stroke: true },
+        {
+          kind: 'polygon',
+          points: [
+            [-0.85, 0.92],
+            [-0.46, 0.36],
+            [0.46, 0.36],
+            [0.85, 0.92],
           ],
           fill: true,
           stroke: true,
@@ -227,11 +312,13 @@ export const SYMBOL_SHAPES: { value: SymbolShape; label: string }[] = [
   { value: 'triangle', label: 'Triangle' },
   { value: 'star', label: 'Star' },
   { value: 'cross', label: 'Cross' },
-  { value: 'castle', label: 'Castle' },
+  { value: 'castle', label: 'Battlement' },
+  { value: 'keep', label: 'Castle' },
   { value: 'anchor', label: 'Anchor' },
   { value: 'battle', label: 'Battle' },
   { value: 'ruins', label: 'Ruins' },
   { value: 'temple', label: 'Temple' },
+  { value: 'holy-site', label: 'Holy site' },
   { value: 'mountain', label: 'Mountain' },
   { value: 'factory', label: 'Factory' },
   { value: 'airfield', label: 'Airfield' },

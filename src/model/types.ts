@@ -156,6 +156,8 @@ export type SymbolShape =
   | 'triangle'
   | 'cross'
   | 'castle'
+  | 'keep'
+  | 'holy-site'
   | 'anchor'
   | 'battle'
   | 'ruins'

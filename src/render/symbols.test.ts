@@ -13,7 +13,7 @@ import type { SymbolShape, SymbolStyle } from '@/model/types';
 
 const SHAPES: SymbolShape[] = [
   'circle', 'filled-circle', 'double-circle', 'star', 'square', 'filled-square',
-  'diamond', 'triangle', 'cross', 'castle', 'anchor',
+  'diamond', 'triangle', 'cross', 'castle', 'keep', 'holy-site', 'anchor',
   'battle', 'ruins', 'temple', 'mountain', 'factory', 'airfield', 'custom-svg',
 ];
 
@@ -71,7 +71,7 @@ describe('symbolPrimitives', () => {
     // A castle, a temple and a ruin are told apart by their internal structure;
     // if one of these collapsed to a single primitive it would have quietly
     // become an unrecognisable lump at 9 px.
-    for (const shape of ['battle', 'ruins', 'temple', 'factory', 'anchor', 'temple'] as SymbolShape[]) {
+    for (const shape of ['battle', 'ruins', 'temple', 'factory', 'anchor', 'keep', 'holy-site'] as SymbolShape[]) {
       expect(symbolPrimitives(shape).length, `${shape} is a single primitive`).toBeGreaterThan(1);
     }
   });
