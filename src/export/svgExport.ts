@@ -16,7 +16,7 @@
 import proj4 from 'proj4';
 import { clipToValidArea, findBasemapSource, isPolygonFeature, loadBasemap } from '@/geo/basemap';
 import { registerProjections, renderExtentFor } from '@/geo/projections';
-import { clampToPlateBand } from './plateFrame';
+import { clampToPlate } from './plateFrame';
 import { computeBorders } from '@/render/borders';
 import { svgPatternDef, svgPatternId, dashArray, doubleLineWidths, isDoubleLine } from '@/render/patterns';
 import {
@@ -172,17 +172,11 @@ function buildProjector(
     maxY = n0;
   }
 
-  // The extent says what is drawn; the band says where the paper is cut. Taking
-  // the bounding box of a curved band would reach past both landmarks in the
-  // middle of the sheet — see `plateFrame` for the arithmetic.
+  // The extent says what is drawn; the four landmarks say where the paper is
+  // cut. Taking the bounding box of a curved band reaches past every one of
+  // them in the middle of the sheet — see `plateFrame` for the arithmetic.
   if (opts.clampToBand) {
-    [minY, maxY] = clampToPlateBand(minY, maxY, (lon, lat) => {
-      try {
-        return forward(lon, lat)[1];
-      } catch {
-        return NaN;
-      }
-    });
+    ({ minX, minY, maxX, maxY } = clampToPlate({ minX, minY, maxX, maxY }, forward));
   }
 
   // Fit the projected box into the frame, preserving aspect ratio.

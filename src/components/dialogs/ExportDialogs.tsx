@@ -17,7 +17,7 @@ import {
   stitchReadme,
 } from '@/export/tileExport';
 import { metersPerUnit } from '@/render/olStyles';
-import { PLATE_BOUNDS, clampToPlateBand } from '@/export/plateFrame';
+import { PLATE_BOUNDS, clampToPlate } from '@/export/plateFrame';
 import { downloadBlob, downloadText, safeFilename } from '@/persistence/projectFile';
 import { projectToGeoJson } from '@/io/importers';
 import { useMapController } from '../MapContext';
@@ -93,7 +93,10 @@ function sizeAtScreenScale(
   // measured against the same cut or the plate arrives with the wrong aspect
   // and the fit quietly letterboxes ground back onto it.
   if (clampBand) {
-    [minY, maxY] = clampToPlateBand(minY, maxY, (lon, lat) => controller.toView([lon, lat])[1]);
+    ({ minX, minY, maxX, maxY } = clampToPlate({ minX, minY, maxX, maxY }, (lon, lat) => {
+      const [x, y] = controller.toView([lon, lat]);
+      return [x, y];
+    }));
   }
   return [Math.round((maxX - minX) / resolution), Math.round((maxY - minY) / resolution)];
 }
@@ -529,10 +532,11 @@ export function ExportPngDialog({ onClose }: { onClose: () => void }) {
       </p>
       {state.useFullExtent && (
         <p className="hint" style={{ marginTop: 0 }}>
-          The sheet runs from Anticosti Island ({PLATE_BOUNDS.north}°N) down to the tip of Baja
-          California Sur ({PLATE_BOUNDS.south}°N). Anything you have drawn outside that band — the
-          Canadian north, southern Mexico, Cuba — is not on it. Turn off “Export everything” to
-          export the view you are looking at instead.
+          The sheet is cut at four landmarks: Anticosti Island in the north, the tip of Baja
+          California Sur in the south, Cape Mendocino on the Californian coast and Cape Spear in
+          Newfoundland — with a strip of ocean past each. Anything drawn outside it, including the
+          Canadian north, southern Mexico and Cuba, is not on the page. Turn off “Export everything”
+          to export the view you are looking at instead.
         </p>
       )}
       {cappedFrom && !tiled && (
