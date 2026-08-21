@@ -329,3 +329,44 @@ describe('copying an icon whose name was deleted', () => {
     expect(project().labels[copy.labelId!].text).toBe('Charlotte 2');
   });
 });
+
+/**
+ * A copied marker behaves like a marker (spec §14, §42, §53).
+ *
+ * A city's name is an annotation and is pinned: it is the same size however far
+ * you zoom, like the mark it belongs to. A realm's name is an inscription across
+ * its land and scales with it. Copying used to take that flag off the original
+ * without asking, so a marker copied from one of an imported map's cities came
+ * out scaling — drawn at sixteen times its size zoomed in and half of it zoomed
+ * out — while the same marker placed by hand stayed put.
+ */
+describe('the size a copied name is drawn at', () => {
+  it('pins a copied city name even when the original was not pinned', () => {
+    const id = adoptPlace(CHARLOTTE)!;
+    const labelId = project().settlements[id].labelId!;
+    commit('unpin, as an imported map has it', (r) =>
+      r.update<MapLabel>('labels', labelId, { fixedSize: false }),
+    );
+
+    useUIStore.getState().setSelection([id]);
+    copySelection();
+    pasteClipboard([-70, 40]);
+
+    const copy = Object.values(project().settlements).find((s) => s.id !== id)!;
+    expect(project().labels[copy.labelId!].fixedSize).toBe(true);
+    // and the original is left exactly as it was
+    expect(project().labels[labelId].fixedSize).toBe(false);
+  });
+
+  it('pins a duplicated city name too', () => {
+    const id = adoptPlace(CHARLOTTE)!;
+    commit('unpin', (r) =>
+      r.update<MapLabel>('labels', project().settlements[id].labelId!, { fixedSize: false }),
+    );
+    useUIStore.getState().setSelection([id]);
+    duplicateSelection();
+
+    const copy = Object.values(project().settlements).find((s) => s.id !== id)!;
+    expect(project().labels[copy.labelId!].fixedSize).toBe(true);
+  });
+});

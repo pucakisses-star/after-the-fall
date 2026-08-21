@@ -1463,13 +1463,23 @@ export function pasteClipboard(at?: [number, number] | null): void {
     // its name deleted, leaving a bare mark — the copy has none either. Making
     // one here would put back the very text that was got rid of, freshly named
     // "New Settlement", on every paste.
-    const carryLabel = (source: MapLabel | undefined, ownerId: UUID, text: string): UUID | null => {
+    const carryLabel = (
+      source: MapLabel | undefined,
+      ownerId: UUID,
+      text: string,
+      marker: boolean,
+    ): UUID | null => {
       if (!source) return null;
       const label: MapLabel = {
         ...source,
         id: newId(),
         text,
         attachedToId: ownerId,
+        // A marker's name is pinned, as a marker placed by hand is — see
+        // `markerNameIsPinned`. A realm's name is not: it is an inscription
+        // across its land and grows and shrinks with it (§42), so a copied
+        // realm keeps whatever its original was set to.
+        fixedSize: marker ? true : source.fixedSize,
         // Moved by the same distance as the record rather than snapped onto it,
         // so a name that had been set off to one side keeps that placement.
         anchor: {
@@ -1493,7 +1503,7 @@ export function pasteClipboard(at?: [number, number] | null): void {
         ownerId: territoryAt(project, coords)?.id ?? null,
         labelId: null,
       });
-      r.set('settlements', { ...copy, labelId: carryLabel(board.ownLabels[s.id], copy.id, name) });
+      r.set('settlements', { ...copy, labelId: carryLabel(board.ownLabels[s.id], copy.id, name, true) });
       created.push(copy.id);
     }
 
@@ -1508,7 +1518,7 @@ export function pasteClipboard(at?: [number, number] | null): void {
         labelId: null,
         geometry,
       });
-      r.set('territories', { ...copy, labelId: carryLabel(board.ownLabels[t.id], copy.id, name) });
+      r.set('territories', { ...copy, labelId: carryLabel(board.ownLabels[t.id], copy.id, name, false) });
       created.push(copy.id);
     }
 
@@ -1542,7 +1552,13 @@ export function duplicateSelection(): void {
   commit('Duplicate', (r) => {
     // A duplicate carries the original's name only if the original had one. A
     // mark whose name was deleted duplicates as a bare mark.
-    const copyLabel = (ownerId: UUID, sourceId: UUID | null, text: string, dxdy: [number, number]) => {
+    const copyLabel = (
+      ownerId: UUID,
+      sourceId: UUID | null,
+      text: string,
+      dxdy: [number, number],
+      marker: boolean,
+    ) => {
       const source = sourceId ? project.labels[sourceId] : null;
       if (!source) return null;
       const label: MapLabel = {
@@ -1550,6 +1566,7 @@ export function duplicateSelection(): void {
         id: newId(),
         text,
         attachedToId: ownerId,
+        fixedSize: marker ? true : source.fixedSize,
         anchor: {
           type: 'Point',
           coordinates: [source.anchor.coordinates[0] + dxdy[0], source.anchor.coordinates[1] + dxdy[1]],
@@ -1572,7 +1589,7 @@ export function duplicateSelection(): void {
         });
         r.set('territories', {
           ...copy,
-          labelId: copyLabel(copy.id, t.labelId, copy.name, [OFFSET, -OFFSET]),
+          labelId: copyLabel(copy.id, t.labelId, copy.name, [OFFSET, -OFFSET], false),
         });
         created.push(copy.id);
         continue;
@@ -1591,7 +1608,7 @@ export function duplicateSelection(): void {
         });
         r.set('settlements', {
           ...copy,
-          labelId: copyLabel(copy.id, s.labelId, copy.name, [OFFSET, -OFFSET]),
+          labelId: copyLabel(copy.id, s.labelId, copy.name, [OFFSET, -OFFSET], true),
         });
         created.push(copy.id);
         continue;
