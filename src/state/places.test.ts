@@ -12,7 +12,14 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { createProject, placePositionKey } from '@/model/project';
 import { commit, useProjectStore } from './projectStore';
-import { adoptPlace, copySelection, deleteSelection, moveSettlement, pasteClipboard } from './commands';
+import {
+  adoptPlace,
+  copySelection,
+  deleteSelection,
+  duplicateSelection,
+  moveSettlement,
+  pasteClipboard,
+} from './commands';
 import { useUIStore } from './uiStore';
 import { settlementTypeForPlace } from '@/model/defaults';
 import type { MapLabel, Settlement } from '@/model/types';
@@ -270,5 +277,55 @@ describe('dragging a city that has a hand-placed name', () => {
     // The name sat 0.24° east and 0.17° north of the dot; it still does.
     expect(name.anchor.coordinates[0] - copy.geometry.coordinates[0]).toBeCloseTo(0.24, 6);
     expect(name.anchor.coordinates[1] - copy.geometry.coordinates[1]).toBeCloseTo(0.17, 6);
+  });
+});
+
+/**
+ * A mark with no name copies as a mark with no name (spec §14, §53).
+ *
+ * Deleting a city's name is how you get a bare symbol — a fort, a shrine, a
+ * mine — and copying one used to hand back "New Settlement" written beside it,
+ * which is the text you had just got rid of, once per paste.
+ */
+describe('copying an icon whose name was deleted', () => {
+  const nameless = () => {
+    const id = adoptPlace(CHARLOTTE)!;
+    const labelId = project().settlements[id].labelId!;
+    useUIStore.getState().setSelection([labelId]);
+    deleteSelection();
+    expect(project().settlements[id].labelId).toBeNull();
+    return id;
+  };
+
+  it('pastes the icon on its own, with no text', () => {
+    const id = nameless();
+    useUIStore.getState().setSelection([id]);
+    copySelection();
+    pasteClipboard([-70, 40]);
+
+    const copy = Object.values(project().settlements).find((s) => s.id !== id)!;
+    expect(copy.labelId).toBeNull();
+    expect(Object.keys(project().labels)).toHaveLength(0);
+  });
+
+  it('duplicates the icon on its own too', () => {
+    const id = nameless();
+    useUIStore.getState().setSelection([id]);
+    duplicateSelection();
+
+    const copy = Object.values(project().settlements).find((s) => s.id !== id)!;
+    expect(copy.labelId).toBeNull();
+    expect(Object.keys(project().labels)).toHaveLength(0);
+  });
+
+  it('still carries the name when there is one', () => {
+    const id = adoptPlace(CHARLOTTE)!;
+    useUIStore.getState().setSelection([id]);
+    copySelection();
+    pasteClipboard([-70, 40]);
+
+    const copy = Object.values(project().settlements).find((s) => s.id !== id)!;
+    expect(copy.labelId).not.toBeNull();
+    expect(project().labels[copy.labelId!].text).toBe('Charlotte 2');
   });
 });

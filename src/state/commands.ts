@@ -1459,27 +1459,24 @@ export function pasteClipboard(at?: [number, number] | null): void {
 
   const created: UUID[] = [];
   commit('Paste', (r) => {
-    const carryLabel = (source: MapLabel | undefined, ownerId: UUID, text: string, coords: [number, number]) => {
-      // The copied record's own label, moved by the same distance as the record
-      // rather than snapped onto it: a name that had been placed off to one side
-      // keeps that placement, instead of landing on top of its own symbol where
-      // it hides the mark and takes the next click meant for it.
-      const label: MapLabel = source
-        ? {
-            ...source,
-            id: newId(),
-            text,
-            attachedToId: ownerId,
-            anchor: {
-              type: 'Point',
-              coordinates: [source.anchor.coordinates[0] + dx, source.anchor.coordinates[1] + dy],
-            },
-          }
-        : makeLabel(project, { type: 'Point', coordinates: coords }, {
-            kind: 'city',
-            text,
-            attachedToId: ownerId,
-          });
+    // A copy carries whatever name the original had. If the original had none —
+    // its name deleted, leaving a bare mark — the copy has none either. Making
+    // one here would put back the very text that was got rid of, freshly named
+    // "New Settlement", on every paste.
+    const carryLabel = (source: MapLabel | undefined, ownerId: UUID, text: string): UUID | null => {
+      if (!source) return null;
+      const label: MapLabel = {
+        ...source,
+        id: newId(),
+        text,
+        attachedToId: ownerId,
+        // Moved by the same distance as the record rather than snapped onto it,
+        // so a name that had been set off to one side keeps that placement.
+        anchor: {
+          type: 'Point',
+          coordinates: [source.anchor.coordinates[0] + dx, source.anchor.coordinates[1] + dy],
+        },
+      };
       r.set('labels', label);
       return label.id;
     };
@@ -1496,8 +1493,7 @@ export function pasteClipboard(at?: [number, number] | null): void {
         ownerId: territoryAt(project, coords)?.id ?? null,
         labelId: null,
       });
-      const labelId = carryLabel(board.ownLabels[s.id], copy.id, name, coords);
-      r.set('settlements', { ...copy, labelId });
+      r.set('settlements', { ...copy, labelId: carryLabel(board.ownLabels[s.id], copy.id, name) });
       created.push(copy.id);
     }
 
@@ -1512,26 +1508,7 @@ export function pasteClipboard(at?: [number, number] | null): void {
         labelId: null,
         geometry,
       });
-      const source = board.ownLabels[t.id];
-      const seat = interiorPoint(geometry);
-      const label: MapLabel = source
-        ? {
-            ...source,
-            id: newId(),
-            text: name,
-            attachedToId: copy.id,
-            anchor: {
-              type: 'Point',
-              coordinates: [source.anchor.coordinates[0] + dx, source.anchor.coordinates[1] + dy],
-            },
-          }
-        : makeLabel(project, { type: 'Point', coordinates: seat }, {
-            kind: 'region',
-            text: name,
-            attachedToId: copy.id,
-          });
-      r.set('labels', label);
-      r.set('territories', { ...copy, labelId: label.id });
+      r.set('territories', { ...copy, labelId: carryLabel(board.ownLabels[t.id], copy.id, name) });
       created.push(copy.id);
     }
 
@@ -1563,6 +1540,25 @@ export function duplicateSelection(): void {
   const OFFSET = 0.12;
 
   commit('Duplicate', (r) => {
+    // A duplicate carries the original's name only if the original had one. A
+    // mark whose name was deleted duplicates as a bare mark.
+    const copyLabel = (ownerId: UUID, sourceId: UUID | null, text: string, dxdy: [number, number]) => {
+      const source = sourceId ? project.labels[sourceId] : null;
+      if (!source) return null;
+      const label: MapLabel = {
+        ...source,
+        id: newId(),
+        text,
+        attachedToId: ownerId,
+        anchor: {
+          type: 'Point',
+          coordinates: [source.anchor.coordinates[0] + dxdy[0], source.anchor.coordinates[1] + dxdy[1]],
+        },
+      };
+      r.set('labels', label);
+      return label.id;
+    };
+
     for (const id of sel) {
       const t = project.territories[id];
       if (t) {
@@ -1574,13 +1570,10 @@ export function duplicateSelection(): void {
           labelId: null,
           geometry,
         });
-        const label = makeLabel(project, { type: 'Point', coordinates: interiorPoint(geometry) }, {
-          kind: 'region',
-          text: copy.name,
-          attachedToId: copy.id,
+        r.set('territories', {
+          ...copy,
+          labelId: copyLabel(copy.id, t.labelId, copy.name, [OFFSET, -OFFSET]),
         });
-        r.set('territories', { ...copy, labelId: label.id });
-        r.set('labels', label);
         created.push(copy.id);
         continue;
       }
@@ -1596,13 +1589,10 @@ export function duplicateSelection(): void {
           name: `${s.name} copy`,
           labelId: null,
         });
-        const label = makeLabel(project, { type: 'Point', coordinates: coords }, {
-          kind: 'city',
-          text: copy.name,
-          attachedToId: copy.id,
+        r.set('settlements', {
+          ...copy,
+          labelId: copyLabel(copy.id, s.labelId, copy.name, [OFFSET, -OFFSET]),
         });
-        r.set('settlements', { ...copy, labelId: label.id });
-        r.set('labels', label);
         created.push(copy.id);
         continue;
       }
