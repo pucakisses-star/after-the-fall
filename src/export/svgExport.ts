@@ -35,7 +35,7 @@ import {
   territoryLabelVisible,
 } from '@/render/olStyles';
 import type { RoadClass } from '@/render/olStyles';
-import { nameFitsItsLand, scaledText } from '@/render/labelFit';
+import { fitToPlate, inscriptionScale, nameFitsItsLand, scaledText } from '@/render/labelFit';
 import { symbolToSvg } from '@/render/symbols';
 import { placeNameBySymbol } from '@/render/namePlacement';
 import { compassToSvg, legendToSvg } from './legend';
@@ -335,6 +335,8 @@ function labelEarnsItsPlace(
 export async function exportSvg(project: MapProject, opts: SvgExportOptions): Promise<string> {
   const { project: p, frame, resolution } = buildProjector(project, opts);
   const scale = opts.styleScale;
+  // Labels take their own scale on top of this one; see the label loop.
+  const baseScale = opts.styleScale;
   const metersPerPixel = resolution * metersPerUnit(project.projection.units);
 
   const patterns = new Map<string, HatchPattern>();
@@ -652,6 +654,14 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
     if (!visibleInTime(l.timeline, project.timeline)) continue;
     const style = resolveTextStyle(project, l);
     const content = applyTextTransform(l.text, style.transform);
+    // The size the screen would draw this at, at the scale this plate is drawn
+    // at. A realm's name is an inscription across its land and grows with it;
+    // only a pinned name is the size the style sheet says. Leaving that out
+    // exported every inscription at its base size, which on a plate several
+    // times wider than the window is a name too small to read — the map came
+    // out right and the writing on it did not.
+    const zoom = inscriptionScale({ pinned: l.fixedSize, metersPerPixel });
+    const scale = zoom > 1 ? baseScale * fitToPlate(zoom, l.text, style, frame.w) : baseScale * zoom;
     if (!labelEarnsItsPlace(project, l, style, metersPerPixel, p, scale)) continue;
 
     // Text on a path (§12) uses SVG's own textPath, so it stays editable.

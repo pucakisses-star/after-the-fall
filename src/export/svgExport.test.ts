@@ -508,3 +508,47 @@ describe('fitWithinRaster', () => {
     expect(fitWithinRaster(1, 1)).toEqual([64, 64]);
   });
 });
+
+/**
+ * Text on an exported plate is the size the screen would draw it (spec §42, §48).
+ *
+ * A realm's name is an inscription across its land and grows with it; a pinned
+ * name is the size the style sheet says, whatever the zoom. The exporter used to
+ * know only the second rule, so every inscription came out at its base size —
+ * fine on a plate the size of the window, and unreadable on one several times
+ * wider, which is what a screen-scale export of a whole continent is.
+ */
+describe('label size on an exported plate', () => {
+  const project = sampleProject();
+
+  const fontOf = (svg: string, id: string): number => {
+    const tag = svg.match(new RegExp(`<text id="label-${id}"[^>]*>`))?.[0] ?? '';
+    return Number(tag.match(/font-size="([\d.]+)"/)?.[1] ?? 0);
+  };
+
+  it('draws an unpinned name larger on a larger plate, as the screen does', async () => {
+    const label = Object.values(project.labels)[0];
+    label.fixedSize = false;
+    const opts = {
+      ...DEFAULT_SVG_OPTIONS,
+      extent: [0, 0, 20, 15] as [number, number, number, number],
+    };
+    const small = await exportSvg(project, { ...opts, width: 1000, height: 750 });
+    const large = await exportSvg(project, { ...opts, width: 6000, height: 4500 });
+    expect(fontOf(small, label.id)).toBeGreaterThan(0);
+    expect(fontOf(large, label.id)).toBeGreaterThan(fontOf(small, label.id) * 2);
+  });
+
+  it('leaves a pinned name the same size however large the plate', async () => {
+    const label = Object.values(project.labels)[0];
+    label.fixedSize = true;
+    const opts = {
+      ...DEFAULT_SVG_OPTIONS,
+      extent: [0, 0, 20, 15] as [number, number, number, number],
+    };
+    const small = await exportSvg(project, { ...opts, width: 1000, height: 750 });
+    const large = await exportSvg(project, { ...opts, width: 6000, height: 4500 });
+    expect(fontOf(small, label.id)).toBeGreaterThan(0);
+    expect(fontOf(large, label.id)).toBeCloseTo(fontOf(small, label.id), 3);
+  });
+});
