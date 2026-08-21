@@ -58,7 +58,7 @@ describe('the four landmarks', () => {
     expect(PLATE_BOUNDS.north).toBeCloseTo(49.95, 2); // Anticosti Island
     expect(PLATE_BOUNDS.south).toBeCloseTo(22.87, 2); // Cabo Falso
     expect(PLATE_BOUNDS.west).toBeCloseTo(-124.41, 2); // Cape Mendocino
-    expect(PLATE_BOUNDS.east).toBeCloseTo(-52.62, 2); // Cape Spear
+    expect(PLATE_BOUNDS.east).toBeCloseTo(-59.802, 2); // Cape Breton, on Tiramara's coast
   });
 });
 

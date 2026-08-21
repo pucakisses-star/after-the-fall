@@ -6,7 +6,7 @@
  * Panama to the high Arctic and from the Aleutians to the mid-Atlantic, which
  * framed as one sheet leaves the part anyone is looking at small in the middle
  * of a great deal of ocean and ice. So the plate is cut at four landmarks, one
- * on each edge.
+ * on each edge — three of them coastal capes and one an island shore.
  *
  * ---------------------------------------------------------------------------
  * WHY THERE ARE POINTS HERE AND NOT JUST FOUR NUMBERS
@@ -34,14 +34,23 @@ export const PLATE_NORTH_POINT: [number, number] = [-63.0, 49.95];
 /** Cape Mendocino, the westernmost headland of the California coast. */
 export const PLATE_WEST_POINT: [number, number] = [-124.41, 40.44];
 
-/** Cape Spear, Newfoundland — the eastern edge of the continent. */
-export const PLATE_EAST_POINT: [number, number] = [-52.62, 47.52];
+/**
+ * The eastern tip of Cape Breton, on the Command of Tiramara's mainland coast.
+ *
+ * Not Cape Spear, which is the continent's true eastern edge and sits seven
+ * degrees further out: holding the sheet open to Newfoundland spent a tenth of
+ * its width on the Atlantic that had to be crossed to reach it. Cutting here
+ * costs the Duchy of Gander and about half of Tiramara, which owns Newfoundland
+ * as well as Nova Scotia — a deliberate trade of that ground for a tighter
+ * sheet, not an accident of the arithmetic.
+ */
+export const PLATE_EAST_POINT: [number, number] = [-59.802, 45.957];
 
 /**
  * A little water past each landmark, as a fraction of the cut span.
  *
- * Cutting exactly on the capes puts Cape Mendocino and Cape Spear onto the
- * frame itself, which reads as a mistake rather than a margin. Two and a half
+ * Cutting exactly on the landmarks puts Cape Mendocino and Cape Breton onto
+ * the frame itself, which reads as a mistake rather than a margin. Two and a half
  * per cent is a strip of ocean wide enough to look deliberate and narrow enough
  * that nobody would call it "far off the coast".
  */

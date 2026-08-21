@@ -533,9 +533,9 @@ export function ExportPngDialog({ onClose }: { onClose: () => void }) {
       {state.useFullExtent && (
         <p className="hint" style={{ marginTop: 0 }}>
           The sheet is cut at four landmarks: Anticosti Island in the north, the tip of Baja
-          California Sur in the south, Cape Mendocino on the Californian coast and Cape Spear in
-          Newfoundland — with a strip of ocean past each. Anything drawn outside it, including the
-          Canadian north, southern Mexico and Cuba, is not on the page. Turn off “Export everything”
+          California Sur in the south, Cape Mendocino on the Californian coast and the eastern
+          tip of Cape Breton, off the Command of Tiramara — with a strip of ocean past each. Anything drawn outside it, including the
+          Canadian north, southern Mexico, Cuba and Newfoundland, is not on the page. Turn off “Export everything”
           to export the view you are looking at instead.
         </p>
       )}
