@@ -1320,6 +1320,223 @@ export function deleteSelection(): void {
   useUIStore.getState().clearSelection();
 }
 
+// ---------------------------------------------------------------------------
+// Copy and paste (spec §53)
+// ---------------------------------------------------------------------------
+
+/**
+ * What Ctrl+C set aside.
+ *
+ * Records rather than ids, because the originals can be deleted, renamed or
+ * restyled between the copy and the paste and a paste should still produce what
+ * was copied. `origin` is the centre of what was taken, so a paste can be laid
+ * down under the pointer rather than at the coordinates it came from.
+ */
+interface Clipboard {
+  territories: Territory[];
+  settlements: Settlement[];
+  /** Labels of their own, not the ones belonging to the records above. */
+  labels: MapLabel[];
+  /** A copied record's own label, by owner id, so a pasted city keeps its name. */
+  ownLabels: Record<UUID, MapLabel>;
+  origin: [number, number];
+}
+
+let clipboard: Clipboard | null = null;
+/** Where the last paste went, so pasting twice in a row does not stack. */
+let lastPaste: { at: [number, number]; step: number } | null = null;
+
+/** How many things Ctrl+V would put down. Drives the menu item's enabled state. */
+export function clipboardSize(): number {
+  if (!clipboard) return 0;
+  return clipboard.territories.length + clipboard.settlements.length + clipboard.labels.length;
+}
+
+function anchorOf(project: MapProject, id: UUID): [number, number] | null {
+  const t = project.territories[id];
+  if (t) return interiorPoint(t.geometry);
+  const s = project.settlements[id];
+  if (s) return [s.geometry.coordinates[0], s.geometry.coordinates[1]];
+  const l = project.labels[id];
+  if (l) return [l.anchor.coordinates[0], l.anchor.coordinates[1]];
+  return null;
+}
+
+/**
+ * Take a copy of the selection. Nothing on the map changes, so this is not a
+ * command and does not enter the undo history.
+ */
+export function copySelection(): number {
+  const project = getProject();
+  const sel = useUIStore.getState().selection;
+
+  const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+  const next: Clipboard = {
+    territories: [],
+    settlements: [],
+    labels: [],
+    ownLabels: {},
+    origin: [0, 0],
+  };
+  const anchors: [number, number][] = [];
+
+  for (const id of sel) {
+    const at = anchorOf(project, id);
+    if (at) anchors.push(at);
+    const t = project.territories[id];
+    if (t) {
+      next.territories.push(clone(t));
+      if (t.labelId && project.labels[t.labelId]) next.ownLabels[t.id] = clone(project.labels[t.labelId]);
+      continue;
+    }
+    const s = project.settlements[id];
+    if (s) {
+      next.settlements.push(clone(s));
+      if (s.labelId && project.labels[s.labelId]) next.ownLabels[s.id] = clone(project.labels[s.labelId]);
+      continue;
+    }
+    // A label attached to something else is that thing's name, and comes along
+    // with it; only a free-standing one is copied in its own right.
+    const l = project.labels[id];
+    if (l && !l.attachedToId) next.labels.push(clone(l));
+  }
+
+  const total = next.territories.length + next.settlements.length + next.labels.length;
+  if (total === 0) {
+    toast('Nothing to copy — select a city, a state or a label first.', 'warn');
+    return 0;
+  }
+
+  const xs = anchors.map((a) => a[0]);
+  const ys = anchors.map((a) => a[1]);
+  next.origin = [
+    (Math.min(...xs) + Math.max(...xs)) / 2,
+    (Math.min(...ys) + Math.max(...ys)) / 2,
+  ];
+  clipboard = next;
+  lastPaste = null;
+  toast(`Copied ${total} ${total === 1 ? 'object' : 'objects'}. Ctrl+V to place.`, 'info');
+  return total;
+}
+
+/**
+ * Put the clipboard down, centred on `at` — the pointer, when it is over the
+ * map — keeping the arrangement of a multiple selection.
+ *
+ * Pressing Ctrl+V twice without moving the mouse would otherwise stack copies
+ * exactly on top of each other, where the second is invisible and undoing feels
+ * broken, so a repeat at the same place cascades.
+ */
+export function pasteClipboard(at?: [number, number] | null): void {
+  const board = clipboard;
+  if (!board || clipboardSize() === 0) {
+    toast('Nothing on the clipboard yet — copy something with Ctrl+C.', 'warn');
+    return;
+  }
+
+  const project = getProject();
+  const target: [number, number] = at ? [at[0], at[1]] : [board.origin[0] + 0.12, board.origin[1] - 0.12];
+  const samePlace =
+    lastPaste && Math.abs(lastPaste.at[0] - target[0]) < 1e-6 && Math.abs(lastPaste.at[1] - target[1]) < 1e-6;
+  const step = samePlace ? lastPaste!.step + 1 : 0;
+  lastPaste = { at: [target[0], target[1]], step };
+
+  const CASCADE = 0.04;
+  const dx = target[0] - board.origin[0] + step * CASCADE;
+  const dy = target[1] - board.origin[1] - step * CASCADE;
+
+  const created: UUID[] = [];
+  commit('Paste', (r) => {
+    const carryLabel = (source: MapLabel | undefined, ownerId: UUID, text: string, coords: [number, number]) => {
+      // The copied record's own label, moved with it, so a pasted city keeps the
+      // size, tracking and offset the one it came from was given.
+      const label: MapLabel = source
+        ? {
+            ...source,
+            id: newId(),
+            text,
+            attachedToId: ownerId,
+            anchor: { type: 'Point', coordinates: coords },
+          }
+        : makeLabel(project, { type: 'Point', coordinates: coords }, {
+            kind: 'city',
+            text,
+            attachedToId: ownerId,
+          });
+      r.set('labels', label);
+      return label.id;
+    };
+
+    for (const s of board.settlements) {
+      const coords: [number, number] = [s.geometry.coordinates[0] + dx, s.geometry.coordinates[1] + dy];
+      const name = nextName(project, 'settlements', s.name);
+      const copy = makeSettlement(project, { type: 'Point', coordinates: coords }, {
+        ...s,
+        id: newId(),
+        name,
+        // Whose ground it stands on is a fact about where it was put down, not
+        // something to carry over from the copy.
+        ownerId: territoryAt(project, coords)?.id ?? null,
+        labelId: null,
+      });
+      const labelId = carryLabel(board.ownLabels[s.id], copy.id, name, coords);
+      r.set('settlements', { ...copy, labelId });
+      created.push(copy.id);
+    }
+
+    for (const t of board.territories) {
+      const geometry = translatePoly(t.geometry, dx, dy);
+      const name = nextName(project, 'territories', t.name);
+      const copy = makeTerritory(project, geometry, {
+        ...t,
+        id: newId(),
+        name,
+        capitalId: null,
+        labelId: null,
+        geometry,
+      });
+      const source = board.ownLabels[t.id];
+      const seat = interiorPoint(geometry);
+      const label: MapLabel = source
+        ? {
+            ...source,
+            id: newId(),
+            text: name,
+            attachedToId: copy.id,
+            anchor: {
+              type: 'Point',
+              coordinates: [source.anchor.coordinates[0] + dx, source.anchor.coordinates[1] + dy],
+            },
+          }
+        : makeLabel(project, { type: 'Point', coordinates: seat }, {
+            kind: 'region',
+            text: name,
+            attachedToId: copy.id,
+          });
+      r.set('labels', label);
+      r.set('territories', { ...copy, labelId: label.id });
+      created.push(copy.id);
+    }
+
+    for (const l of board.labels) {
+      const copy: MapLabel = {
+        ...l,
+        id: newId(),
+        attachedToId: null,
+        manualPosition: true,
+        anchor: {
+          type: 'Point',
+          coordinates: [l.anchor.coordinates[0] + dx, l.anchor.coordinates[1] + dy],
+        },
+      };
+      r.set('labels', copy);
+      created.push(copy.id);
+    }
+  });
+
+  if (created.length) useUIStore.getState().setSelection(created);
+}
+
 export function duplicateSelection(): void {
   const project = getProject();
   const sel = useUIStore.getState().selection;

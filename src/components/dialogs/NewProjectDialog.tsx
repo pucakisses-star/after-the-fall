@@ -184,6 +184,8 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
     ['Ctrl+Z', 'Undo'],
     ['Ctrl+Shift+Z', 'Redo'],
     ['Ctrl+S', 'Save'],
+    ['Ctrl+C', 'Copy the selection'],
+    ['Ctrl+V', 'Paste it under the pointer'],
     ['Ctrl+D', 'Duplicate selection'],
     ['Ctrl+A', 'Select all territories'],
     ['Ctrl+F', 'Search'],

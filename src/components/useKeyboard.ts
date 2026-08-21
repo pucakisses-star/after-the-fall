@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useUIStore, type ToolId } from '@/state/uiStore';
 import { getProject } from '@/state/projectStore';
-import { deleteSelection, duplicateSelection, redo, undo } from '@/state/commands';
+import { copySelection, deleteSelection, duplicateSelection, pasteClipboard, redo, undo } from '@/state/commands';
 import { saveNow } from '@/persistence/projectFile';
 import type { MapController } from '@/render/MapController';
 
@@ -59,6 +59,19 @@ export function useKeyboard(controller: MapController | null): void {
       if (mod && e.key.toLowerCase() === 'd') {
         e.preventDefault();
         duplicateSelection();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        copySelection();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        // Under the pointer, which is where a person looking at the map means
+        // "here". Off the map it falls back to a nudge from the original.
+        const p = ui.pointer;
+        pasteClipboard(p ? [p.lon, p.lat] : null);
         return;
       }
       if (mod && e.key.toLowerCase() === 'a') {

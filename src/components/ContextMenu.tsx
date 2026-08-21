@@ -4,9 +4,12 @@ import { useEffect, useRef } from 'react';
 import { useProjectStore, getProject } from '@/state/projectStore';
 import { useUIStore } from '@/state/uiStore';
 import {
+  clipboardSize,
+  copySelection,
   createTerritoryFromSelection,
   deleteSelection,
   duplicateSelection,
+  pasteClipboard,
   mergeSelected,
   setHiddenFor,
   setLockedFor,
@@ -102,6 +105,21 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
         </>
       )}
 
+      <Item onClick={run(copySelection)} disabled={selection.length === 0} shortcut="Ctrl+C">
+        Copy
+      </Item>
+      <Item
+        // The pointer was over the map to open this menu, so the position it
+        // last reported is where "here" is.
+        onClick={run(() => {
+          const p = useUIStore.getState().pointer;
+          pasteClipboard(p ? [p.lon, p.lat] : null);
+        })}
+        disabled={clipboardSize() === 0}
+        shortcut="Ctrl+V"
+      >
+        Paste
+      </Item>
       <Item onClick={run(duplicateSelection)} shortcut="Ctrl+D">
         Duplicate
       </Item>

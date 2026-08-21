@@ -11,10 +11,11 @@
 
 import { describe, expect, it, beforeEach } from 'vitest';
 import { createProject, placePositionKey } from '@/model/project';
-import { useProjectStore } from './projectStore';
-import { adoptPlace, deleteSelection } from './commands';
+import { commit, useProjectStore } from './projectStore';
+import { adoptPlace, copySelection, deleteSelection, pasteClipboard } from './commands';
 import { useUIStore } from './uiStore';
 import { settlementTypeForPlace } from '@/model/defaults';
+import type { Settlement } from '@/model/types';
 
 const CHARLOTTE = { name: 'Charlotte', coordinates: [-80.84, 35.23] as [number, number], scalerank: 6, population: 995_000 };
 
@@ -131,5 +132,82 @@ describe('deleting an adopted city', () => {
       deleteSelection();
     }
     expect(project().dismissedPlaces).toHaveLength(1);
+  });
+});
+
+/**
+ * Copy and paste (spec §53).
+ *
+ * Ctrl+C and Ctrl+V exist so a symbol you have styled can be put down again
+ * somewhere else. What matters is that the copy is the same *thing* — its rank,
+ * its symbol overrides and its name travel with it — and that it lands where
+ * you asked rather than where it came from.
+ */
+describe('copying a city', () => {
+  const styled = () => {
+    const id = adoptPlace(CHARLOTTE)!;
+    commit('style it', (r) =>
+      r.update<Settlement>('settlements', id, {
+        styleOverrides: { shape: 'star', size: 18, fillColor: '#c02020' },
+      }),
+    );
+    useUIStore.getState().setSelection([id]);
+    return id;
+  };
+
+  it('puts the copy where it was asked for, not where it came from', () => {
+    styled();
+    copySelection();
+    pasteClipboard([-70, 40]);
+
+    const made = Object.values(project().settlements).find((s) => s.geometry.coordinates[0] === -70);
+    expect(made).toBeDefined();
+    expect(made!.geometry.coordinates).toEqual([-70, 40]);
+  });
+
+  it('carries the symbol and the name over', () => {
+    const id = styled();
+    copySelection();
+    pasteClipboard([-70, 40]);
+
+    const src = project().settlements[id];
+    const made = Object.values(project().settlements).find((s) => s.id !== id)!;
+    expect(made.styleOverrides).toEqual(src.styleOverrides);
+    expect(made.type).toBe(src.type);
+    expect(made.name).toBe('Charlotte 2');
+    expect(project().labels[made.labelId!].text).toBe('Charlotte 2');
+  });
+
+  it('does not stack when pasted twice in the same place', () => {
+    styled();
+    copySelection();
+    pasteClipboard([-70, 40]);
+    pasteClipboard([-70, 40]);
+
+    const placed = Object.values(project().settlements).filter((s) => s.name !== 'Charlotte');
+    expect(placed).toHaveLength(2);
+    expect(placed[0].geometry.coordinates).not.toEqual(placed[1].geometry.coordinates);
+  });
+
+  it('survives the original being deleted', () => {
+    const id = styled();
+    copySelection();
+    useUIStore.getState().setSelection([id]);
+    deleteSelection();
+    pasteClipboard([-70, 40]);
+
+    expect(Object.keys(project().settlements)).toHaveLength(1);
+    expect(Object.values(project().settlements)[0].styleOverrides.shape).toBe('star');
+  });
+
+  it('undoes in one step, symbol and name together', () => {
+    styled();
+    copySelection();
+    pasteClipboard([-70, 40]);
+    const labels = Object.keys(project().labels).length;
+    useProjectStore.getState().undo();
+
+    expect(Object.keys(project().settlements)).toHaveLength(1);
+    expect(Object.keys(project().labels)).toHaveLength(labels - 1);
   });
 });
