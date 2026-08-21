@@ -35,7 +35,14 @@ import {
   territoryLabelVisible,
 } from '@/render/olStyles';
 import type { RoadClass } from '@/render/olStyles';
-import { estimateLineWidth, fitToPlate, inscriptionScale, nameFitsItsLand, scaledText } from '@/render/labelFit';
+import {
+  estimateLineWidth,
+  fitToPlate,
+  haloForGrowth,
+  inscriptionScale,
+  nameFitsItsLand,
+  scaledText,
+} from '@/render/labelFit';
 import { symbolToSvg } from '@/render/symbols';
 import { arcPoints } from '@/render/textRenderer';
 import { placeNameBySymbol } from '@/render/namePlacement';
@@ -662,8 +669,13 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
     // times wider than the window is a name too small to read — the map came
     // out right and the writing on it did not.
     const zoom = inscriptionScale({ pinned: l.fixedSize, metersPerPixel });
-    const scale = zoom > 1 ? baseScale * fitToPlate(zoom, l.text, style, frame.w) : baseScale * zoom;
+    const growth = zoom > 1 ? fitToPlate(zoom, l.text, style, frame.w) : zoom;
+    const scale = baseScale * growth;
     if (!labelEarnsItsPlace(project, l, style, metersPerPixel, p, scale)) continue;
+    // Everything below draws with `scale`, which carries the growth as well as
+    // the plate's enlargement. A halo must not follow the growth — see
+    // `haloForGrowth` — so it is divided back out before the multiply.
+    const inked = haloForGrowth(style, growth);
 
     // Text on a path (§12) uses SVG's own textPath, so it stays editable.
     if (l.pathId && project.linearFeatures[l.pathId]) {
@@ -673,7 +685,7 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
         const pid = `labelpath-${esc(l.id)}`;
         labelPathDefs.push(`<path id="${pid}" d="${d}" fill="none"/>`);
         labels.push(
-          `<text ${textAttrs(style, scale)}><textPath href="#${pid}" startOffset="50%" text-anchor="middle">${esc(content)}</textPath></text>`,
+          `<text ${textAttrs(inked, scale)}><textPath href="#${pid}" startOffset="50%" text-anchor="middle">${esc(content)}</textPath></text>`,
         );
         continue;
       }
@@ -699,7 +711,7 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
       const pid = `labelarc-${esc(l.id)}`;
       labelPathDefs.push(`<path id="${pid}" d="${d}" fill="none"/>`);
       labels.push(
-        `<text id="label-${esc(l.id)}" ${textAttrs(style, scale)}>` +
+        `<text id="label-${esc(l.id)}" ${textAttrs(inked, scale)}>` +
           `<textPath href="#${pid}" startOffset="50%" text-anchor="middle">${esc(content.replace(/\r?\n/g, ' '))}</textPath></text>`,
       );
       continue;
@@ -731,7 +743,7 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
     // A pinned name overrides the style's own alignment, which is about how its
     // lines sit against each other rather than where the block goes.
     labels.push(
-      `<text id="label-${esc(l.id)}" ${textAttrs(style, scale, pin?.anchorX)}${transform}>${tspans}</text>`,
+      `<text id="label-${esc(l.id)}" ${textAttrs(inked, scale, pin?.anchorX)}${transform}>${tspans}</text>`,
     );
   }
   if (labelPathDefs.length) defs.push(...labelPathDefs);

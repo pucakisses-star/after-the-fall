@@ -22,6 +22,7 @@ import {
   pinnedText,
   nameIsLegible,
   MIN_READABLE_FONT_SIZE,
+  haloForGrowth,
   scaledText,
 } from './labelFit';
 import type { Polygon } from 'geojson';
@@ -375,5 +376,46 @@ describe('label zoom scale', () => {
     const factor = labelZoomScale(mpp);
     const pinned = pinnedText(style, factor, true);
     expect(pinned.haloWidth).toBeCloseTo(scaledText(style, factor).haloWidth, 2);
+  });
+});
+
+describe('a halo is a hairline, not part of the letterform', () => {
+  const style = { fontSize: 12, tracking: 1.6, haloWidth: 1.2 };
+
+  // The screen scales the style and then draws at 1:1, so `scaledText` can hold
+  // the halo back directly. An exporter folds the growth and the plate's own
+  // enlargement into one multiplier, so the growth has to come back out first —
+  // otherwise a name grown for its territory prints a border to match, which is
+  // the slab that appeared around every water, city and region name on an
+  // exported plate while country names, carrying no halo, came out clean.
+  const asExported = (growth: number, plate: number) =>
+    haloForGrowth(style, growth).haloWidth * growth * plate;
+  const asDrawn = (growth: number, plate: number) => scaledText(style, growth).haloWidth * plate;
+
+  it('matches the screen at every growth, for any plate scale', () => {
+    for (const growth of [0.2, 0.5, 1, 2, 6, 16]) {
+      for (const plate of [1, 2.86, 4]) {
+        expect(asExported(growth, plate)).toBeCloseTo(asDrawn(growth, plate), 6);
+      }
+    }
+  });
+
+  it('stops a grown name from carrying a grown border', () => {
+    // Ten times the type, the same hairline.
+    expect(asExported(10, 1)).toBeCloseTo(style.haloWidth, 6);
+    expect(asExported(1, 1)).toBeCloseTo(style.haloWidth, 6);
+  });
+
+  it('still lets the halo thin with a shrinking name', () => {
+    expect(asExported(0.5, 1)).toBeCloseTo(style.haloWidth * 0.5, 6);
+  });
+
+  it('still follows the plate, because a hairline at 300 dpi is four dots', () => {
+    expect(asExported(10, 4)).toBeCloseTo(style.haloWidth * 4, 6);
+  });
+
+  it('leaves a style with no halo alone', () => {
+    const bare = { fontSize: 17, tracking: 6, haloWidth: 0 };
+    expect(haloForGrowth(bare, 12)).toBe(bare);
   });
 });

@@ -411,6 +411,27 @@ export function scaledText<T extends ScalableText>(style: T, factor: number): T 
 }
 
 /**
+ * The same halo rule, for a renderer that multiplies the style by one number.
+ *
+ * The screen applies the zoom factor to the style and then draws at 1:1, so
+ * `scaledText` can simply hold the halo back. An exporter cannot: it folds the
+ * zoom factor and the plate's own enlargement into a single `scale` and
+ * multiplies everything by it, so a name grown ten times for its territory also
+ * gets a ten-times-heavier halo. That is a slab, not a hairline, and it is why
+ * an exported plate printed every water, city and region name inside a border
+ * while country names — which carry no halo — came out clean.
+ *
+ * Dividing the growth back out of the halo here means that multiplying by
+ * `scale` afterwards lands on exactly what the screen draws, times the plate
+ * enlargement, which is the one part a halo *should* follow: at 300 dpi a
+ * hairline is four device pixels, not one.
+ */
+export function haloForGrowth<T extends ScalableText>(style: T, growth: number): T {
+  if (!(growth > 0) || growth === 1 || style.haloWidth === 0) return style;
+  return { ...style, haloWidth: (style.haloWidth * Math.min(1, growth)) / growth };
+}
+
+/**
  * Rewrite a style so that pinning — or unpinning — a name leaves it exactly the
  * size it is on screen at that moment.
  *
