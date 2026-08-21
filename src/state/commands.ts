@@ -772,11 +772,23 @@ export function moveSettlement(id: UUID, coordinates: [number, number]): void {
   const project = getProject();
   const s = project.settlements[id];
   if (!s || s.locked) return;
+  const label = s.labelId ? project.labels[s.labelId] : null;
   commit('Move settlement', (r) => {
     r.update<Settlement>('settlements', id, { geometry: { type: 'Point', coordinates } });
-    if (s.labelId && project.labels[s.labelId] && !project.labels[s.labelId].manualPosition) {
-      r.update<MapLabel>('labels', s.labelId, { anchor: { type: 'Point', coordinates } });
-    }
+    if (!s.labelId || !label) return;
+    // A name that was placed by hand travels with its city, keeping the
+    // placement it was given. Leaving it behind tears the two apart: the mark
+    // arrives somewhere new with nothing to say what it is, and the name is
+    // left standing over open ground. Most of the names on a hand-drawn map
+    // have been nudged into place at some point, so this was the common case,
+    // not the exception.
+    const anchor: [number, number] = label.manualPosition
+      ? [
+          label.anchor.coordinates[0] + (coordinates[0] - s.geometry.coordinates[0]),
+          label.anchor.coordinates[1] + (coordinates[1] - s.geometry.coordinates[1]),
+        ]
+      : coordinates;
+    r.update<MapLabel>('labels', s.labelId, { anchor: { type: 'Point', coordinates: anchor } });
   });
 }
 
@@ -1448,15 +1460,20 @@ export function pasteClipboard(at?: [number, number] | null): void {
   const created: UUID[] = [];
   commit('Paste', (r) => {
     const carryLabel = (source: MapLabel | undefined, ownerId: UUID, text: string, coords: [number, number]) => {
-      // The copied record's own label, moved with it, so a pasted city keeps the
-      // size, tracking and offset the one it came from was given.
+      // The copied record's own label, moved by the same distance as the record
+      // rather than snapped onto it: a name that had been placed off to one side
+      // keeps that placement, instead of landing on top of its own symbol where
+      // it hides the mark and takes the next click meant for it.
       const label: MapLabel = source
         ? {
             ...source,
             id: newId(),
             text,
             attachedToId: ownerId,
-            anchor: { type: 'Point', coordinates: coords },
+            anchor: {
+              type: 'Point',
+              coordinates: [source.anchor.coordinates[0] + dx, source.anchor.coordinates[1] + dy],
+            },
           }
         : makeLabel(project, { type: 'Point', coordinates: coords }, {
             kind: 'city',

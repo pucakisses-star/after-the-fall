@@ -72,6 +72,8 @@ export class ToolManager {
     grab: [number, number];
     /** Map coordinate the feature sat at when it was picked up. */
     origin: [number, number];
+    /** A settlement's own name, and where it sat, so it can come along. */
+    label?: { id: UUID; origin: [number, number] };
   } | null = null;
   private pointerHandlers: (() => void)[] = [];
   private paintStroke = new Set<UUID>();
@@ -238,12 +240,18 @@ export class ToolManager {
       const geom = source.getFeatureById(hit.id)?.getGeometry() as OlPoint | undefined;
       if (!geom) return;
       const at = geom.getCoordinates() as [number, number];
+      const labelId = hit.kind === 'settlement' ? getProject().settlements[hit.id]?.labelId : null;
+      const labelGeom = labelId
+        ? (this.controller.labelSource.getFeatureById(labelId)?.getGeometry() as OlPoint | undefined)
+        : undefined;
+      const labelAt = labelGeom?.getCoordinates() as [number, number] | undefined;
       this.drag = {
         id: hit.id,
         kind: hit.kind,
         moved: false,
         grab: [...(evt.coordinate as [number, number])],
         origin: [at[0], at[1]],
+        label: labelId && labelAt ? { id: labelId, origin: [labelAt[0], labelAt[1]] } : undefined,
       };
       // Otherwise the map pans under the drag and the name goes nowhere: the
       // ground the pointer is over is exactly what panning holds still, so a
@@ -388,14 +396,22 @@ export class ToolManager {
     if (!geom) return;
     geom.setCoordinates(at);
 
-    // A settlement drags its automatic label along with it.
-    if (kind === 'settlement') {
+    // A settlement drags its name along with it, wherever the name was put:
+    // one that follows the dot lands back on the dot, one that was placed by
+    // hand keeps the placement and travels the same distance.
+    const carried = this.drag?.label;
+    if (kind === 'settlement' && carried) {
       const project = getProject();
       const s = project.settlements[id];
-      if (s?.labelId && !project.labels[s.labelId]?.manualPosition) {
-        const lf = this.controller.labelSource.getFeatureById(s.labelId);
-        (lf?.getGeometry() as OlPoint | undefined)?.setCoordinates(at);
-      }
+      const manual = s?.labelId ? project.labels[s.labelId]?.manualPosition : false;
+      const lf = this.controller.labelSource.getFeatureById(carried.id);
+      const to: [number, number] = manual
+        ? [
+            carried.origin[0] + (at[0] - this.drag!.origin[0]),
+            carried.origin[1] + (at[1] - this.drag!.origin[1]),
+          ]
+        : at;
+      (lf?.getGeometry() as OlPoint | undefined)?.setCoordinates(to);
     }
     this.controller.repaint();
   }

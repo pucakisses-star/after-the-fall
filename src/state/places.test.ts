@@ -12,10 +12,10 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { createProject, placePositionKey } from '@/model/project';
 import { commit, useProjectStore } from './projectStore';
-import { adoptPlace, copySelection, deleteSelection, pasteClipboard } from './commands';
+import { adoptPlace, copySelection, deleteSelection, moveSettlement, pasteClipboard } from './commands';
 import { useUIStore } from './uiStore';
 import { settlementTypeForPlace } from '@/model/defaults';
-import type { Settlement } from '@/model/types';
+import type { MapLabel, Settlement } from '@/model/types';
 
 const CHARLOTTE = { name: 'Charlotte', coordinates: [-80.84, 35.23] as [number, number], scalerank: 6, population: 995_000 };
 
@@ -209,5 +209,66 @@ describe('copying a city', () => {
 
     expect(Object.keys(project().settlements)).toHaveLength(1);
     expect(Object.keys(project().labels)).toHaveLength(labels - 1);
+  });
+});
+
+/**
+ * Moving a city takes its name with it (spec §14, §20).
+ *
+ * A name that has been nudged into place is still that city's name. Leaving it
+ * where it was when the city moves tears the two apart: the mark arrives
+ * somewhere new with nothing to say what it is, and the name stands over open
+ * ground. Most names on a hand-drawn map have been nudged at some point, so
+ * this was the common case rather than the exception.
+ */
+describe('dragging a city that has a hand-placed name', () => {
+  it('carries the name the same distance, keeping where it was put', () => {
+    const id = adoptPlace(CHARLOTTE)!;
+    const labelId = project().settlements[id].labelId!;
+    commit('place the name by hand', (r) =>
+      r.update<MapLabel>('labels', labelId, {
+        manualPosition: true,
+        anchor: { type: 'Point', coordinates: [-80.9, 35.4] },
+      }),
+    );
+
+    moveSettlement(id, [-80.44, 35.63]);
+
+    const label = project().labels[labelId];
+    // Moved by (+0.4, +0.4), the same as the city, so the name still sits where
+    // it was put relative to the dot.
+    expect(label.anchor.coordinates[0]).toBeCloseTo(-80.5, 6);
+    expect(label.anchor.coordinates[1]).toBeCloseTo(35.8, 6);
+    expect(label.manualPosition).toBe(true);
+  });
+
+  it('still drops an automatic name straight back onto the dot', () => {
+    const id = adoptPlace(CHARLOTTE)!;
+    const labelId = project().settlements[id].labelId!;
+    expect(project().labels[labelId].manualPosition).toBe(false);
+
+    moveSettlement(id, [-70, 40]);
+    expect(project().labels[labelId].anchor.coordinates).toEqual([-70, 40]);
+  });
+
+  it('pastes a hand-placed name beside the copy, not on top of it', () => {
+    const id = adoptPlace(CHARLOTTE)!;
+    const labelId = project().settlements[id].labelId!;
+    commit('place the name by hand', (r) =>
+      r.update<MapLabel>('labels', labelId, {
+        manualPosition: true,
+        anchor: { type: 'Point', coordinates: [-80.6, 35.4] },
+      }),
+    );
+
+    useUIStore.getState().setSelection([id]);
+    copySelection();
+    pasteClipboard([-70, 40]);
+
+    const copy = Object.values(project().settlements).find((s) => s.id !== id)!;
+    const name = project().labels[copy.labelId!];
+    // The name sat 0.24° east and 0.17° north of the dot; it still does.
+    expect(name.anchor.coordinates[0] - copy.geometry.coordinates[0]).toBeCloseTo(0.24, 6);
+    expect(name.anchor.coordinates[1] - copy.geometry.coordinates[1]).toBeCloseTo(0.17, 6);
   });
 });
