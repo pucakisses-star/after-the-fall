@@ -10,6 +10,7 @@ import { elevationTint, roadRankStyle } from '@/render/olStyles';
 import { STYLE_IDS } from '@/model/defaults';
 import { resolveSymbolStyle } from '@/model/resolveStyle';
 import type { MapProject } from '@/model/types';
+import { fitWithinRaster } from './pngExport';
 
 function rect(x0: number, y0: number, x1: number, y1: number): Polygon {
   return {
@@ -474,5 +475,36 @@ describe('exportSvg', () => {
     empty.basemap = [];
     const svg = await exportSvg(empty, OPTIONS);
     expect(svg).toContain('<g id="territories"></g>');
+  });
+});
+
+/**
+ * The ceiling a PNG has to live under (spec §48).
+ *
+ * An export sized from the screen's own scale is unbounded — the whole map at a
+ * street-level zoom is hundreds of megapixels — while a browser canvas is not.
+ * What matters is that the ceiling costs scale rather than content: the same map
+ * smaller, not a piece of the map.
+ */
+describe('fitWithinRaster', () => {
+  it('leaves a size that already fits exactly as it is', () => {
+    expect(fitWithinRaster(4000, 3000)).toEqual([4000, 3000]);
+  });
+
+  it('brings a too-wide image under the per-side cap, keeping its shape', () => {
+    const [w, h] = fitWithinRaster(40000, 20000);
+    expect(w).toBeLessThanOrEqual(16000);
+    expect(h).toBeLessThanOrEqual(16000);
+    expect(w / h).toBeCloseTo(2, 3);
+  });
+
+  it('brings a too-large area under the cap, keeping its shape', () => {
+    const [w, h] = fitWithinRaster(15000, 15000);
+    expect(w * h).toBeLessThanOrEqual(268_000_000);
+    expect(w / h).toBeCloseTo(1, 3);
+  });
+
+  it('never returns something too small to be an image', () => {
+    expect(fitWithinRaster(1, 1)).toEqual([64, 64]);
   });
 });

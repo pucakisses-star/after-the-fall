@@ -1,12 +1,12 @@
 /** Export dialogs (spec §48). */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Dialog } from '../Dialog';
 import { Field } from '../Inspector';
 import { useProjectStore } from '@/state/projectStore';
 import { toast } from '@/state/uiStore';
 import { DEFAULT_SVG_OPTIONS, exportSvg, type SvgExportOptions } from '@/export/svgExport';
-import { checkRasterLimits, exportPng } from '@/export/pngExport';
+import { checkRasterLimits, exportPng, fitWithinRaster } from '@/export/pngExport';
 import { downloadBlob, downloadText, safeFilename } from '@/persistence/projectFile';
 import { projectToGeoJson } from '@/io/importers';
 import { useMapController } from '../MapContext';
@@ -32,6 +32,52 @@ function useDefaults(): { extent: [number, number, number, number]; viewportWidt
 
 interface ExportState extends Common {
   useFullExtent: boolean;
+}
+
+/**
+ * The pixel size that draws `extent` at the scale the screen is drawing it now.
+ *
+ * The exporter fits the extent into whatever canvas it is given, so asking for
+ * the whole map in a 4000 px box says nothing about the scale it comes out at:
+ * a continent in 4000 px is an overview, and a county in 4000 px is a street
+ * plan. Sizing the canvas from the view's own resolution — projected units per
+ * pixel — is what makes the two the same, and the picture is then the one you
+ * would be looking at if the window were big enough to hold the whole map.
+ *
+ * The edges are sampled rather than just the corners because most projections
+ * curve the parallels, and the exporter samples them the same way, so the two
+ * agree on the box and the image needs no letterboxing.
+ */
+function sizeAtScreenScale(
+  controller: ReturnType<typeof useMapController>,
+  extent: [number, number, number, number],
+): [number, number] | null {
+  const resolution = controller?.map.getView().getResolution();
+  if (!controller || !resolution) return null;
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const [w0, s0, e0, n0] = extent;
+  const steps = 32;
+  const consider = (lon: number, lat: number) => {
+    const [x, y] = controller.toView([lon, lat]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  };
+  for (let i = 0; i <= steps; i++) {
+    const f = i / steps;
+    consider(w0 + (e0 - w0) * f, s0);
+    consider(w0 + (e0 - w0) * f, n0);
+    consider(w0, s0 + (n0 - s0) * f);
+    consider(e0, s0 + (n0 - s0) * f);
+  }
+  if (!Number.isFinite(minX)) return null;
+  return [Math.round((maxX - minX) / resolution), Math.round((maxY - minY) / resolution)];
 }
 
 function ExportControls({
@@ -277,19 +323,53 @@ export function ExportSvgDialog({ onClose }: { onClose: () => void }) {
 
 export function ExportPngDialog({ onClose }: { onClose: () => void }) {
   const project = useProjectStore((s) => s.project);
-  const { extent, viewportWidth } = useDefaults();
+  const { extent } = useDefaults();
+  const controller = useMapController();
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [dpi, setDpi] = useState(300);
   const [transparent, setTransparent] = useState(false);
-  const [state, setState] = useState<ExportState>({
-    ...DEFAULT_SVG_OPTIONS,
-    width: 4000,
-    height: 3000,
-    styleScale: Number((4000 / viewportWidth).toFixed(2)),
-    useFullExtent: false,
+
+  const fullExtent = useMemo(() => fullExtentOf(project) ?? extent, [project, extent]);
+  /** The size the current extent choice wants, before the browser's ceiling. */
+  const wantedFor = (whole: boolean) => sizeAtScreenScale(controller, whole ? fullExtent : extent);
+
+  const [state, setState] = useState<ExportState>(() => {
+    // The whole map, at the scale the screen is showing it. A picture of the
+    // map you are working on rather than a fixed 4000 px box that means a
+    // different scale on every project.
+    const wanted = sizeAtScreenScale(controller, fullExtent);
+    const [width, height] = wanted ? fitWithinRaster(wanted[0], wanted[1]) : [4000, 3000];
+    return {
+      ...DEFAULT_SVG_OPTIONS,
+      width,
+      height,
+      // 1× is screen weight, which is what a screen-scale export wants.
+      styleScale: 1,
+      useFullExtent: true,
+    };
   });
-  const set = (patch: Partial<ExportState>) => setState((s) => ({ ...s, ...patch }));
+
+  // Size follows the extent until the size is typed, and stops following once
+  // it has been: a number somebody entered is not a default to overwrite.
+  const sizeTouched = useRef(false);
+  const set = (patch: Partial<ExportState>) => {
+    if (patch.width !== undefined || patch.height !== undefined) sizeTouched.current = true;
+    setState((s) => {
+      const next = { ...s, ...patch };
+      if (patch.useFullExtent !== undefined && !sizeTouched.current) {
+        const wanted = wantedFor(patch.useFullExtent);
+        if (wanted) [next.width, next.height] = fitWithinRaster(wanted[0], wanted[1]);
+      }
+      return next;
+    });
+  };
+
+  // What the ceiling cost, if anything, so a capped export says so rather than
+  // quietly coming out at a scale nobody asked for.
+  const wanted = wantedFor(state.useFullExtent);
+  const cappedFrom =
+    wanted && !sizeTouched.current && wanted[0] > state.width ? wanted : null;
 
   const limits = checkRasterLimits(state.width, state.height);
 
@@ -350,6 +430,19 @@ export function ExportPngDialog({ onClose }: { onClose: () => void }) {
       <p className="hint">
         At {dpi} dpi this prints {inches(state.width)} × {inches(state.height)} inches.
       </p>
+      <p className="hint" style={{ marginTop: 0 }}>
+        {sizeTouched.current
+          ? 'Size set by hand — the detail scale no longer follows the screen.'
+          : `The whole map at the scale it is on screen now. Zoom in or out before opening this
+             dialog to export at a different scale.`}
+      </p>
+      {cappedFrom && (
+        <p className="hint" style={{ marginTop: 0 }}>
+          Screen scale would be {cappedFrom[0].toLocaleString()} × {cappedFrom[1].toLocaleString()} px,
+          past what a browser canvas holds, so this is the largest image of the same map. Export SVG
+          for the full scale.
+        </p>
+      )}
       {!limits.ok && (
         <p className="hint" style={{ color: 'var(--danger)' }}>
           {limits.message}

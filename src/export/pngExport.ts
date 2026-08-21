@@ -47,6 +47,21 @@ export function checkRasterLimits(width: number, height: number): RasterLimits {
   return { ok: true };
 }
 
+/**
+ * The largest image with this shape that a browser canvas will hold.
+ *
+ * Shrunk on the diagonal rather than clipped, so what comes back is the same
+ * map at a smaller scale rather than a piece of it. Returns the size unchanged
+ * when it already fits, which is the common case.
+ */
+export function fitWithinRaster(width: number, height: number): [number, number] {
+  const w = Math.max(1, width);
+  const h = Math.max(1, height);
+  let k = Math.min(1, MAX_CANVAS_DIMENSION / w, MAX_CANVAS_DIMENSION / h);
+  if (w * k * (h * k) > MAX_CANVAS_AREA) k = Math.min(k, Math.sqrt(MAX_CANVAS_AREA / (w * h)));
+  return [Math.max(64, Math.floor(w * k)), Math.max(64, Math.floor(h * k))];
+}
+
 /** Load an SVG string into an HTMLImageElement via a blob URL. */
 function loadSvgImage(svg: string): Promise<{ image: HTMLImageElement; revoke: () => void }> {
   return new Promise((resolve, reject) => {
