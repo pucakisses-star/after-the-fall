@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { commit, useProjectStore } from '@/state/projectStore';
-import { convertLabelKind, labelsToRecast } from '@/state/commands';
+import { convertLabelKind, labelsToRecast, runCleanHairlines } from '@/state/commands';
 import { toast, useUIStore } from '@/state/uiStore';
 import { PROJECTION_PRESETS, registerCustomProjection } from '@/geo/projections';
 import { BASEMAP_SIZES, BUILTIN_BASEMAPS, allBasemapSources } from '@/geo/basemap';
@@ -28,6 +28,27 @@ export function ProjectPanel() {
   // Counted through the command's own filter, so the button is enabled exactly
   // when pressing it would change something.
   const regionNames = useMemo(() => labelsToRecast(project, 'region').length, [project]);
+
+  const [cleaning, setCleaning] = useState(false);
+  const cleanStrayLines = () => {
+    setCleaning(true);
+    // Let the button paint its "sweeping" state before the synchronous walk.
+    setTimeout(() => {
+      try {
+        const { found, changed, log } = runCleanHairlines();
+        toast(
+          found.length === 0
+            ? 'No stray lines found. The map is clean.'
+            : `${log.join(' ')} ${changed} realm${changed === 1 ? '' : 's'} redrawn. Ctrl+Z undoes it.`,
+          found.length === 0 ? 'info' : 'success',
+        );
+      } catch (err) {
+        toast(`Sweep failed: ${(err as Error).message}`, 'error');
+      } finally {
+        setCleaning(false);
+      }
+    }, 20);
+  };
 
   return (
     <>
@@ -180,7 +201,16 @@ export function ProjectPanel() {
       <ReferenceImageSection />
 
       <Section title="Topology">
-        <button className="btn btn--full" onClick={() => setDialog('topology')}>
+        <button className="btn btn--full btn--accent" disabled={cleaning} onClick={cleanStrayLines}>
+          {cleaning ? 'Sweeping…' : 'Remove stray lines'}
+        </button>
+        <p className="hint">
+          Sweeps the whole map for the scraps that boolean edits leave behind — threads too narrow to
+          have an inside, hairline slits inside a realm, and needle spikes on a border — all of which
+          draw as stray dark marks. It only ever deletes geometry with no interior, so no boundary
+          moves. Locked realms are untouched, and Ctrl+Z undoes the sweep.
+        </p>
+        <button className="btn btn--full" style={{ marginTop: 6 }} onClick={() => setDialog('topology')}>
           Check & Repair Territory Topology…
         </button>
         <p className="hint">Finds gaps, overlaps and slivers between adjacent territories.</p>

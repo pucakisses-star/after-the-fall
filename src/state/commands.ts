@@ -39,6 +39,7 @@ import {
 } from '@/geo/operations';
 import type { Poly } from '@/geo/operations';
 import { diffVertexMoves, propagateVertexEdit, repairTopology, type RepairOptions } from '@/geo/topology';
+import { cleanHairlines, type CleanOptions, type Hairline } from '@/geo/hairlines';
 import { boundaryFollows, reshapeBoundary } from '@/geo/reshape';
 import { BARRIER_WIDTH_KM, neighbourHoldingMostOf, regionAt } from '@/geo/floodFill';
 import { recolor, type RecolorOptions } from '@/geo/palette';
@@ -1207,6 +1208,37 @@ export function runRepairTopology(options: RepairOptions = {}): { log: string[];
     });
   }
   return { log: result.log, changed: result.changes.size };
+}
+
+/**
+ * Sweep the whole map for the scraps that render as stray dark lines.
+ *
+ * Separate from `runRepairTopology` on purpose. That one negotiates between
+ * neighbours and can move a border; this one only ever deletes geometry that
+ * has no interior to begin with, so it is the safe thing to reach for when the
+ * complaint is "there are marks on my map" rather than "these two realms
+ * disagree about where they meet". One undo step, and locked realms are left
+ * exactly as they are.
+ */
+export function runCleanHairlines(options: CleanOptions = {}): {
+  log: string[];
+  found: Hairline[];
+  changed: number;
+} {
+  const project = getProject();
+  const territories = Object.values(project.territories);
+  const locked = new Set(territories.filter((t) => t.locked).map((t) => t.id));
+  const result = cleanHairlines(territories, { ...options, lockedIds: locked });
+
+  if (result.changes.size > 0) {
+    commit('Remove stray lines', (r) => {
+      for (const [id, geom] of result.changes) {
+        r.update<Territory>('territories', id, { geometry: geom });
+        syncAttachedLabel(r, id, geom);
+      }
+    });
+  }
+  return { log: result.log, found: result.found, changed: result.changes.size };
 }
 
 // ---------------------------------------------------------------------------

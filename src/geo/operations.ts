@@ -430,11 +430,22 @@ export function dropSlivers(g: Poly, maxWidthKm: number): Poly | null {
   );
 }
 
+/**
+ * Area over half the perimeter of a single ring: how wide it is, in km.
+ *
+ * Exact for a ribbon of constant width however it bends, and it degrades the
+ * right way — a disc reports its radius, so anything with an interior scores
+ * far above the thresholds a thread trips. Works on a hole as readily as on an
+ * outer ring, which is what lets the same number describe a slit.
+ */
+export function ringWidthKm(ring: Position[]): number {
+  const half = ringLengthKm(ring) / 2;
+  return half > 0 ? areaKm2({ type: 'Polygon', coordinates: [ring] }) / half : 0;
+}
+
 /** Area over half the perimeter of the outer ring: how wide the part is, in km. */
 function meanWidthKm(part: Polygon): number {
-  const outer: Polygon = { type: 'Polygon', coordinates: [part.coordinates[0]] };
-  const half = ringLengthKm(part.coordinates[0]) / 2;
-  return half > 0 ? areaKm2(outer) / half : 0;
+  return ringWidthKm(part.coordinates[0]);
 }
 
 function ringLengthKm(ring: Position[]): number {
