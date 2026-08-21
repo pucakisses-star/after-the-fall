@@ -16,6 +16,7 @@
 import proj4 from 'proj4';
 import { clipToValidArea, findBasemapSource, isPolygonFeature, loadBasemap } from '@/geo/basemap';
 import { registerProjections, renderExtentFor } from '@/geo/projections';
+import { clampToPlateBand } from './plateFrame';
 import { computeBorders } from '@/render/borders';
 import { svgPatternDef, svgPatternId, dashArray, doubleLineWidths, isDoubleLine } from '@/render/patterns';
 import {
@@ -83,6 +84,12 @@ export interface SvgExportOptions {
   includeCompass: boolean;
   /** Margin reserved for the frame, in output px. */
   margin: number;
+  /**
+   * Cut the sheet's top and bottom at the plate band's two landmarks rather
+   * than at the corners of the requested extent — see `plateFrame`. Off for an
+   * export of the current view, which should show what the screen shows.
+   */
+  clampToBand?: boolean;
 }
 
 export const DEFAULT_SVG_OPTIONS: Omit<SvgExportOptions, 'extent' | 'width' | 'height'> = {
@@ -163,6 +170,19 @@ function buildProjector(
     maxX = e0;
     minY = s0;
     maxY = n0;
+  }
+
+  // The extent says what is drawn; the band says where the paper is cut. Taking
+  // the bounding box of a curved band would reach past both landmarks in the
+  // middle of the sheet — see `plateFrame` for the arithmetic.
+  if (opts.clampToBand) {
+    [minY, maxY] = clampToPlateBand(minY, maxY, (lon, lat) => {
+      try {
+        return forward(lon, lat)[1];
+      } catch {
+        return NaN;
+      }
+    });
   }
 
   // Fit the projected box into the frame, preserving aspect ratio.
@@ -760,6 +780,19 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
   const legend = opts.includeLegend ? legendToSvg(project, frame, scale) : { markup: [], patterns: new Map() };
   for (const [id, pattern] of legend.patterns) patterns.set(id, pattern);
   groups.push(group('legend', legend.markup));
+
+  // Everything drawn so far is the map itself, and it is held inside the frame.
+  //
+  // A plate is fitted to its extent preserving aspect, so unless the page has
+  // exactly the extent's proportions there is room left over on one axis — and
+  // the projector happily carries ground beyond the extent into it. The result
+  // was a sheet asked to stop at Anticosti Island that printed Hudson Bay in
+  // its top margin. The requested extent is a promise about what is on the
+  // page, so the map is clipped to the frame and the margin stays margin.
+  const mapGroups = groups.splice(0, groups.length);
+  const plateClip = `<clipPath id="plate"><rect x="${num(frame.x)}" y="${num(frame.y)}" width="${num(frame.w)}" height="${num(frame.h)}"/></clipPath>`;
+  defs.push(plateClip);
+  groups.push(`<g id="map" clip-path="url(#plate)">\n${mapGroups.join('\n')}\n</g>`);
 
   // --- frame ----------------------------------------------------------------
   const frameParts: string[] = [];

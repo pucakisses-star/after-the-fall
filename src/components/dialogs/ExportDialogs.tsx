@@ -17,6 +17,7 @@ import {
   stitchReadme,
 } from '@/export/tileExport';
 import { metersPerUnit } from '@/render/olStyles';
+import { PLATE_BOUNDS, clampToPlateBand } from '@/export/plateFrame';
 import { downloadBlob, downloadText, safeFilename } from '@/persistence/projectFile';
 import { projectToGeoJson } from '@/io/importers';
 import { useMapController } from '../MapContext';
@@ -61,6 +62,7 @@ interface ExportState extends Common {
 function sizeAtScreenScale(
   controller: ReturnType<typeof useMapController>,
   extent: [number, number, number, number],
+  clampBand = false,
 ): [number, number] | null {
   const resolution = controller?.map.getView().getResolution();
   if (!controller || !resolution) return null;
@@ -87,6 +89,12 @@ function sizeAtScreenScale(
     consider(e0, s0 + (n0 - s0) * f);
   }
   if (!Number.isFinite(minX)) return null;
+  // The exporter cuts the sheet at the band's landmarks, so the size has to be
+  // measured against the same cut or the plate arrives with the wrong aspect
+  // and the fit quietly letterboxes ground back onto it.
+  if (clampBand) {
+    [minY, maxY] = clampToPlateBand(minY, maxY, (lon, lat) => controller.toView([lon, lat])[1]);
+  }
   return [Math.round((maxX - minX) / resolution), Math.round((maxY - minY) / resolution)];
 }
 
@@ -237,16 +245,27 @@ function ExportControls({
   );
 }
 
+/**
+ * The extent the whole-map exports frame.
+ *
+ * Latitude is the band above. Longitude is measured only from what falls
+ * *inside* that band, rather than from everything drawn: taking it from the
+ * whole document would stretch the sheet out to the longitude of the Aleutians
+ * to hold ground the latitude cut has already removed, and print a thousand
+ * miles of empty Pacific to do it.
+ */
 function fullExtentOf(project: ReturnType<typeof useProjectStore.getState>['project']): [number, number, number, number] | null {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
   const consider = (coords: number[]) => {
-    minX = Math.min(minX, coords[0]);
-    maxX = Math.max(maxX, coords[0]);
-    minY = Math.min(minY, coords[1]);
-    maxY = Math.max(maxY, coords[1]);
+    const [lon, lat] = coords;
+    if (lat < PLATE_BOUNDS.south || lat > PLATE_BOUNDS.north) return;
+    minX = Math.min(minX, lon);
+    maxX = Math.max(maxX, lon);
+    minY = Math.min(minY, lat);
+    maxY = Math.max(maxY, lat);
   };
   const walk = (arr: unknown): void => {
     if (!Array.isArray(arr)) return;
@@ -258,10 +277,11 @@ function fullExtentOf(project: ReturnType<typeof useProjectStore.getState>['proj
   for (const f of Object.values(project.linearFeatures)) walk(f.geometry.coordinates);
   for (const l of Object.values(project.labels)) consider(l.anchor.coordinates);
   if (!Number.isFinite(minX)) return null;
-  // A little breathing room so nothing sits on the frame.
+  // Breathing room east and west so nothing sits on the frame. None north or
+  // south: the two edges are the landmarks themselves, and padding past them
+  // would put the sheet's edge somewhere nobody chose.
   const padX = Math.max(0.2, (maxX - minX) * 0.04);
-  const padY = Math.max(0.2, (maxY - minY) * 0.04);
-  return [minX - padX, minY - padY, maxX + padX, maxY + padY];
+  return [minX - padX, PLATE_BOUNDS.south, maxX + padX, PLATE_BOUNDS.north];
 }
 
 export function ExportSvgDialog({ onClose }: { onClose: () => void }) {
@@ -342,7 +362,7 @@ export function ExportPngDialog({ onClose }: { onClose: () => void }) {
 
   const fullExtent = useMemo(() => fullExtentOf(project) ?? extent, [project, extent]);
   /** The size the current extent choice wants, before the browser's ceiling. */
-  const wantedFor = (whole: boolean) => sizeAtScreenScale(controller, whole ? fullExtent : extent);
+  const wantedFor = (whole: boolean) => sizeAtScreenScale(controller, whole ? fullExtent : extent, whole);
   /** Ground scale of the view, for saying what a tiled run will come out at. */
   const metresPerPixel = controller
     ? (controller.map.getView().getResolution() ?? 0) * metersPerUnit(project.projection.units)
@@ -352,7 +372,7 @@ export function ExportPngDialog({ onClose }: { onClose: () => void }) {
     // The whole map, at the scale the screen is showing it. A picture of the
     // map you are working on rather than a fixed 4000 px box that means a
     // different scale on every project.
-    const wanted = sizeAtScreenScale(controller, fullExtent);
+    const wanted = sizeAtScreenScale(controller, fullExtent, true);
     const [width, height] = wanted ? fitWithinRaster(wanted[0], wanted[1]) : [4000, 3000];
     return {
       ...DEFAULT_SVG_OPTIONS,
@@ -419,7 +439,7 @@ export function ExportPngDialog({ onClose }: { onClose: () => void }) {
         });
       const made = await exportTiles(
         project,
-        { ...state, width: plan.plateWidth, height: plan.plateHeight, extent: chosenExtent },
+        { ...state, width: plan.plateWidth, height: plan.plateHeight, extent: chosenExtent, clampToBand: state.useFullExtent },
         sink,
         {
           base,
@@ -447,7 +467,7 @@ export function ExportPngDialog({ onClose }: { onClose: () => void }) {
       const chosenExtent = state.useFullExtent ? (fullExtentOf(project) ?? extent) : extent;
       const blob = await exportPng(
         project,
-        { ...state, extent: chosenExtent, dpi, transparent },
+        { ...state, extent: chosenExtent, clampToBand: state.useFullExtent, dpi, transparent },
         setProgress,
       );
       downloadBlob(blob, safeFilename(project.meta.title, '.png'));
@@ -507,6 +527,14 @@ export function ExportPngDialog({ onClose }: { onClose: () => void }) {
           : `The whole map at the scale it is on screen now. Zoom in or out before opening this
              dialog to export at a different scale.`}
       </p>
+      {state.useFullExtent && (
+        <p className="hint" style={{ marginTop: 0 }}>
+          The sheet runs from Anticosti Island ({PLATE_BOUNDS.north}°N) down to the tip of Baja
+          California Sur ({PLATE_BOUNDS.south}°N). Anything you have drawn outside that band — the
+          Canadian north, southern Mexico, Cuba — is not on it. Turn off “Export everything” to
+          export the view you are looking at instead.
+        </p>
+      )}
       {cappedFrom && !tiled && (
         <p className="hint" style={{ marginTop: 0 }}>
           Screen scale would be {cappedFrom[0].toLocaleString()} × {cappedFrom[1].toLocaleString()} px,
