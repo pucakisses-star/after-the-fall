@@ -422,7 +422,21 @@ describe('recasting every name of a kind', () => {
     convertLabelKind('region', 'country');
 
     expect(project().labels[id].styleClassId).toBe(TEXT_STYLE_BY_LABEL_KIND.country);
-    expect(project().labels[id].fixedSize).toBe(true);
+  });
+
+  it('leaves the zoom behaviour of every name exactly as it found it', () => {
+    // Pinning is not part of what a name *is*, it is whether the name grows
+    // with the map. At a regional zoom `inscriptionScale` makes that the
+    // difference between ten times the composed size and one times, so
+    // promoting on to the kind's default shrank ninety-nine names to captions
+    // beside neighbours that had not changed.
+    const scaling = addLabel('region', 'The Marches', { fixedSize: false });
+    const pinned = addLabel('region', 'The Pale', { fixedSize: true });
+
+    convertLabelKind('region', 'country');
+
+    expect(project().labels[scaling].fixedSize).toBe(false);
+    expect(project().labels[pinned].fixedSize).toBe(true);
   });
 
   it('leaves locked names alone', () => {

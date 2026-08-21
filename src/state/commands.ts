@@ -12,7 +12,6 @@ import { placePositionKey } from '@/model/project';
 import {
   STYLE_IDS,
   TEXT_STYLE_BY_LABEL_KIND,
-  defaultFixedSize,
   politicalTypeInfo,
   relationshipInfo,
   settlementTypeForPlace,
@@ -1790,9 +1789,17 @@ export function labelsToRecast(project: MapProject, kind: MapLabel['kind']): Map
  *
  * A map drawn over a long session accumulates names that were entered as
  * regions and have since become countries, and changing them one at a time
- * through the Inspector is the kind of work nobody finishes. This does what
- * that dropdown does — kind, text class, pinning — to all of them at once, in a
- * single undo step.
+ * through the Inspector is the kind of work nobody finishes. This changes the
+ * kind and the typography of all of them at once, in a single undo step.
+ *
+ * It deliberately does NOT touch `fixedSize`, which is the one thing the
+ * single-label dropdown does that this must not. Pinning is not part of "what
+ * this name is" — it is whether the name grows with the map, and at a regional
+ * zoom `inscriptionScale` is the difference between a name drawn at ten times
+ * its composed size and one drawn at one times. Setting it here to the kind's
+ * default pinned ninety-nine names in one press and shrank every one of them to
+ * a caption sitting beside neighbours that had not changed. Whatever a name did
+ * about zoom before it was promoted, it keeps doing.
  *
  * Returns how many were changed so the caller can say so.
  */
@@ -1803,7 +1810,7 @@ export function convertLabelKind(from: MapLabel['kind'], to: MapLabel['kind']): 
   const styleClassId = TEXT_STYLE_BY_LABEL_KIND[to];
   commit(`Convert ${from} names to ${to}`, (r) => {
     for (const l of targets) {
-      r.update<MapLabel>('labels', l.id, { kind: to, styleClassId, fixedSize: defaultFixedSize(to) });
+      r.update<MapLabel>('labels', l.id, { kind: to, styleClassId });
     }
   });
   return targets.length;
