@@ -70,7 +70,7 @@ import {
   type ReferenceSize,
 } from './referenceImage';
 import { fitToPlate, inscriptionScale, nameFitsItsLand, nameIsLegible, scaledText } from './labelFit';
-import { drawText, drawTextOnPath, boxContains, type TextBox } from './textRenderer';
+import { arcPoints, drawText, drawTextOnPath, measureTracked, boxContains, type TextBox } from './textRenderer';
 import { placePositionKey } from '@/model/project';
 import { useProjectStore } from '@/state/projectStore';
 import { useUIStore } from '@/state/uiStore';
@@ -1158,6 +1158,24 @@ export class MapController {
               ctx,
               label.text,
               pathPixels.map(([px, py]) => ({ x: px * scale, y: py * scale })),
+              style,
+              scale,
+            );
+          } else if (label.curve) {
+            // Bent by hand rather than by a carrier path. The arc is built from
+            // the run's own width so the name keeps the length it would have had
+            // straight, and it is centred on the same point the straight name
+            // would have used, so turning the dial moves nothing but the shape.
+            const cx = x + (pin ? pin.dx : label.offset[0]) * scale;
+            const cy = y + (pin ? pin.dy : label.offset[1]) * scale;
+            const runWidth = measureTracked(ctx, label.text.replace(/\r?\n/g, ' '), style, scale);
+            box = drawTextOnPath(
+              ctx,
+              label.text,
+              arcPoints(runWidth, label.curve, label.rotation).map((pt) => ({
+                x: cx + pt.x,
+                y: cy + pt.y,
+              })),
               style,
               scale,
             );

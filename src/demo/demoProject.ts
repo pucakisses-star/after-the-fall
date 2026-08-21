@@ -522,6 +522,7 @@ function makeDemoLabel(init: {
     pathId: null,
     ignoreCollisions: false,
     fixedSize: init.fixedSize ?? defaultFixedSize(init.kind),
+    curve: 0,
     maxWidth: null,
   };
 }

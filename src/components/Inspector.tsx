@@ -909,6 +909,20 @@ function LabelInspector({ label: l }: { label: MapLabel }) {
         <Field label="Rotation">
           <Slider value={l.rotation} min={-180} max={180} step={1} onChange={(v) => update({ rotation: v }, 'Rotate label')} suffix="°" />
         </Field>
+        <Field label="Curve">
+          <Slider
+            value={l.curve}
+            min={-1}
+            max={1}
+            step={0.02}
+            onChange={(v) => update({ curve: v }, 'Curve label')}
+          />
+        </Field>
+        <p className="hint" style={{ marginTop: 0 }}>
+          Bends the name along an arc: right of centre arches it upwards, left cups it downwards. A
+          bent name is set on one line.
+          {l.pathId ? ' This one follows a path, which takes precedence over the bend.' : ''}
+        </p>
         <div className="split-2">
           <Field label="Offset X" compact>
             <input

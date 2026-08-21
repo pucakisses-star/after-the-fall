@@ -458,6 +458,12 @@ export interface MapLabel extends FeatureBase {
    * set it. Setting this pins it.
    */
   fixedSize: boolean;
+  /**
+   * Bend the text along an arc (§10): 0 is a straight line, 1 arches it upwards
+   * like a rainbow, -1 cups it downwards. A name set on a carrier path follows
+   * the path instead and ignores this.
+   */
+  curve: number;
   /** Explicit line breaks the user typed (§10). */
   maxWidth: number | null;
 }

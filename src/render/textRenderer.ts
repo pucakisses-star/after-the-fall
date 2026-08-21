@@ -308,6 +308,48 @@ export function drawTextOnPath(
   };
 }
 
+/**
+ * A circular arc to set a name along, centred on the origin.
+ *
+ * `curve` runs -1 to 1: 0 is a straight line, positive arches the text upwards
+ * like a rainbow, negative cups it downwards. The chord is the run's own width,
+ * so a name keeps the length it would have had straight and only bends. The
+ * height of the bend is `curve` times a little under half that width, which is
+ * about as far as type bends before the outer letters start to lie on their
+ * side.
+ *
+ * It comes back as a polyline because that is what `drawTextOnPath` takes — the
+ * same routine that sets a river's name along the river, so a curved name is
+ * lettered by the code that already knows how to letter a curve.
+ */
+export function arcPoints(width: number, curve: number, rotationDeg = 0, steps = 64): PathPoint[] {
+  const w = Math.max(1, width);
+  const sagitta = curve * w * 0.42;
+  const theta = (rotationDeg * Math.PI) / 180;
+  const spin = (x: number, y: number): PathPoint => ({
+    x: x * Math.cos(theta) - y * Math.sin(theta),
+    y: x * Math.sin(theta) + y * Math.cos(theta),
+  });
+
+  // Below about half a pixel of bend there is nothing to see, and the radius
+  // below would divide by something very near zero.
+  if (Math.abs(sagitta) < 0.5) return [spin(-w / 2, 0), spin(w / 2, 0)];
+
+  // Radius of the circle through the chord's ends and the top of its bulge.
+  const r = (w * w) / (8 * Math.abs(sagitta)) + Math.abs(sagitta) / 2;
+  const half = Math.asin(Math.min(1, w / (2 * r)));
+  // Screen y grows downwards, so an upward arch has its centre below the text.
+  const up = sagitta > 0;
+  const cy = up ? r - sagitta : sagitta - r;
+
+  const out: PathPoint[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = -half + (2 * half * i) / steps;
+    out.push(spin(r * Math.sin(t), up ? cy - r * Math.cos(t) : cy + r * Math.cos(t)));
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Collision detection (spec §13)
 // ---------------------------------------------------------------------------

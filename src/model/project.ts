@@ -254,7 +254,8 @@ function migrateLabels(
   for (const [id, l] of Object.entries(labels)) {
     const scaled = !!l.attachedToId && !!territories[l.attachedToId];
     const fixedSize = typeof l.fixedSize === 'boolean' ? l.fixedSize : !scaled;
-    out[id] = fixedSize === l.fixedSize ? l : { ...l, fixedSize };
+    const curve = typeof l.curve === 'number' && Number.isFinite(l.curve) ? l.curve : 0;
+    out[id] = fixedSize === l.fixedSize && curve === l.curve ? l : { ...l, fixedSize, curve };
   }
   return out;
 }

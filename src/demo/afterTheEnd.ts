@@ -1314,6 +1314,7 @@ function makeLabel(init: {
     rotation: init.rotation ?? 0,
     ignoreCollisions: false,
     fixedSize: init.fixedSize ?? defaultFixedSize(init.kind),
+    curve: 0,
     maxWidth: null,
   };
 }

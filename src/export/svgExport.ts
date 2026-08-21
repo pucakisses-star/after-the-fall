@@ -35,8 +35,9 @@ import {
   territoryLabelVisible,
 } from '@/render/olStyles';
 import type { RoadClass } from '@/render/olStyles';
-import { fitToPlate, inscriptionScale, nameFitsItsLand, scaledText } from '@/render/labelFit';
+import { estimateLineWidth, fitToPlate, inscriptionScale, nameFitsItsLand, scaledText } from '@/render/labelFit';
 import { symbolToSvg } from '@/render/symbols';
+import { arcPoints } from '@/render/textRenderer';
 import { placeNameBySymbol } from '@/render/namePlacement';
 import { compassToSvg, legendToSvg } from './legend';
 import { depthOf } from '@/model/hierarchy';
@@ -680,6 +681,29 @@ export async function exportSvg(project: MapProject, opts: SvgExportOptions): Pr
 
     const pt = p(l.anchor.coordinates[0], l.anchor.coordinates[1]);
     if (!pt) continue;
+
+    // A name bent by hand (§10) is set on an arc built the same way the screen
+    // builds it, written out as a path so the export stays real text on a real
+    // curve rather than glyphs frozen in place.
+    if (l.curve) {
+      const runWidth = estimateLineWidth(content.replace(/\r?\n/g, ' '), scaledText(style, scale));
+      const arc = arcPoints(runWidth, l.curve, l.rotation);
+      const owner = l.attachedToId ? project.settlements[l.attachedToId] : undefined;
+      const pinned =
+        owner && !l.manualPosition
+          ? placeNameBySymbol(l.offset, resolveSymbolStyle(project, owner), style, 1)
+          : null;
+      const cx = pt[0] + (pinned ? pinned.dx : l.offset[0]) * scale;
+      const cy = pt[1] + (pinned ? pinned.dy : l.offset[1]) * scale;
+      const d = arc.map((q, i) => `${i ? 'L' : 'M'}${num(cx + q.x)} ${num(cy + q.y)}`).join('');
+      const pid = `labelarc-${esc(l.id)}`;
+      labelPathDefs.push(`<path id="${pid}" d="${d}" fill="none"/>`);
+      labels.push(
+        `<text id="label-${esc(l.id)}" ${textAttrs(style, scale)}>` +
+          `<textPath href="#${pid}" startOffset="50%" text-anchor="middle">${esc(content.replace(/\r?\n/g, ' '))}</textPath></text>`,
+      );
+      continue;
+    }
     const lines = content.split(/\r?\n/);
     // The same rule the screen uses, so a name that clears its dot on the map
     // clears it in the export. SVG needs no measuring: the anchor does it.
