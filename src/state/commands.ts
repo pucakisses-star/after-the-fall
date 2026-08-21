@@ -11,6 +11,8 @@ import { newId } from '@/model/ids';
 import { placePositionKey } from '@/model/project';
 import {
   STYLE_IDS,
+  TEXT_STYLE_BY_LABEL_KIND,
+  defaultFixedSize,
   politicalTypeInfo,
   relationshipInfo,
   settlementTypeForPlace,
@@ -1731,6 +1733,48 @@ function syncRelationshipNote(r: Recorder, project: MapProject, id: UUID): void 
     layerId: name?.layerId,
   });
   r.set('labels', label);
+}
+
+/**
+ * The names a bulk recast would touch.
+ *
+ * Two exclusions, both learned from the map itself. A locked label is the user
+ * saying that one is finished. And a relationship subtitle — "Vassal of the
+ * Kingdom of Maine" — carries `kind: 'region'` for want of a kind of its own,
+ * so a naive sweep would set three annotations in the country face and stand
+ * them next to the names they were meant to sit under. The text class is what
+ * tells them apart.
+ *
+ * Exported so the button can count exactly what pressing it will change.
+ */
+export function labelsToRecast(project: MapProject, kind: MapLabel['kind']): MapLabel[] {
+  return Object.values(project.labels).filter(
+    (l) => l.kind === kind && !l.locked && l.styleClassId !== STYLE_IDS.textRelationship,
+  );
+}
+
+/**
+ * Recast every name of one kind as another, typography and all.
+ *
+ * A map drawn over a long session accumulates names that were entered as
+ * regions and have since become countries, and changing them one at a time
+ * through the Inspector is the kind of work nobody finishes. This does what
+ * that dropdown does — kind, text class, pinning — to all of them at once, in a
+ * single undo step.
+ *
+ * Returns how many were changed so the caller can say so.
+ */
+export function convertLabelKind(from: MapLabel['kind'], to: MapLabel['kind']): number {
+  const project = getProject();
+  const targets = labelsToRecast(project, from);
+  if (targets.length === 0) return 0;
+  const styleClassId = TEXT_STYLE_BY_LABEL_KIND[to];
+  commit(`Convert ${from} names to ${to}`, (r) => {
+    for (const l of targets) {
+      r.update<MapLabel>('labels', l.id, { kind: to, styleClassId, fixedSize: defaultFixedSize(to) });
+    }
+  });
+  return targets.length;
 }
 
 export function setLockedFor(ids: UUID[], locked: boolean): void {

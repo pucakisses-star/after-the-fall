@@ -11,9 +11,11 @@
 
 import { describe, expect, it, beforeEach } from 'vitest';
 import { createProject, placePositionKey } from '@/model/project';
-import { commit, useProjectStore } from './projectStore';
+import { newId } from '@/model/ids';
+import { commit, makeLabel, useProjectStore } from './projectStore';
 import {
   adoptPlace,
+  convertLabelKind,
   copySelection,
   deleteSelection,
   duplicateSelection,
@@ -21,7 +23,7 @@ import {
   pasteClipboard,
 } from './commands';
 import { useUIStore } from './uiStore';
-import { settlementTypeForPlace } from '@/model/defaults';
+import { STYLE_IDS, TEXT_STYLE_BY_LABEL_KIND, settlementTypeForPlace } from '@/model/defaults';
 import type { MapLabel, Settlement } from '@/model/types';
 
 const CHARLOTTE = { name: 'Charlotte', coordinates: [-80.84, 35.23] as [number, number], scalerank: 6, population: 995_000 };
@@ -368,5 +370,103 @@ describe('the size a copied name is drawn at', () => {
 
     const copy = Object.values(project().settlements).find((s) => s.id !== id)!;
     expect(project().labels[copy.labelId!].fixedSize).toBe(true);
+  });
+});
+
+/**
+ * Promoting every region name at once (spec §18).
+ *
+ * A map drawn over a long session collects names that were entered as regions
+ * and have since become countries. What is checked here is that the bulk
+ * conversion does what the Inspector's Kind dropdown does — kind, text class,
+ * pinning — to all of them, that it leaves other kinds and locked names alone,
+ * and that the whole sweep is one undo.
+ */
+describe('recasting every name of a kind', () => {
+  const addLabel = (kind: MapLabel['kind'], text: string, extra: Partial<MapLabel> = {}) => {
+    const id = newId();
+    commit(`add ${text}`, (r) =>
+      r.set(
+        'labels',
+        makeLabel(project(), { type: 'Point', coordinates: [-80, 35] }, {
+          id,
+          kind,
+          text,
+          styleClassId: TEXT_STYLE_BY_LABEL_KIND[kind],
+          ...extra,
+        }),
+      ),
+    );
+    return id;
+  };
+
+  it('recasts regions and leaves every other kind where it was', () => {
+    const region = addLabel('region', 'The Marches');
+    const city = addLabel('city', 'Charlotte');
+    const river = addLabel('river', 'The Catawba');
+
+    expect(convertLabelKind('region', 'country')).toBe(1);
+
+    expect(project().labels[region].kind).toBe('country');
+    expect(project().labels[region].styleClassId).toBe(TEXT_STYLE_BY_LABEL_KIND.country);
+    expect(project().labels[city].kind).toBe('city');
+    expect(project().labels[city].styleClassId).toBe(TEXT_STYLE_BY_LABEL_KIND.city);
+    expect(project().labels[river].kind).toBe('river');
+  });
+
+  it('overrides a face that was set by hand', () => {
+    // The point of the button is the map that has drifted, so a region wearing
+    // some other class has to be brought over too, not skipped as "already set".
+    const id = addLabel('region', 'The Marches', { styleClassId: TEXT_STYLE_BY_LABEL_KIND.water });
+
+    convertLabelKind('region', 'country');
+
+    expect(project().labels[id].styleClassId).toBe(TEXT_STYLE_BY_LABEL_KIND.country);
+    expect(project().labels[id].fixedSize).toBe(true);
+  });
+
+  it('leaves locked names alone', () => {
+    const free = addLabel('region', 'The Marches');
+    const held = addLabel('region', 'The Pale', { locked: true });
+
+    expect(convertLabelKind('region', 'country')).toBe(1);
+
+    expect(project().labels[free].kind).toBe('country');
+    expect(project().labels[held].kind).toBe('region');
+    expect(project().labels[held].styleClassId).toBe(TEXT_STYLE_BY_LABEL_KIND.region);
+  });
+
+  it('undoes the whole sweep in one step', () => {
+    const a = addLabel('region', 'The Marches');
+    const b = addLabel('region', 'The Pale');
+
+    convertLabelKind('region', 'country');
+    useProjectStore.getState().undo();
+
+    expect(project().labels[a].kind).toBe('region');
+    expect(project().labels[b].kind).toBe('region');
+    expect(project().labels[a].styleClassId).toBe(TEXT_STYLE_BY_LABEL_KIND.region);
+  });
+
+  it('leaves the "vassal of" subtitles alone', () => {
+    // Measured on the shipped map: three of its 102 region-kinded labels are
+    // relationship subtitles, which carry that kind for want of one of their
+    // own. Recasting them would set an annotation in the country face and stand
+    // it beside the name it was drawn to sit under.
+    const name = addLabel('region', 'The Marches');
+    const subtitle = addLabel('region', 'Vassal of the Kingdom of Maine', {
+      styleClassId: STYLE_IDS.textRelationship,
+    });
+
+    expect(convertLabelKind('region', 'country')).toBe(1);
+
+    expect(project().labels[name].kind).toBe('country');
+    expect(project().labels[subtitle].kind).toBe('region');
+    expect(project().labels[subtitle].styleClassId).toBe(STYLE_IDS.textRelationship);
+  });
+
+  it('does nothing, and says so, when there is nothing of that kind', () => {
+    addLabel('city', 'Charlotte');
+    expect(convertLabelKind('region', 'country')).toBe(0);
   });
 });

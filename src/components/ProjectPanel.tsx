@@ -5,6 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { commit, useProjectStore } from '@/state/projectStore';
+import { convertLabelKind, labelsToRecast } from '@/state/commands';
 import { toast, useUIStore } from '@/state/uiStore';
 import { PROJECTION_PRESETS, registerCustomProjection } from '@/geo/projections';
 import { BASEMAP_SIZES, BUILTIN_BASEMAPS, allBasemapSources } from '@/geo/basemap';
@@ -23,6 +24,10 @@ export function ProjectPanel() {
 
   const setMeta = (changes: Partial<MapProject['meta']>) =>
     commit('Edit project details', (r) => r.setDoc('meta', { ...project.meta, ...changes }));
+
+  // Counted through the command's own filter, so the button is enabled exactly
+  // when pressing it would change something.
+  const regionNames = useMemo(() => labelsToRecast(project, 'region').length, [project]);
 
   return (
     <>
@@ -119,6 +124,23 @@ export function ProjectPanel() {
           {project.nameEverything
             ? 'Every realm keeps its name however far out you zoom, overlaps and all, and however small the zoom draws it — and the same on an exported plate.'
             : 'Names thin out as you zoom away, the way an atlas does it: a realm is named on the plate that shows it, and what is inside it waits for a closer one.'}
+        </p>
+        <button
+          className="btn btn--full"
+          style={{ marginTop: 6 }}
+          disabled={regionNames === 0}
+          onClick={() => {
+            const changed = convertLabelKind('region', 'country');
+            toast(changed === 1 ? 'Promoted 1 region name' : `Promoted ${changed} region names`);
+          }}
+        >
+          {regionNames === 0
+            ? 'No region names to promote'
+            : `Promote ${regionNames} region name${regionNames === 1 ? '' : 's'} to country`}
+        </button>
+        <p className="hint">
+          Recasts every region name on the map in the country face, in one undo step. Names you have locked are left
+          as they are, and so are the "vassal of" subtitles that sit under a realm's name.
         </p>
       </Section>
 

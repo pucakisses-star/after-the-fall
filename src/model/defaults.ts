@@ -266,6 +266,25 @@ export function defaultFixedSize(_kind: MapLabel['kind']): boolean {
 }
 
 /**
+ * The text class that belongs to each kind of name.
+ *
+ * Anything that recasts a label — the Kind dropdown, a bulk conversion — has to
+ * move the typography with it, or the map ends up with country names still set
+ * in a region's face. Keeping the table in one place is what stops those two
+ * paths from drifting apart.
+ */
+export const TEXT_STYLE_BY_LABEL_KIND: Record<MapLabel['kind'], UUID> = {
+  country: STYLE_IDS.textCountry,
+  region: STYLE_IDS.textRegion,
+  city: STYLE_IDS.textCity,
+  water: STYLE_IDS.textWater,
+  ocean: STYLE_IDS.textOcean,
+  river: STYLE_IDS.textRiver,
+  mountain: STYLE_IDS.textRegion,
+  free: STYLE_IDS.textRegion,
+};
+
+/**
  * The status a territory should have when nothing has said otherwise.
  *
  * Documents written before status existed carry it inside `politicalType`, so

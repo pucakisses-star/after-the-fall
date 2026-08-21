@@ -30,7 +30,7 @@ import {
   POLITICAL_RELATIONSHIPS,
   POLITICAL_TYPES,
   SETTLEMENT_TYPES,
-  STYLE_IDS,
+  TEXT_STYLE_BY_LABEL_KIND,
   defaultFixedSize,
 } from '@/model/defaults';
 import { resolveTerritoryStyle, resolveTextStyle, resolveSymbolStyle } from '@/model/resolveStyle';
@@ -760,21 +760,15 @@ function LabelInspector({ label: l }: { label: MapLabel }) {
             value={l.kind}
             onChange={(e) => {
               const kind = e.target.value as MapLabel['kind'];
-              const styleByKind: Record<string, string> = {
-                country: STYLE_IDS.textCountry,
-                region: STYLE_IDS.textRegion,
-                city: STYLE_IDS.textCity,
-                water: STYLE_IDS.textWater,
-                ocean: STYLE_IDS.textOcean,
-                river: STYLE_IDS.textRiver,
-                mountain: STYLE_IDS.textRegion,
-                free: STYLE_IDS.textRegion,
-              };
               // The kind carries its typography and whether it is pinned: this
               // control already swaps the whole text class, so leaving the one
               // flag behind would make a country name that behaves like a river.
               update(
-                { kind, styleClassId: styleByKind[kind] ?? l.styleClassId, fixedSize: defaultFixedSize(kind) },
+                {
+                  kind,
+                  styleClassId: TEXT_STYLE_BY_LABEL_KIND[kind] ?? l.styleClassId,
+                  fixedSize: defaultFixedSize(kind),
+                },
                 'Change label kind',
               );
             }}
